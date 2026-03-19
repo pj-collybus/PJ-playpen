@@ -1,0 +1,3858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deribit Depth</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-system, monospace; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── Topbar ── */
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 7px 14px; border-bottom: 1px solid #1a1a22; flex-shrink: 0; gap: 12px; }
+.topbar-left { display: flex; align-items: center; gap: 8px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: #333; }
+.dot.live { background: #00c896; animation: pulse 2s infinite; }
+.dot.err  { background: #e05252; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+.status-text { font-size: 11px; color: #555; }
+
+/* ── Topbar right ── */
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+.add-panel-btn {
+  font-size: 11px; padding: 4px 12px;
+  background: #10101c; border: 1px solid #2a2a44; border-radius: 5px; color: #6666cc; cursor: pointer;
+}
+.add-panel-btn:hover { background: #14142a; border-color: #4444aa; color: #9999ff; }
+.specs-btn {
+  font-size: 11px; padding: 4px 12px;
+  background: #10101c; border: 1px solid #2a2a3a; border-radius: 5px; color: #888; cursor: pointer;
+}
+.specs-btn:hover, .specs-btn.active { background: #14142a; border-color: #4444aa; color: #9999ff; }
+
+/* ── Layout tabs bar ── */
+.layout-tabs-bar {
+  display: flex; align-items: stretch; flex-shrink: 0;
+  background: #0a0a0e; border-bottom: 1px solid #1a1a22;
+  padding: 0 8px; min-height: 30px;
+}
+.layout-tab {
+  display: flex; align-items: center; gap: 4px; padding: 0 10px;
+  cursor: pointer; border-bottom: 2px solid transparent;
+  color: #444; font-size: 11px; user-select: none; white-space: nowrap;
+  transition: color .15s, border-color .15s;
+}
+.layout-tab:hover { color: #888; }
+.layout-tab.active { color: #d0d0d0; border-bottom-color: #4444aa; }
+.layout-tab-name { outline: none; }
+.layout-tab-name[contenteditable="true"] { color: #fff; background: #1a1a2a; border-radius: 3px; padding: 1px 4px; min-width: 20px; }
+.layout-tab-close {
+  width: 14px; height: 14px; background: none; border: none;
+  color: #333; cursor: pointer; font-size: 11px; line-height: 1;
+  display: flex; align-items: center; justify-content: center; border-radius: 2px; padding: 0;
+}
+.layout-tab-close:hover { color: #e05252; }
+.add-layout-btn {
+  padding: 0 10px; background: none; border: none;
+  color: #444; cursor: pointer; font-size: 16px;
+  display: flex; align-items: center;
+}
+.add-layout-btn:hover { color: #9999ff; }
+.save-layout-btn {
+  padding: 0 8px; background: none; border: none;
+  color: #444; cursor: pointer; font-size: 13px;
+  display: flex; align-items: center; margin-left: auto;
+}
+.save-layout-btn:hover { color: #9999ff; }
+.save-layout-btn.saved { color: #00c896; }
+
+/* ── Contract Specs overlay ── */
+.specs-overlay {
+  position: fixed; inset: 0; z-index: 9000;
+  background: rgba(0,0,0,0.75);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 44px;
+}
+.specs-overlay-box {
+  background: #0d0d0f; border: 1px solid #1a1a24; border-radius: 10px;
+  width: min(940px, 96vw); max-height: 86vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.85);
+}
+.specs-overlay-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 18px; border-bottom: 1px solid #1a1a22; flex-shrink: 0;
+}
+.specs-overlay-title { font-size: 12px; font-weight: 700; color: #888; letter-spacing: 0.07em; text-transform: uppercase; }
+.specs-overlay-close {
+  width: 22px; height: 22px; background: none; border: 1px solid #1e1e28;
+  border-radius: 4px; color: #444; cursor: pointer; font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+}
+.specs-overlay-close:hover { border-color: #e05252; color: #e05252; }
+.specs-overlay-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+
+/* ── Admin tabs (inside specs overlay) ── */
+.admin-tab-bar { display: flex; align-items: center; background: #090910; border-bottom: 1px solid #1a1a22; flex-shrink: 0; padding: 0 14px; }
+.admin-tab { padding: 9px 16px; background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; color: #444; cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; font-family: inherit; transition: color .15s, border-color .15s; }
+.admin-tab:hover { color: #888; }
+.admin-tab.active { color: #d0d0d0; border-bottom-color: #4444aa; }
+
+/* ── API Keys pane ── */
+.ak-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.ak-ex-bar { display: flex; align-items: center; gap: 6px; padding: 10px 16px; border-bottom: 1px solid #1a1a22; flex-shrink: 0; flex-wrap: wrap; }
+.ak-ex-btn { display: flex; align-items: center; gap: 6px; padding: 5px 12px; background: #10101c; border: 1px solid #1e1e28; border-radius: 5px; color: #666; cursor: pointer; font-size: 11px; font-family: inherit; transition: all .15s; }
+.ak-ex-btn:hover { border-color: #3a3a60; color: #aaa; }
+.ak-ex-btn.active { border-color: #4444aa; color: #d0d0d0; background: #14142a; }
+.ak-sdot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.ak-sdot-grey  { background: #333; }
+.ak-sdot-green { background: #00c896; }
+.ak-sdot-red   { background: #e05252; }
+.ak-body { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+.ak-placeholder { padding: 40px; color: #333; font-size: 12px; flex: 1; display: flex; align-items: center; justify-content: center; }
+.ak-server-warn { padding: 20px 24px; flex: 1; }
+.ak-server-warn-box { background: #1a1008; border: 1px solid #5a3a08; border-radius: 6px; padding: 14px 18px; color: #cc8833; font-size: 12px; line-height: 1.9; }
+.ak-server-warn-box code { background: #0d0d0f; border: 1px solid #2a2a2a; border-radius: 3px; padding: 2px 6px; font-family: monospace; font-size: 11px; color: #bbb; }
+/* Split */
+.ak-split { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+.ak-entry-panel { width: 158px; flex-shrink: 0; border-right: 1px solid #1a1a22; display: flex; flex-direction: column; }
+.ak-entry-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+.ak-entry-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; color: #555; font-size: 11px; border-left: 2px solid transparent; transition: all .15s; }
+.ak-entry-item:hover { background: #0f0f18; color: #888; }
+.ak-entry-item.active { background: #0f0f1e; color: #d0d0d0; border-left-color: #4444aa; }
+.ak-not-configured { padding: 10px 12px; color: #333; font-size: 11px; font-style: italic; }
+.ak-add-btn { margin: 6px 8px; padding: 6px; background: none; border: 1px dashed #1e1e2e; border-radius: 4px; color: #555; cursor: pointer; font-size: 11px; font-family: inherit; transition: all .15s; }
+.ak-add-btn:hover { border-color: #4444aa; color: #9999ff; }
+/* Form */
+.ak-form-panel { flex: 1; overflow-y: auto; padding: 16px 22px; }
+.ak-form { display: flex; flex-direction: column; gap: 13px; max-width: 460px; }
+.ak-form-group { display: flex; flex-direction: column; gap: 5px; }
+.ak-flabel { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 0.06em; }
+.ak-input { background: #0f0f14; border: 1px solid #1e1e28; border-radius: 5px; padding: 7px 10px; color: #e0e0e0; font-size: 12px; font-family: monospace; width: 100%; outline: none; }
+.ak-input:focus { border-color: #4444aa; }
+.ak-secret-row { display: flex; gap: 6px; align-items: center; }
+.ak-secret-row .ak-input { flex: 1; }
+.ak-eye-btn { background: none; border: 1px solid #1e1e28; border-radius: 4px; padding: 5px 8px; cursor: pointer; font-size: 13px; color: #444; line-height: 1; flex-shrink: 0; transition: all .15s; }
+.ak-eye-btn:hover { border-color: #4444aa; color: #9999ff; }
+.ak-perms { display: flex; gap: 18px; }
+.ak-perm-lbl { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #888; cursor: pointer; }
+.ak-testnet-lbl { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #888; cursor: pointer; }
+.ak-testnet-warn { color: #aa7722; font-size: 10px; }
+.ak-form-actions { display: flex; gap: 8px; padding-top: 2px; flex-wrap: wrap; align-items: center; }
+.ak-save-btn { padding: 7px 18px; background: #1a1a44; border: 1px solid #3333aa; border-radius: 5px; color: #9999ff; cursor: pointer; font-size: 11px; font-family: inherit; }
+.ak-save-btn:hover { background: #20204a; border-color: #5555cc; }
+.ak-test-btn { padding: 7px 18px; background: #0f0f14; border: 1px solid #1e1e28; border-radius: 5px; color: #555; cursor: pointer; font-size: 11px; font-family: inherit; }
+.ak-test-btn:hover:not(:disabled) { border-color: #3a3a60; color: #aaa; }
+.ak-test-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.ak-del-btn { padding: 7px 16px; background: none; border: 1px solid #1e1e28; border-radius: 5px; color: #555; cursor: pointer; font-size: 11px; font-family: inherit; margin-left: auto; }
+.ak-del-btn:hover { border-color: #e05252; color: #e05252; }
+.ak-result { font-size: 11px; padding: 2px 0; min-height: 16px; }
+.ak-result.ok  { color: #00c896; }
+.ak-result.err { color: #e05252; }
+.ak-vault-screen { flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.ak-vault-box { background: #0f0f14; border: 1px solid #1e1e28; border-radius: 8px; padding: 24px 28px; width: min(380px, 100%); }
+.ak-vault-title { font-size: 13px; font-weight: 700; color: #d0d0d0; margin-bottom: 6px; }
+.ak-vault-sub { font-size: 11px; color: #555; line-height: 1.65; }
+.ak-lock-btn { margin-left: auto; padding: 5px 12px; background: none; border: 1px solid #1e1e28; border-radius: 5px; color: #555; cursor: pointer; font-size: 11px; font-family: inherit; transition: all .15s; }
+.ak-lock-btn:hover { border-color: #4444aa; color: #9999ff; }
+
+/* ── Blotter ── */
+@keyframes bl-flash { 0%,100%{background:transparent} 50%{background:#16162a} }
+@keyframes btn-flash-ok { 0%{background:#004433;border-color:#00aa66} 100%{background:transparent;border-color:inherit} }
+#blotter { flex-shrink: 0; background: #080810; border-top: 1px solid #1a1a22; display: flex; flex-direction: column; position: relative; }
+#bl-handle { height: 5px; cursor: ns-resize; background: transparent; flex-shrink: 0; transition: background .15s; position: relative; z-index: 2; }
+#bl-handle::before { content:''; position:absolute; inset:-4px 0; }
+#bl-handle:hover, #bl-handle.dragging { background: #3333aa; }
+#bl-content { flex: 1; overflow: hidden; min-height: 0; position: relative; }
+#bl-tab-bar { display: flex; align-items: center; background: #090910; border-top: 1px solid #1a1a22; flex-shrink: 0; height: 34px; padding: 0 8px; overflow-x: auto; gap: 0; scrollbar-width: none; }
+#bl-tab-bar::-webkit-scrollbar { display: none; }
+.bl-tab { display: flex; align-items: center; gap: 5px; padding: 0 11px; height: 100%; background: none; border: none; border-top: 2px solid transparent; color: #444; cursor: pointer; font-size: 11px; font-family: inherit; white-space: nowrap; transition: color .15s, border-color .15s; flex-shrink: 0; }
+.bl-tab:hover { color: #888; }
+.bl-tab.active { color: #d0d0d0; border-top-color: #4444aa; }
+.bl-badge { display: none; min-width: 15px; height: 15px; padding: 0 3px; background: #aa2222; border-radius: 8px; font-size: 9px; font-weight: 700; color: #fff; align-items: center; justify-content: center; line-height: 1; }
+.bl-badge.on { display: flex; }
+.bl-noauth { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #444; gap: 5px; background: #080810; z-index: 1; }
+.bl-noauth a { color: #6666cc; text-decoration: none; cursor: pointer; }
+.bl-noauth a:hover { color: #9999ff; }
+.bl-table-wrap { width: 100%; height: 100%; overflow: auto; }
+.bl-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.bl-table th { position: sticky; top: 0; background: #0a0a10; padding: 5px 10px; text-align: left; color: #444; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid #1a1a22; cursor: pointer; user-select: none; white-space: nowrap; }
+.bl-table th:hover { color: #888; }
+.bl-table th.sort-asc::after  { content: ' ↑'; color: #6666cc; }
+.bl-table th.sort-desc::after { content: ' ↓'; color: #6666cc; }
+.bl-table td { padding: 4px 10px; color: #666; border-bottom: 1px solid #0d0d12; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bl-table tr:hover td { background: #0f0f18; }
+.bl-table tr.bl-flash td { animation: bl-flash .6s ease; }
+.bl-green { color: #00c896 !important; }
+.bl-red   { color: #e05252 !important; }
+.bl-st-open   { color: #6688ff; }
+.bl-st-filled { color: #00c896; }
+.bl-st-cancelled { color: #333; }
+.bl-cancel-btn { background: none; border: 1px solid #2a2a2a; border-radius: 3px; color: #444; cursor: pointer; font-size: 10px; padding: 1px 5px; font-family: inherit; }
+.bl-cancel-btn:hover { border-color: #e05252; color: #e05252; }
+.bl-empty { padding: 24px; text-align: center; color: #333; font-size: 11px; }
+/* SELL/BUY/FOK flash on success */
+.ocol-btn.btn-ok, .ocol-fok-sell.btn-ok, .ocol-fok-buy.btn-ok { animation: btn-flash-ok .8s ease forwards; }
+
+/* ── Panels area — free-form absolute ── */
+.panels-area {
+  flex: 1; min-height: 0;
+  position: relative;
+  overflow: auto;
+}
+
+/* ── Single panel ── */
+.panel {
+  position: absolute;
+  border: 1px solid #1a1a24; border-radius: 8px;
+  overflow: visible;
+  display: flex; flex-direction: column;
+  width: 480px; min-width: 200px;
+}
+.panel.is-dragging { opacity: 0.85; box-shadow: 0 10px 36px rgba(0,0,0,0.7); z-index: 1000; }
+
+/* ── Panel header — drag handle ── */
+.panel-header {
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: 4px 8px; background: #0f0f14; border-bottom: 1px solid #1a1a24;
+  flex-shrink: 0; height: 26px;
+  cursor: grab; user-select: none; border-radius: 8px 8px 0 0;
+}
+.panel-header:active { cursor: grabbing; }
+.panel-close {
+  width: 16px; height: 16px; background: none; border: 1px solid #1e1e28; border-radius: 3px;
+  color: #383844; cursor: pointer; font-size: 10px; display: flex; align-items: center; justify-content: center;
+}
+.panel-close:hover { border-color: #e05252; color: #e05252; }
+
+/* ── Resize handle on right edge ── */
+.panel-resize {
+  position: absolute; right: -3px; top: 6px; bottom: 6px;
+  width: 6px; cursor: col-resize; z-index: 20;
+  border-radius: 3px; background: transparent; transition: background .15s;
+}
+.panel-resize:hover, .panel-resize.resizing { background: rgba(80,80,200,0.35); }
+
+/* ── Panel body ── */
+.panel-body { display: flex; overflow: hidden; border-radius: 0 0 8px 8px; }
+
+/* ── Chart columns ── */
+.chart-col { flex: 1 1 0; min-width: 0; overflow: hidden; }
+.chart-col canvas { display: block; }
+
+/* ── Centre ── */
+.panel-centre {
+  width: 210px; flex-shrink: 0;
+  display: flex; flex-direction: column; padding: 8px 10px; gap: 7px;
+  border-left: 1px solid #1a1a22; border-right: 1px solid #1a1a22;
+  justify-content: center;
+}
+.instr-select {
+  background: transparent; border: none; border-bottom: 1px solid #1e1e28;
+  color: #d0d0d0; font-size: 12px; font-weight: 600; letter-spacing: 0.04em;
+  cursor: pointer; outline: none; width: 100%; text-align: center; padding: 2px 0 4px;
+  appearance: none; -webkit-appearance: none;
+}
+.instr-select option { background: #0d0d0f; color: #ccc; font-size: 12px; }
+.instr-select:hover { color: #fff; border-bottom-color: #3a3a50; }
+.centre-row { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
+.centre-hl { font-size: 10px; color: #383848; white-space: nowrap; }
+.centre-fund { font-size: 10px; font-weight: 500; white-space: nowrap; }
+.fund-pos { color: #00c896; } .fund-neg { color: #e05252; } .fund-zero { color: #555; }
+.centre-chg { font-size: 10px; font-weight: 600; }
+.chg-pos { color: #00c896; } .chg-neg { color: #e05252; }
+.trade-row { display: flex; align-items: stretch; }
+.trade-btn {
+  flex: 1; border: none; border-radius: 7px;
+  padding: 8px 4px 6px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  transition: filter .12s;
+}
+.trade-btn:hover { filter: brightness(1.15); }
+.sell-btn { background: #1a0d0d; border: 1px solid #3a1010; }
+.buy-btn  { background: #091510; border: 1px solid #0e3a22; }
+.btn-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; }
+.sell-btn .btn-label { color: #e05252; }
+.buy-btn  .btn-label { color: #00c896; }
+.btn-price { font-size: 14px; font-weight: 600; line-height: 1; }
+.sell-btn .btn-price { color: #e05252; }
+.buy-btn  .btn-price { color: #00c896; }
+.spread-mid {
+  width: 36px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 500; color: #555;
+}
+.qty-row { display: flex; gap: 4px; align-items: center; }
+.qty-input {
+  flex: 1; background: #0f0f14; border: 1px solid #1a1a24; border-radius: 5px;
+  color: #bbb; font-size: 11px; padding: 5px 7px; outline: none; min-width: 0; appearance: textfield;
+}
+.qty-input::-webkit-outer-spin-button, .qty-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.qty-input:focus { border-color: #2a2a40; }
+.qty-unit { font-size: 10px; color: #383848; white-space: nowrap; }
+
+/* ── Gran column — LEFT of centre ── */
+.gran-col {
+  width: 32px; flex-shrink: 0;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 4px 2px; gap: 2px;
+  border-right: 1px solid #1a1a22; background: #0f0f14; justify-content: center;
+}
+.pgran-btn {
+  width: 28px; padding: 4px 0; font-size: 9px;
+  background: #111118; border: 1px solid #1e1e28; border-radius: 4px;
+  color: #444; cursor: pointer; text-align: center; line-height: 1.2;
+}
+.pgran-btn.active { background: #0e1e18; border-color: #1a4030; color: #00c896; }
+.pgran-btn:hover:not(.active) { border-color: #2a2a38; color: #777; }
+
+/* ═══════════════════════════════════════════════════════════
+   CONTRACT SPECS TAB
+═══════════════════════════════════════════════════════════ */
+.specs-pane { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 24px; }
+
+/* ── Converter ── */
+.converter-card {
+  background: #0f0f14; border: 1px solid #1a1a24; border-radius: 8px; padding: 18px 20px;
+}
+.card-title { font-size: 12px; font-weight: 700; color: #888; letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 14px; }
+.conv-grid { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.conv-field { display: flex; flex-direction: column; gap: 4px; }
+.conv-label { font-size: 10px; color: #444; }
+.conv-input, .conv-select {
+  background: #0a0a0e; border: 1px solid #1e1e28; border-radius: 5px;
+  color: #ccc; font-size: 12px; padding: 6px 9px; outline: none; font-family: inherit;
+}
+.conv-input { width: 110px; appearance: textfield; }
+.conv-input::-webkit-outer-spin-button, .conv-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.conv-select { width: 150px; cursor: pointer; }
+.conv-select option { background: #0a0a0e; }
+.conv-calc-btn {
+  padding: 7px 16px; background: #10101c; border: 1px solid #2a2a44; border-radius: 5px;
+  color: #6666cc; font-size: 11px; cursor: pointer; font-family: inherit;
+}
+.conv-calc-btn:hover { background: #14142a; color: #9999ff; }
+.conv-results {
+  display: flex; gap: 16px; flex-wrap: wrap; padding-top: 14px;
+  border-top: 1px solid #1a1a24; margin-top: 14px;
+}
+.conv-result-item { display: flex; flex-direction: column; gap: 3px; min-width: 130px; }
+.conv-result-label { font-size: 10px; color: #444; }
+.conv-result-val { font-size: 14px; font-weight: 600; color: #d0d0d0; }
+
+/* ── Specs table ── */
+.specs-table-card { background: #0f0f14; border: 1px solid #1a1a24; border-radius: 8px; padding: 18px 20px; }
+.specs-filter-row { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+.specs-filter-label { font-size: 11px; color: #555; }
+.specs-filter-select {
+  background: #0a0a0e; border: 1px solid #1e1e28; border-radius: 5px;
+  color: #ccc; font-size: 11px; padding: 5px 8px; outline: none; cursor: pointer; font-family: inherit;
+}
+.specs-filter-select option { background: #0a0a0e; }
+table { width: 100%; border-collapse: collapse; font-size: 11px; }
+th { text-align: left; color: #444; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; font-size: 10px; padding: 7px 10px; border-bottom: 1px solid #1a1a24; }
+td { padding: 7px 10px; border-bottom: 1px solid #111118; color: #aaa; }
+tr:hover td { background: #111118; }
+.tag-exchange {
+  display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 9px;
+  font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.tag-binance  { background: #1a1500; border: 1px solid #332a00; color: #c8a000; }
+.tag-bybit    { background: #001a12; border: 1px solid #003322; color: #00c896; }
+.tag-okx      { background: #0a001a; border: 1px solid #1a0033; color: #9966ff; }
+.tag-deribit  { background: #001020; border: 1px solid #003060; color: #4499ff; }
+.tag-kucoin   { background: #0d1a00; border: 1px solid #1a3a00; color: #66cc22; }
+.tag-bitmex   { background: #1a0010; border: 1px solid #3a0020; color: #ff4499; }
+.detail-row td { background: #0a0a0e; color: #ccc; font-size: 11px; padding: 12px 16px; }
+.detail-grid { display: flex; gap: 24px; flex-wrap: wrap; }
+.detail-item { display: flex; flex-direction: column; gap: 3px; }
+.detail-item-label { font-size: 10px; color: #444; }
+.detail-item-val { font-size: 13px; font-weight: 600; color: #d0d0d0; }
+
+/* ══════════════════════════════════════════
+   ORDER MODAL
+══════════════════════════════════════════ */
+.order-overlay {
+  position: fixed; inset: 0; z-index: 8000;
+  background: rgba(0,0,0,0.55);
+  pointer-events: auto;
+}
+.order-box {
+  position: fixed;
+  left: calc(50vw - 170px); top: calc(50vh - 230px);
+  background: #0f0f14; border: 1px solid #1a1a28; border-radius: 10px;
+  width: 340px; box-shadow: 0 16px 48px rgba(0,0,0,0.85);
+  display: flex; flex-direction: column; overflow: hidden;
+  z-index: 8001;
+}
+.order-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-bottom: 1px solid #1a1a22; background: #0c0c12;
+  cursor: move; user-select: none;
+}
+
+/* ── Panel order column (right edge) ── */
+.order-col {
+  width: 50px; flex-shrink: 0;
+  display: grid; grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr auto auto;
+  border-left: 1px solid #1a1a22;
+  border-radius: 0 0 8px 0; overflow: hidden;
+}
+.ocol-btn {
+  border: none; cursor: pointer; background: none;
+  font-size: 7px; font-weight: 800; letter-spacing: 0.07em;
+  writing-mode: vertical-rl; text-orientation: mixed;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s; padding: 4px 0;
+}
+/* modal-open buttons */
+.ocol-sell { background: #0e0808; color: #3a1818; border-right: 1px solid #131320; }
+.ocol-sell:hover { background: #1a0d0d; color: #e05252; }
+.ocol-buy  { background: #080e0a; color: #183a22; border-right: 1px solid #131320; }
+.ocol-buy:hover  { background: #091510; color: #00c896; }
+/* FOK instant-execute buttons */
+.ocol-fok-sell { background: #0b0808; color: #2a1414; border: none; cursor: pointer;
+  font-size: 7px; font-weight: 800; writing-mode: vertical-rl;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s; }
+.ocol-fok-sell:hover { background: #200a0a; color: #ff6666; }
+.ocol-fok-buy  { background: #080b08; color: #142214; border: none; cursor: pointer;
+  font-size: 7px; font-weight: 800; writing-mode: vertical-rl;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s; }
+.ocol-fok-buy:hover  { background: #081408; color: #33ff99; }
+/* divider between SELL row and BUY row */
+.ocol-sell, .ocol-fok-sell { border-bottom: 1px solid #131320; }
+.ocol-buy,  .ocol-fok-buy  { border-bottom: 1px solid #131320; }
+
+/* ── Stepper input row ── */
+.order-stepper { display: flex; gap: 3px; align-items: center; }
+.step-btn {
+  width: 26px; height: 30px; flex-shrink: 0;
+  background: #0d0d14; border: 1px solid #1e1e30; border-radius: 4px;
+  color: #555; cursor: pointer; font-size: 15px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  font-family: inherit; transition: all .1s; padding: 0;
+}
+.step-btn:hover { border-color: #3a3a5a; color: #aaa; background: #111128; }
+.step-btn:active { background: #1a1a38; }
+.order-title { font-size: 11px; font-weight: 700; color: #888; letter-spacing: 0.06em; text-transform: uppercase; }
+.order-close {
+  width: 20px; height: 20px; background: none; border: 1px solid #1e1e28;
+  border-radius: 4px; color: #444; cursor: pointer; font-size: 12px;
+  display: flex; align-items: center; justify-content: center;
+}
+.order-close:hover { border-color: #e05252; color: #e05252; }
+.order-type-tabs {
+  display: flex; background: #0a0a0e; border-bottom: 1px solid #1a1a22;
+}
+.order-type-tab {
+  flex: 1; padding: 7px 4px; text-align: center;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: #444; cursor: pointer; border: none; background: none;
+  border-bottom: 2px solid transparent; transition: color .15s, border-color .15s;
+}
+.order-type-tab:hover { color: #888; }
+.order-type-tab.active { color: #d0d0d0; border-bottom-color: #4444aa; }
+.order-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 9px; }
+.order-side-row { display: flex; gap: 6px; }
+.order-side-btn {
+  flex: 1; padding: 7px; border: 1px solid #1a1a28; border-radius: 6px;
+  font-size: 11px; font-weight: 700; cursor: pointer; letter-spacing: 0.05em;
+  background: #0f0f14; color: #555; transition: all .12s; font-family: inherit;
+}
+.order-side-btn.sell.active { background: #1a0d0d; border-color: #5a1a1a; color: #e05252; }
+.order-side-btn.buy.active  { background: #091510; border-color: #1a4a28; color: #00c896; }
+.order-side-btn:not(.active):hover { border-color: #2a2a3a; color: #888; }
+.order-field { display: flex; flex-direction: column; gap: 4px; }
+.order-label { font-size: 10px; color: #444; letter-spacing: 0.04em; }
+.order-input {
+  background: #0a0a0e; border: 1px solid #1e1e28; border-radius: 5px;
+  color: #ccc; font-size: 12px; padding: 7px 9px; outline: none;
+  font-family: inherit; appearance: textfield; width: 100%;
+}
+.order-input::-webkit-outer-spin-button, .order-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.order-input:focus { border-color: #3a3a5a; }
+.order-input-row { display: flex; gap: 6px; align-items: center; }
+.order-input-suffix { font-size: 10px; color: #444; white-space: nowrap; flex-shrink: 0; }
+.order-tif { display: flex; gap: 4px; }
+.order-tif-btn {
+  flex: 1; padding: 5px 4px; text-align: center; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.05em; color: #444; background: #0a0a0e;
+  border: 1px solid #1a1a28; border-radius: 4px; cursor: pointer; font-family: inherit;
+}
+.order-tif-btn.active { background: #101020; border-color: #3a3a60; color: #8888cc; }
+.order-tif-btn:not(.active):hover { border-color: #2a2a3a; color: #777; }
+.order-checks { display: flex; gap: 14px; }
+.order-check { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+.order-check input { accent-color: #4444aa; cursor: pointer; }
+.order-check span { font-size: 10px; color: #555; }
+.order-radio-row { display: flex; gap: 12px; }
+.order-stub { text-align: center; padding: 22px 10px; color: #444; font-size: 11px; }
+.order-stub-icon { font-size: 22px; margin-bottom: 8px; }
+.order-footer { padding: 10px 14px; border-top: 1px solid #1a1a22; display: flex; gap: 8px; }
+.order-cancel-btn {
+  flex: 1; padding: 9px; background: #0c0c14; border: 1px solid #1a1a28;
+  border-radius: 6px; color: #555; font-size: 11px; cursor: pointer; font-family: inherit;
+}
+.order-cancel-btn:hover { color: #888; border-color: #2a2a3a; }
+.order-submit-btn {
+  flex: 2; padding: 9px; border-radius: 6px; border: 1px solid;
+  font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit;
+  letter-spacing: 0.04em; transition: filter .12s;
+}
+.order-submit-btn:hover:not(:disabled) { filter: brightness(1.2); }
+.order-submit-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.order-submit-btn.sell { background: #1a0d0d; border-color: #5a1a1a; color: #e05252; }
+.order-submit-btn.buy  { background: #091510; border-color: #1a4a28; color: #00c896; }
+.order-msg { font-size: 10px; padding: 0 14px 8px; text-align: center; min-height: 18px; }
+.order-msg.ok  { color: #00c896; }
+.order-msg.err { color: #e05252; }
+.order-auth {
+  padding: 7px 14px; border-top: 1px solid #111118; background: #0a0a0d;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.order-auth-title { font-size: 9px; color: #2a2a3a; letter-spacing: 0.05em; text-transform: uppercase; }
+.order-auth-row { display: flex; gap: 5px; align-items: center; }
+.order-auth-label { font-size: 9px; color: #333; white-space: nowrap; flex-shrink: 0; }
+.order-auth-input {
+  flex: 1; min-width: 0; background: #0f0f14; border: 1px solid #1a1a22; border-radius: 4px;
+  color: #888; font-size: 10px; padding: 4px 7px; outline: none; font-family: inherit;
+}
+.order-auth-input:focus { border-color: #2a2a40; color: #bbb; }
+.order-auth-status { font-size: 9px; color: #333; white-space: nowrap; flex-shrink: 0; }
+.order-auth-status.ok  { color: #00c896; }
+.order-auth-status.err { color: #e05252; }
+/* cursor pointer on clickable canvases */
+canvas.clickable { cursor: crosshair; }
+
+/* ══════════════════════════════════════════
+   RFQ
+══════════════════════════════════════════ */
+.ocol-rfq { grid-column: span 2; background: #080814; color: #1a1a48; border: none; cursor: pointer;
+  font-size: 8px; font-weight: 800; letter-spacing: 0.07em; writing-mode: horizontal-tb;
+  display: flex; align-items: center; justify-content: center; padding: 5px 0;
+  transition: background .12s, color .12s; }
+.ocol-rfq:hover { background: #10103a; color: #8888ff; }
+.vwap-err { grid-column: span 2; font-size: 8px; color: #e05252; text-align: center;
+  padding: 2px 3px; line-height: 1.3; word-break: break-word; }
+
+.rfq-overlay {
+  position: fixed; inset: 0; z-index: 8200;
+  background: rgba(0,0,0,0.55);
+}
+.rfq-box {
+  position: fixed;
+  left: calc(50vw - 190px); top: calc(50vh - 270px);
+  background: #0f0f14; border: 1px solid #1a1a30; border-radius: 10px;
+  width: 380px; max-height: 82vh;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.9);
+  display: flex; flex-direction: column; overflow: hidden; z-index: 8201;
+}
+.rfq-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-bottom: 1px solid #1a1a28; background: #0c0c14;
+  cursor: move; user-select: none; flex-shrink: 0; gap: 8px;
+}
+.rfq-title { font-size: 11px; font-weight: 700; color: #7777bb; letter-spacing: 0.06em; text-transform: uppercase; flex: 1; }
+.rfq-timer {
+  font-size: 11px; font-weight: 700; color: #00c896; font-variant-numeric: tabular-nums;
+  background: #0a1a14; border: 1px solid #1a3a28; border-radius: 4px; padding: 2px 8px;
+}
+.rfq-timer.urgent { color: #e05252; background: #1a0808; border-color: #3a1010; }
+.rfq-cancel-rfq {
+  padding: 3px 9px; background: none; border: 1px solid #2a1a1a;
+  border-radius: 4px; color: #884444; font-size: 9px; font-weight: 700;
+  cursor: pointer; font-family: inherit; letter-spacing: 0.04em;
+}
+.rfq-cancel-rfq:hover { background: #1a0808; color: #e05252; border-color: #5a1818; }
+.rfq-hdr-close {
+  width: 20px; height: 20px; background: none; border: 1px solid #1e1e30;
+  border-radius: 4px; color: #444; cursor: pointer; font-size: 12px;
+  display: flex; align-items: center; justify-content: center;
+}
+.rfq-hdr-close:hover { border-color: #e05252; color: #e05252; }
+.rfq-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.rfq-label { font-size: 10px; color: #444; letter-spacing: 0.04em; display: block; margin-bottom: 4px; }
+.rfq-side-row { display: flex; gap: 5px; }
+.rfq-side-btn {
+  flex: 1; padding: 7px 4px; border: 1px solid #1a1a30; border-radius: 5px;
+  font-size: 10px; font-weight: 700; cursor: pointer; text-align: center;
+  background: #0f0f14; color: #444; transition: all .12s; font-family: inherit;
+}
+.rfq-side-btn.buy.active   { background: #091510; border-color: #1a4a28; color: #00c896; }
+.rfq-side-btn.sell.active  { background: #1a0d0d; border-color: #5a1a1a; color: #e05252; }
+.rfq-side-btn.two.active   { background: #0f0f22; border-color: #3a3a66; color: #8888ff; }
+.rfq-side-btn:not(.active):hover { border-color: #2a2a40; color: #777; }
+.rfq-mm-tabs { display: flex; border: 1px solid #1a1a28; border-radius: 5px; overflow: hidden; }
+.rfq-mm-tab {
+  flex: 1; padding: 5px 8px; text-align: center; font-size: 10px; font-weight: 700;
+  cursor: pointer; border: none; background: #0a0a12; color: #444;
+  transition: all .12s; font-family: inherit; letter-spacing: 0.04em;
+}
+.rfq-mm-tab.active { background: #111128; color: #8888cc; }
+.rfq-mm-tab:not(.active):hover { background: #0f0f18; color: #666; }
+.rfq-mm-wrap {
+  border: 1px solid #1a1a28; border-top: none; border-radius: 0 0 5px 5px; background: #0a0a0e;
+  overflow: hidden;
+}
+.rfq-mm-search {
+  width: 100%; background: #0a0a0e; border: none; border-bottom: 1px solid #1a1a28;
+  color: #aaa; font-size: 11px; padding: 7px 10px; outline: none; font-family: inherit;
+}
+.rfq-mm-search::placeholder { color: #2a2a3a; }
+.rfq-mm-list { max-height: 150px; overflow-y: auto; }
+.rfq-mm-list::-webkit-scrollbar { width: 4px; }
+.rfq-mm-list::-webkit-scrollbar-thumb { background: #1a1a28; border-radius: 2px; }
+.rfq-mm-row {
+  display: flex; align-items: center; gap: 8px; padding: 5px 10px;
+  border-bottom: 1px solid #0f0f14; cursor: pointer; transition: background .1s;
+}
+.rfq-mm-row:last-child { border-bottom: none; }
+.rfq-mm-row:hover { background: #111118; }
+.rfq-mm-check { accent-color: #4444aa; cursor: pointer; flex-shrink: 0; }
+.rfq-mm-name { flex: 1; font-size: 11px; color: #888; }
+.rfq-mm-star { background: none; border: none; cursor: pointer; font-size: 13px; color: #2a2a3a; padding: 0; transition: color .1s; }
+.rfq-mm-star:hover, .rfq-mm-star.fav { color: #cc9900; }
+.rfq-mm-empty { padding: 14px 10px; text-align: center; font-size: 11px; color: #333; line-height: 1.5; }
+.rfq-send-btn {
+  width: 100%; padding: 10px; background: #12122a; border: 1px solid #3a3a66;
+  border-radius: 6px; color: #8888ff; font-size: 12px; font-weight: 700;
+  cursor: pointer; font-family: inherit; letter-spacing: 0.04em; transition: all .12s;
+}
+.rfq-send-btn:hover:not(:disabled) { background: #1a1a3a; color: #aaaaff; border-color: #5a5aaa; }
+.rfq-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.rfq-quotes-status { font-size: 11px; color: #444; text-align: center; padding: 14px 0; }
+.rfq-qtable { width: 100%; border-collapse: collapse; font-size: 11px; }
+.rfq-qtable th {
+  text-align: left; color: #333; font-weight: 700; font-size: 9px;
+  letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 7px;
+  border-bottom: 1px solid #1a1a22;
+}
+.rfq-qtable td { padding: 7px 7px; border-bottom: 1px solid #0f0f14; }
+.rfq-qrow { cursor: pointer; transition: background .1s; }
+.rfq-qrow:hover { background: #111120; }
+.rfq-qrow.selected { background: #141430; outline: 1px solid #2a2a50; }
+.rfq-bid { color: #00c896; font-weight: 600; }
+.rfq-ask { color: #e05252; font-weight: 600; }
+.rfq-maker { color: #888; }
+.rfq-ago { color: #333; font-size: 10px; }
+.rfq-confirm-bar {
+  padding: 10px 14px; border-top: 1px solid #1a1a28; background: #0c0c14;
+  display: flex; flex-direction: column; gap: 7px; flex-shrink: 0;
+}
+.rfq-confirm-text { font-size: 11px; color: #888; }
+.rfq-confirm-text strong { color: #ccc; }
+.rfq-confirm-btns { display: flex; gap: 8px; }
+.rfq-confirm-go {
+  flex: 2; padding: 8px; border-radius: 5px; border: 1px solid;
+  font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit; transition: filter .12s;
+}
+.rfq-confirm-go:hover:not(:disabled) { filter: brightness(1.2); }
+.rfq-confirm-go:disabled { opacity: 0.4; cursor: not-allowed; }
+.rfq-confirm-go.sell { background: #1a0d0d; border-color: #5a1a1a; color: #e05252; }
+.rfq-confirm-go.buy  { background: #091510; border-color: #1a4a28; color: #00c896; }
+.rfq-confirm-dismiss { flex: 1; padding: 8px; background: #0c0c14; border: 1px solid #1a1a28; border-radius: 5px; color: #555; font-size: 11px; cursor: pointer; font-family: inherit; }
+.rfq-confirm-dismiss:hover { color: #888; border-color: #2a2a3a; }
+.rfq-msg { font-size: 10px; padding: 0 14px 8px; text-align: center; min-height: 16px; flex-shrink: 0; }
+.rfq-msg.ok  { color: #00c896; }
+.rfq-msg.err { color: #e05252; }
+.rfq-noauth { padding: 24px 14px; text-align: center; font-size: 11px; color: #555; line-height: 1.6; }
+/* ── RFQ live BBO panel ── */
+.rfq-bbo { display: flex; align-items: stretch; gap: 0; border-bottom: 1px solid #1a1a28; flex-shrink: 0; }
+.rfq-bbo-side { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 12px 8px; }
+.rfq-bbo-label { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #444; }
+.rfq-bbo-price { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; color: #888; }
+.rfq-bbo-price.bid { color: #00c896; }
+.rfq-bbo-price.ask { color: #e05252; }
+.rfq-bbo-price.live { animation: bbo-flash .4s ease; }
+@keyframes bbo-flash { 0%,100%{opacity:1} 50%{opacity:.4} }
+.rfq-bbo-btn { padding: 5px 14px; border-radius: 4px; border: 1px solid; font-size: 10px; font-weight: 700; cursor: pointer; font-family: inherit; transition: filter .1s; }
+.rfq-bbo-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.rfq-bbo-btn.sell { background: #1a0d0d; border-color: #5a1a1a; color: #e05252; }
+.rfq-bbo-btn.sell:not(:disabled):hover { filter: brightness(1.25); }
+.rfq-bbo-btn.buy  { background: #091510; border-color: #1a4a28; color: #00c896; }
+.rfq-bbo-btn.buy:not(:disabled):hover  { filter: brightness(1.25); }
+.rfq-bbo-divider { width: 1px; background: #1a1a28; flex-shrink: 0; margin: 10px 0; }
+.rfq-bbo-spread { font-size: 10px; color: #555; text-align: center; padding: 0 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.rfq-bbo-spread-val { font-size: 12px; font-weight: 700; color: #666; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="dot" id="dot"></div>
+    <span class="status-text" id="status">Connecting…</span>
+  </div>
+  <div class="topbar-right">
+    <button class="add-panel-btn" id="add-panel-btn">＋ Add Panel</button>
+    <button class="specs-btn" id="specs-btn">Contract Specs</button>
+  </div>
+</div>
+
+<div class="layout-tabs-bar" id="layout-tabs-bar">
+  <button class="add-layout-btn" id="add-layout-btn" title="New layout">＋</button>
+  <button class="save-layout-btn" id="save-layout-btn" title="Save layout">💾</button>
+</div>
+
+<div class="panels-area" id="panels-area"></div>
+
+<!-- ── Blotter ── -->
+<div id="blotter">
+  <div id="bl-handle"></div>
+  <div id="bl-tab-bar"></div>
+  <div id="bl-content">
+    <div class="bl-noauth" id="bl-noauth">
+      Connect Deribit API keys to see live data —
+      <a id="bl-noauth-link">Open API Keys</a>
+    </div>
+    <div class="bl-table-wrap" id="bl-table-wrap"></div>
+  </div>
+</div>
+
+<!-- ── Contract Specs overlay ── -->
+<div class="specs-overlay" id="specs-overlay" style="display:none">
+  <div class="specs-overlay-box">
+    <div class="specs-overlay-header">
+      <span class="specs-overlay-title">Settings</span>
+      <button class="specs-overlay-close" id="specs-close-btn">×</button>
+    </div>
+    <div class="admin-tab-bar">
+      <button class="admin-tab active" data-admin="specs">Contract Specs</button>
+      <button class="admin-tab" data-admin="apikeys">API Keys</button>
+    </div>
+    <div class="specs-overlay-body">
+  <div class="specs-pane" id="admin-pane-specs">
+
+    <!-- Converter -->
+    <div class="converter-card">
+      <div class="card-title">Contract Size Converter</div>
+      <div class="conv-grid">
+        <div class="conv-field">
+          <span class="conv-label">Qty (base units)</span>
+          <input class="conv-input" id="conv-qty" type="number" placeholder="e.g. 5" min="0" step="any">
+        </div>
+        <div class="conv-field">
+          <span class="conv-label">Exchange</span>
+          <select class="conv-select" id="conv-exchange">
+            <option>Binance</option><option>Bybit</option>
+            <option>OKX</option><option>Deribit</option>
+            <option>KuCoin</option><option>BitMEX</option>
+          </select>
+        </div>
+        <div class="conv-field">
+          <span class="conv-label">Instrument</span>
+          <select class="conv-select" id="conv-instrument" style="width:180px"></select>
+        </div>
+        <div class="conv-field">
+          <span class="conv-label">Price (USD) <span id="conv-price-src" style="color:#333">(manual)</span></span>
+          <input class="conv-input" id="conv-price" type="number" placeholder="auto-fetch…" min="0" step="any">
+        </div>
+        <button class="conv-calc-btn" id="conv-calc-btn">Calculate</button>
+      </div>
+      <div class="conv-results" id="conv-results" style="display:none">
+        <div class="conv-result-item"><span class="conv-result-label">Contracts</span><span class="conv-result-val" id="cr-contracts">—</span></div>
+        <div class="conv-result-item"><span class="conv-result-label">Notional USD</span><span class="conv-result-val" id="cr-notional">—</span></div>
+        <div class="conv-result-item"><span class="conv-result-label">Tick value / contract</span><span class="conv-result-val" id="cr-tickval">—</span></div>
+        <div class="conv-result-item"><span class="conv-result-label">1 tick move (whole pos.)</span><span class="conv-result-val" id="cr-pos-tick">—</span></div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="specs-table-card">
+      <div class="card-title">Contract Specifications</div>
+      <div class="specs-filter-row">
+        <span class="specs-filter-label">Filter:</span>
+        <select class="specs-filter-select" id="sf-base"><option value="">All assets</option></select>
+        <select class="specs-filter-select" id="sf-exchange"><option value="">All exchanges</option></select>
+        <select class="specs-filter-select" id="sf-type"><option value="">All types</option><option>linear</option><option>inverse</option></select>
+        <input class="conv-input" id="sf-text" placeholder="search…" style="width:130px;padding:5px 8px;font-size:11px">
+      </div>
+      <table id="specs-table">
+        <thead>
+          <tr>
+            <th>Instrument</th><th>Exchange</th><th>Contract Size</th>
+            <th>Tick Size</th><th>Tick Value</th><th>Min Order</th><th>Settlement</th>
+          </tr>
+        </thead>
+        <tbody id="specs-tbody"></tbody>
+      </table>
+    </div>
+
+    </div>
+
+    <!-- ── API Keys pane ── -->
+    <div id="admin-pane-apikeys" class="ak-pane" style="display:none">
+      <div class="ak-ex-bar" id="ak-ex-bar"></div>
+      <div class="ak-body" id="ak-body">
+        <div class="ak-placeholder">Select an exchange above to configure API keys.</div>
+      </div>
+    </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ── Order Modal ── -->
+<!-- ── RFQ Modal ── -->
+<div class="rfq-overlay" id="rfq-overlay" style="display:none">
+  <div class="rfq-box" id="rfq-box">
+    <div class="rfq-header" id="rfq-header">
+      <span class="rfq-title" id="rfq-title">RFQ</span>
+      <span class="rfq-timer" id="rfq-timer" style="display:none">60s</span>
+      <button class="rfq-cancel-rfq" id="rfq-cancel-rfq" style="display:none">Cancel RFQ</button>
+      <button class="rfq-hdr-close" id="rfq-close-btn">×</button>
+    </div>
+    <div class="rfq-body" id="rfq-body"></div>
+    <div class="rfq-msg" id="rfq-msg"></div>
+    <div id="rfq-confirm-area"></div>
+  </div>
+</div>
+
+<div class="order-overlay" id="order-overlay" style="display:none">
+  <div class="order-box">
+    <div class="order-header">
+      <span class="order-title" id="order-title">Place Order</span>
+      <button class="order-close" id="order-close-btn">×</button>
+    </div>
+    <div class="order-type-tabs" id="order-type-tabs">
+      <button class="order-type-tab active" data-otab="limit">Limit</button>
+      <button class="order-type-tab" data-otab="stop">Stop</button>
+      <button class="order-type-tab" data-otab="ifdone">If Done</button>
+      <button class="order-type-tab" data-otab="oco">OCO</button>
+    </div>
+    <div class="order-body" id="order-body"></div>
+    <div class="order-msg" id="order-msg"></div>
+    <div class="order-footer">
+      <button class="order-cancel-btn" id="order-cancel-btn">Cancel</button>
+      <button class="order-submit-btn sell" id="order-submit-btn">Place Sell Order</button>
+    </div>
+    <div class="order-auth">
+      <div class="order-auth-title">Deribit Testnet API Credentials</div>
+      <div class="order-auth-row">
+        <span class="order-auth-label">Client ID</span>
+        <input class="order-auth-input" id="auth-client-id" placeholder="client_id…" autocomplete="off">
+        <span class="order-auth-label">Secret</span>
+        <input class="order-auth-input" id="auth-client-secret" type="password" placeholder="client_secret…" autocomplete="off">
+        <span class="order-auth-status" id="auth-status">–</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Contract Specs overlay ─────────────────────────────────────────────────────
+document.getElementById('specs-btn').addEventListener('click', () => {
+  const ov = document.getElementById('specs-overlay');
+  const active = ov.style.display !== 'none';
+  ov.style.display = active ? 'none' : 'flex';
+  document.getElementById('specs-btn').classList.toggle('active', !active);
+});
+document.getElementById('specs-close-btn').addEventListener('click', () => {
+  document.getElementById('specs-overlay').style.display = 'none';
+  document.getElementById('specs-btn').classList.remove('active');
+});
+document.getElementById('specs-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('specs-overlay')) {
+    document.getElementById('specs-overlay').style.display = 'none';
+    document.getElementById('specs-btn').classList.remove('active');
+  }
+});
+
+// ── Global ────────────────────────────────────────────────────────────────────
+let ws = null, idCounter = 1, reconnectTimer = null, pingTimer = null;
+let instruments = [], panels = [], nextId = 0;
+let rfqState = null; // set by RFQ system
+
+// ── WebSocket request-response map ────────────────────────────────────────────
+const wsRequests = new Map(); // id → {resolve, reject}
+
+// ── Blotter state ─────────────────────────────────────────────────────────────
+const BL_TABS = [
+  { id:'trades',        label:'Trades' },
+  { id:'orders',        label:'Orders' },
+  { id:'positions',     label:'Positions' },
+  { id:'opt-trades',    label:'Options Trades' },
+  { id:'opt-orders',    label:'Options Orders' },
+  { id:'opt-positions', label:'Options Positions' },
+  { id:'alerts',        label:'Alerts' },
+  { id:'notifs',        label:'Notifications' },
+  { id:'balances',      label:'Cash Balances' },
+];
+const blotterData = {
+  trades:          [],
+  orders:          {},   // order_id → order object
+  positions:       {},   // instrument_name → position object
+  'opt-trades':    [],
+  'opt-orders':    {},
+  'opt-positions': {},
+  alerts:          [],
+  notifs:          [],
+  balances:        { BTC:{}, ETH:{}, USDC:{} },
+};
+const blotterBadge = {};
+BL_TABS.forEach(t => blotterBadge[t.id] = 0);
+const blotterSort = {};
+BL_TABS.forEach(t => blotterSort[t.id] = { col:null, dir:'desc' });
+let blotterTab      = 'trades';
+let blotterAuthed   = false;
+let blotterExpanded = false;
+let blotterSavedH   = parseInt(localStorage.getItem('blotter_h')) || 260;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const fmt = (n, d = 2) => n == null ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmtK = n => {
+  if (n == null) return '—';
+  const a = Math.abs(n);
+  if (a >= 1e9) return (n/1e9).toFixed(2)+'B';
+  if (a >= 1e6) return (n/1e6).toFixed(2)+'M';
+  if (a >= 1e3) return (n/1e3).toFixed(1)+'K';
+  return Number(n).toFixed(2);
+};
+const pDec = p => {
+  if (!p) return 2;
+  if (p >= 10000) return 0; if (p >= 100) return 1; if (p >= 1) return 2;
+  if (p >= 0.01) return 4; return 6;
+};
+const base = instr => instr.replace(/_USDC/,'').replace(/_USDT/,'').split('-')[0];
+
+// qty always in base currency (BTC, SOL, etc.)
+const qtyLabel = instr => base(instr);
+
+// Look up a Deribit instrument from the loaded API instruments array.
+// Returns the API object (has .quote_currency, .contract_size, .settlement_currency)
+function instrSpec(instr) {
+  return instruments.find(i => i.instrument_name === instr) ?? null;
+}
+
+// Is this an inverse (coin-margined) contract?
+// Inverse means the book sizes are in USD; we divide by price to get base units.
+// Uses the API quote_currency field when available; falls back to name convention.
+function isInverse(instr) {
+  const spec = instrSpec(instr);
+  if (spec) return spec.quote_currency === 'USD'; // USD-quoted = inverse
+  const n = instr.toUpperCase();
+  return !n.includes('_USDC') && !n.includes('_USDT') && (n.startsWith('BTC-') || n.startsWith('ETH-'));
+}
+
+// Contract size in quote units (USD for inverse, base coin for linear).
+// For BTC-PERPETUAL: 10 (USD per contract).
+// For SOL_USDC-PERPETUAL: 1 (SOL per contract).
+// Falls back to CONTRACT_SPECS, then API contract_size, then 1.
+function getContractSize(instr) {
+  const cs = CONTRACT_SPECS.find(r => r.instrument === instr && r.exchange === 'Deribit');
+  if (cs) return cs.contractSize;
+  const spec = instrSpec(instr);
+  if (spec?.contract_size) return spec.contract_size;
+  return 1;
+}
+
+// How many contracts does qty_base units represent?
+// inverse: contracts = qty_base × price / contractSize_USD
+// linear:  contracts = qty_base / contractSize_base
+function baseToContracts(qty, instr, price) {
+  const cs = getContractSize(instr);
+  return isInverse(instr) ? (qty * price) / cs : qty / cs;
+}
+
+// Walk order book to get VWAP price for targetQty in base units.
+// inverse: order book sizes are in USD → available base = size / price
+// linear:  order book sizes are in base units directly
+function calcVWAP(orders, targetQty, inverse) {
+  if (!targetQty || targetQty <= 0 || !orders.length) return null;
+  let filled = 0, notional = 0;
+  for (const [price, size] of orders) {
+    const avail = inverse ? size / price : size;
+    const take = Math.min(avail, targetQty - filled);
+    notional += take * price;
+    filled += take;
+    if (filled >= targetQty - 1e-9) break;
+  }
+  return filled < targetQty - 1e-9 ? null : notional / filled;
+}
+
+// ── Instruments ───────────────────────────────────────────────────────────────
+async function loadInstruments() {
+  try {
+    const res = await Promise.allSettled(
+      ['BTC','ETH','SOL','XRP','MATIC','BNB','USDC'].map(c =>
+        fetch(`https://test.deribit.com/api/v2/public/get_instruments?currency=${c}&kind=future&expired=false`)
+          .then(r => r.json()).then(j => j.result || [])
+      )
+    );
+    instruments = res.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+    instruments.sort((a, b) => {
+      const ap = a.instrument_name.includes('PERPETUAL') ? 0 : 1;
+      const bp = b.instrument_name.includes('PERPETUAL') ? 0 : 1;
+      return ap !== bp ? ap - bp : a.instrument_name.localeCompare(b.instrument_name);
+    });
+  } catch(e) { console.error('loadInstruments:', e); }
+}
+
+function fillSelect(sel, target) {
+  sel.innerHTML = '';
+  for (const i of instruments) {
+    const o = document.createElement('option');
+    o.value = o.textContent = i.instrument_name;
+    if (i.instrument_name === target) o.selected = true;
+    sel.appendChild(o);
+  }
+  if (!sel.value && sel.options.length) sel.options[0].selected = true;
+}
+
+// ── Panel placement ───────────────────────────────────────────────────────────
+function nextPanelPos() {
+  if (!panels.length) return { x: 10, y: 10 };
+  let maxBottom = 0;
+  for (const p of panels) {
+    const el = document.getElementById(`panel-${p.id}`);
+    if (el) maxBottom = Math.max(maxBottom, p.y + el.offsetHeight);
+    else maxBottom = Math.max(maxBottom, p.y + 180);
+  }
+  return { x: 10, y: maxBottom + 10 };
+}
+
+function updateAreaSize() {
+  const area = document.getElementById('panels-area');
+  let maxR = 0, maxB = 0;
+  for (const p of panels) {
+    const el = document.getElementById(`panel-${p.id}`);
+    if (!el) continue;
+    maxR = Math.max(maxR, p.x + el.offsetWidth);
+    maxB = Math.max(maxB, p.y + el.offsetHeight);
+  }
+  area.style.minWidth  = (maxR + 20) + 'px';
+  area.style.minHeight = (maxB + 20) + 'px';
+}
+
+// ── Layout management ─────────────────────────────────────────────────────────
+let layouts = [];
+let activeLayoutId = 0;
+let layoutNextId = 0;
+
+const LAYOUTS_LS = 'dbt_layouts';
+
+function persistLayouts() {
+  saveCurrentLayout();
+  try {
+    localStorage.setItem(LAYOUTS_LS, JSON.stringify({ layouts, activeLayoutId, layoutNextId }));
+  } catch(e) { console.warn('Layout save failed:', e.message); }
+}
+
+function loadPersistedLayouts() {
+  try {
+    const raw = localStorage.getItem(LAYOUTS_LS);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (!Array.isArray(d.layouts) || d.layouts.length === 0) return false;
+    layouts       = d.layouts;
+    activeLayoutId = d.activeLayoutId ?? d.layouts[0].id;
+    layoutNextId  = d.layoutNextId   ?? d.layouts.length;
+    // Ensure activeLayoutId refers to an existing layout
+    if (!layouts.find(l => l.id === activeLayoutId)) activeLayoutId = layouts[0].id;
+    return true;
+  } catch { return false; }
+}
+
+function panelSnapshot(s) {
+  const el = document.getElementById(`panel-${s.id}`);
+  return { instrument: s.instrument, x: s.x, y: s.y, width: el ? el.offsetWidth : 480, gran: s.gran, qty: s.qty };
+}
+
+function saveCurrentLayout() {
+  const layout = layouts.find(l => l.id === activeLayoutId);
+  if (layout) layout.panels = panels.map(panelSnapshot);
+}
+
+function destroyAllPanels() {
+  // Collect all subscribed channels and unsubscribe in one call
+  const chs = [...new Set(panels.flatMap(s => [s.bookCh, s.tickCh].filter(Boolean)))];
+  if (chs.length && ws?.readyState === WebSocket.OPEN)
+    ws.send(JSON.stringify({ jsonrpc:'2.0', id:idCounter++, method:'public/unsubscribe', params:{ channels:chs } }));
+  for (const s of [...panels]) {
+    s.ro?.disconnect();
+    s.bookCh = s.tickCh = null;
+    document.getElementById(`panel-${s.id}`)?.remove();
+  }
+  panels = [];
+}
+
+function restoreLayoutPanels(layout) {
+  if (layout.panels.length > 0) {
+    for (const p of layout.panels) {
+      const s = createPanel(p.instrument);
+      s.x = p.x; s.y = p.y;
+      const el = document.getElementById(`panel-${s.id}`);
+      el.style.left = p.x + 'px';
+      el.style.top  = p.y + 'px';
+      if (p.width) el.style.width = p.width + 'px';
+      if (p.gran && p.gran !== s.gran) {
+        s.gran = p.gran;
+        document.querySelectorAll(`#gran-${s.id} .pgran-btn`).forEach(b => b.classList.toggle('active', b.dataset.gran === p.gran));
+        unsubscribePanel(s); s.bids = []; s.asks = [];
+        subscribePanel(s);
+      }
+      if (p.qty) {
+        s.qty = p.qty;
+        const inp = document.getElementById(`qty-${s.id}`);
+        if (inp) inp.value = p.qty;
+      }
+    }
+  } else {
+    createPanel('BTC-PERPETUAL');
+  }
+  updateAreaSize();
+}
+
+function switchLayout(id) {
+  if (id === activeLayoutId) return;
+  saveCurrentLayout();
+  destroyAllPanels();
+  activeLayoutId = id;
+  renderLayoutTabs();
+  restoreLayoutPanels(layouts.find(l => l.id === id));
+}
+
+function addLayout() {
+  saveCurrentLayout();
+  destroyAllPanels();
+  const id = layoutNextId++;
+  layouts.push({ id, name: `Layout ${layouts.length + 1}`, panels: [] });
+  activeLayoutId = id;
+  createPanel('BTC-PERPETUAL');
+  renderLayoutTabs();
+  updateAreaSize();
+  persistLayouts();
+}
+
+function deleteLayout(id) {
+  if (layouts.length <= 1) return;
+  const idx = layouts.findIndex(l => l.id === id);
+  if (idx === -1) return;
+  layouts.splice(idx, 1);
+  if (activeLayoutId === id) {
+    destroyAllPanels();
+    activeLayoutId = layouts[Math.min(idx, layouts.length - 1)].id;
+    renderLayoutTabs();
+    restoreLayoutPanels(layouts.find(l => l.id === activeLayoutId));
+  } else {
+    renderLayoutTabs();
+  }
+  persistLayouts();
+}
+
+function renderLayoutTabs() {
+  const bar = document.getElementById('layout-tabs-bar');
+  bar.querySelectorAll('.layout-tab').forEach(el => el.remove());
+  const addBtn = document.getElementById('add-layout-btn');
+  for (const layout of layouts) {
+    const tab = document.createElement('div');
+    tab.className = 'layout-tab' + (layout.id === activeLayoutId ? ' active' : '');
+    tab.dataset.id = layout.id;
+    const showClose = layouts.length > 1;
+    tab.innerHTML = `<span class="layout-tab-name">${layout.name}</span>`
+      + (showClose ? `<button class="layout-tab-close" title="Delete layout">×</button>` : '');
+
+    tab.addEventListener('click', e => {
+      if (e.target.closest('.layout-tab-close')) return;
+      if (e.target.closest('.layout-tab-name')?.contentEditable === 'true') return;
+      switchLayout(layout.id);
+    });
+
+    const nameEl = tab.querySelector('.layout-tab-name');
+    nameEl.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      const saved = layout.name;
+      nameEl.contentEditable = 'true';
+      nameEl.focus();
+      document.execCommand('selectAll', false, null);
+      function finish() {
+        nameEl.contentEditable = 'false';
+        layout.name = nameEl.textContent.trim() || saved;
+        nameEl.textContent = layout.name;
+        nameEl.removeEventListener('keydown', onKey);
+        persistLayouts();
+      }
+      function onKey(ev) {
+        if (ev.key === 'Enter') { ev.preventDefault(); nameEl.blur(); }
+        if (ev.key === 'Escape') { nameEl.textContent = saved; nameEl.blur(); }
+      }
+      nameEl.addEventListener('blur', finish, { once: true });
+      nameEl.addEventListener('keydown', onKey);
+    });
+
+    const closeBtn = tab.querySelector('.layout-tab-close');
+    if (closeBtn) closeBtn.addEventListener('click', e => { e.stopPropagation(); deleteLayout(layout.id); });
+
+    attachTabDrag(tab);
+    bar.insertBefore(tab, addBtn);
+  }
+}
+
+function attachTabDrag(tabEl) {
+  tabEl.addEventListener('mousedown', e => {
+    if (e.target.closest('.layout-tab-close')) return;
+    if (e.target.closest('.layout-tab-name')?.contentEditable === 'true') return;
+    if (e.button !== 0) return;
+    const startX = e.clientX;
+    let dragging = false;
+    const onMove = ev => {
+      if (!dragging && Math.abs(ev.clientX - startX) > 6) {
+        dragging = true;
+        tabEl.style.opacity = '0.6';
+      }
+      if (!dragging) return;
+      const bar = document.getElementById('layout-tabs-bar');
+      const tabs = [...bar.querySelectorAll('.layout-tab')];
+      for (const other of tabs) {
+        if (other === tabEl) continue;
+        const rect = other.getBoundingClientRect();
+        if (ev.clientX < rect.left + rect.width / 2) {
+          bar.insertBefore(tabEl, other);
+          break;
+        } else if (ev.clientX > rect.right - rect.width / 2) {
+          other.after(tabEl);
+          break;
+        }
+      }
+      // Sync layouts order to DOM order
+      const newOrder = [...bar.querySelectorAll('.layout-tab')]
+        .map(t => layouts.find(l => l.id == t.dataset.id)).filter(Boolean);
+      layouts.length = 0;
+      layouts.push(...newOrder);
+    };
+    const onUp = () => {
+      tabEl.style.opacity = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    e.preventDefault();
+  });
+}
+
+document.getElementById('add-layout-btn').addEventListener('click', addLayout);
+document.getElementById('save-layout-btn').addEventListener('click', () => {
+  persistLayouts();
+  const btn = document.getElementById('save-layout-btn');
+  btn.classList.add('saved');
+  setTimeout(() => btn.classList.remove('saved'), 1500);
+});
+
+// ── Panel creation ────────────────────────────────────────────────────────────
+const GRAN_OPTS = [
+  { val:'none',label:'Raw' },{ val:'0.5',label:'.5' },{ val:'1',label:'1' },
+  { val:'5',label:'5' },{ val:'10',label:'10' },{ val:'50',label:'50' },{ val:'100',label:'100' },
+];
+
+function createPanel(defInstr = 'BTC-PERPETUAL') {
+  const pos = nextPanelPos();
+  const id = nextId++;
+  const s = {
+    id, instrument: defInstr, gran: 'none',
+    bids: [], asks: [], ticker: {}, qty: 0,
+    bookCh: null, tickCh: null, ro: null,
+    x: pos.x, y: pos.y
+  };
+  panels.push(s);
+
+  const granBtns = GRAN_OPTS.map(g =>
+    `<button class="pgran-btn${g.val==='none'?' active':''}" data-gran="${g.val}">${g.label}</button>`
+  ).join('');
+
+  const div = document.createElement('div');
+  div.className = 'panel';
+  div.id = `panel-${id}`;
+  div.style.left = s.x + 'px';
+  div.style.top  = s.y + 'px';
+  div.innerHTML = `
+    <div class="panel-header">
+      <button class="panel-close" title="Remove">×</button>
+    </div>
+    <div class="panel-body">
+      <div class="gran-col" id="gran-${id}">${granBtns}</div>
+      <div class="chart-col" id="bc-${id}"><canvas id="bcanv-${id}"></canvas></div>
+      <div class="panel-centre">
+        <div style="text-align:center">
+          <select class="instr-select" id="sel-${id}"></select>
+        </div>
+        <div class="centre-row">
+          <span class="centre-hl" id="hl-${id}">H — / L —</span>
+          <span class="centre-fund fund-zero" id="fund-${id}">—%</span>
+          <span class="centre-chg" id="chg-${id}">—</span>
+        </div>
+        <div class="trade-row">
+          <button class="trade-btn sell-btn">
+            <span class="btn-label">Sell <span id="sbase-${id}">${base(defInstr)}</span></span>
+            <span class="btn-price" id="sbid-${id}">—</span>
+          </button>
+          <div class="spread-mid" id="spread-${id}">—</div>
+          <button class="trade-btn buy-btn">
+            <span class="btn-label">Buy <span id="bbase-${id}">${base(defInstr)}</span></span>
+            <span class="btn-price" id="bask-${id}">—</span>
+          </button>
+        </div>
+        <div class="qty-row">
+          <input class="qty-input" id="qty-${id}" type="number" placeholder="Qty…" min="0" step="any">
+          <div style="display:flex;flex-direction:column;gap:1px;text-align:right">
+            <span class="qty-unit" id="qunit-${id}">${qtyLabel(defInstr)}</span>
+            <span id="ctlabel-${id}" style="font-size:8px;color:#2a2a3a;white-space:nowrap">— ct</span>
+          </div>
+        </div>
+      </div>
+      <div class="chart-col" id="ac-${id}"><canvas id="acanv-${id}"></canvas></div>
+      <div class="order-col" id="oc-${id}">
+        <button class="ocol-btn ocol-sell"    title="Open sell order">SELL</button>
+        <button class="ocol-fok-sell"         title="Limit FOK sell at VWAP">S⚡</button>
+        <button class="ocol-btn ocol-buy"     title="Open buy order">BUY</button>
+        <button class="ocol-fok-buy"          title="Limit FOK buy at VWAP">B⚡</button>
+        <button class="ocol-rfq"              title="Request For Quote">RFQ</button>
+        <div class="vwap-err" id="vwap-err-${id}"></div>
+      </div>
+    </div>
+    <div class="panel-resize" id="resize-${id}"></div>`;
+
+  document.getElementById('panels-area').appendChild(div);
+
+  const sel = document.getElementById(`sel-${id}`);
+  fillSelect(sel, defInstr);
+  s.instrument = sel.value;
+
+  sel.addEventListener('change', () => changeInstrument(s, sel.value));
+  div.querySelector('.panel-close').addEventListener('click', () => removePanel(id));
+  document.getElementById(`qty-${id}`).addEventListener('input', e => {
+    s.qty = parseFloat(e.target.value) || 0;
+    updateVWAP(s);
+  });
+  document.getElementById(`gran-${id}`).addEventListener('click', e => {
+    const btn = e.target.closest('.pgran-btn');
+    if (!btn) return;
+    const g = btn.dataset.gran;
+    if (g === s.gran) return;
+    document.querySelectorAll(`#gran-${id} .pgran-btn`).forEach(b => b.classList.toggle('active', b.dataset.gran === g));
+    s.gran = g;
+    unsubscribePanel(s); s.bids = []; s.asks = [];
+    renderPanel(s); subscribePanel(s);
+  });
+
+  s.ro = new ResizeObserver(() => resizeAndRender(s));
+  s.ro.observe(document.getElementById(`bc-${id}`));
+  s.ro.observe(document.getElementById(`ac-${id}`));
+
+  div.querySelector('.panel-header').addEventListener('mousedown', e => {
+    if (e.target.closest('.panel-close')) return;
+    startDrag(div, s, e);
+  });
+  document.getElementById(`resize-${id}`).addEventListener('mousedown', e => startResize(div, s, e));
+
+  // Canvas click → open order modal pre-filled with clicked price & side
+  function canvasClickHandler(side) {
+    return function(e) {
+      const meta = side === 'bid' ? s.bidMeta : s.askMeta;
+      if (!meta || !meta.levels.length) return;
+      const rect = e.target.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      if (x < meta.PL || x > meta.PL + meta.cW) return;
+      const rawPrice = meta.pMin + ((x - meta.PL) / meta.cW) * (meta.pMax - meta.pMin);
+      // Snap to nearest known price level
+      const nearest = meta.levels.reduce((best, [p]) =>
+        Math.abs(p - rawPrice) < Math.abs(best - rawPrice) ? p : best, meta.levels[0][0]);
+      openOrderModal(s.instrument, side === 'bid' ? 'sell' : 'buy', nearest, s.qty > 0 ? s.qty : null);
+    };
+  }
+  const bcanv = document.getElementById(`bcanv-${id}`);
+  const acanv = document.getElementById(`acanv-${id}`);
+  bcanv.classList.add('clickable');
+  acanv.classList.add('clickable');
+  bcanv.addEventListener('click', canvasClickHandler('bid'));
+  acanv.addEventListener('click', canvasClickHandler('ask'));
+
+  // Order column buttons → open modal with mid price + current qty
+  const oc = document.getElementById(`oc-${id}`);
+  oc.querySelector('.ocol-sell').addEventListener('click', () => {
+    const p = parseFloat((document.getElementById(`sbid-${s.id}`)?.textContent || '').replace(/[$,]/g, '')) || null;
+    openOrderModal(s.instrument, 'sell', p, s.qty || null);
+  });
+  oc.querySelector('.ocol-buy').addEventListener('click', () => {
+    const p = parseFloat((document.getElementById(`bask-${s.id}`)?.textContent || '').replace(/[$,]/g, '')) || null;
+    openOrderModal(s.instrument, 'buy', p, s.qty || null);
+  });
+  oc.querySelector('.ocol-fok-sell').addEventListener('click', () => executeFokOrder(s, 'sell'));
+  oc.querySelector('.ocol-fok-buy').addEventListener('click',  () => executeFokOrder(s, 'buy'));
+  oc.querySelector('.ocol-rfq').addEventListener('click',  () => openRFQModal(s));
+
+  subscribePanel(s);
+  setTimeout(updateAreaSize, 100);
+  return s;
+}
+
+function removePanel(id) {
+  if (panels.length <= 1) return;
+  const s = panels.find(p => p.id === id);
+  if (!s) return;
+  s.ro?.disconnect();
+  unsubscribePanel(s);
+  panels = panels.filter(p => p.id !== id);
+  document.getElementById(`panel-${id}`)?.remove();
+  updateAreaSize();
+  persistLayouts();
+}
+
+function changeInstrument(s, instr) {
+  unsubscribePanel(s);
+  s.instrument = instr; s.bids = []; s.asks = []; s.ticker = {};
+  document.getElementById(`sbase-${s.id}`).textContent = base(instr);
+  document.getElementById(`bbase-${s.id}`).textContent = base(instr);
+  document.getElementById(`qunit-${s.id}`).textContent = qtyLabel(instr);
+  renderPanel(s); subscribePanel(s);
+}
+
+document.getElementById('add-panel-btn').addEventListener('click', () => {
+  const used = new Set(panels.map(p => p.instrument));
+  const next = instruments.find(i => !used.has(i.instrument_name) && i.instrument_name.includes('PERPETUAL'));
+  createPanel(next?.instrument_name || instruments[0]?.instrument_name || 'BTC-PERPETUAL');
+});
+
+// ── Subscribe ─────────────────────────────────────────────────────────────────
+const bookCh   = s => `book.${s.instrument}.${s.gran}.20.100ms`;
+const tickerCh = s => `ticker.${s.instrument}.100ms`;
+
+function subscribePanel(s) {
+  s.bookCh = bookCh(s); s.tickCh = tickerCh(s);
+  if (ws?.readyState === WebSocket.OPEN)
+    ws.send(JSON.stringify({ jsonrpc:'2.0', id:idCounter++, method:'public/subscribe',
+      params:{ channels:[s.bookCh, s.tickCh] } }));
+  fetchSnap(s);
+}
+
+function unsubscribePanel(s) {
+  if (!s.bookCh && !s.tickCh) return;
+  const others = panels.filter(p => p.id !== s.id);
+  const chs = [s.bookCh, s.tickCh].filter(c => c && !others.some(o => o.bookCh===c || o.tickCh===c));
+  if (chs.length && ws?.readyState === WebSocket.OPEN)
+    ws.send(JSON.stringify({ jsonrpc:'2.0', id:idCounter++, method:'public/unsubscribe', params:{ channels:chs } }));
+  s.bookCh = s.tickCh = null;
+}
+
+async function fetchSnap(s) {
+  try {
+    const r = await fetch(`https://test.deribit.com/api/v2/public/get_order_book?instrument_name=${s.instrument}&depth=20`);
+    const j = await r.json();
+    if (j.result) {
+      s.bids = (j.result.bids || []).map(r => [r[0], r[1]]);
+      s.asks = (j.result.asks || []).map(r => [r[0], r[1]]);
+      s.bids.sort((a,b) => b[0]-a[0]); s.asks.sort((a,b) => a[0]-b[0]);
+      renderPanel(s);
+    }
+  } catch(e) { console.error('fetchSnap:', e); }
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+function connect() {
+  if (ws) { ws.onclose = ws.onerror = null; ws.close(); }
+  clearTimeout(reconnectTimer); clearInterval(pingTimer);
+  setDot('connecting');
+  ws = new WebSocket('wss://test.deribit.com/ws/api/v2');
+  ws.onopen = () => {
+    setDot('live');
+    panels.forEach(s => { s.bookCh = bookCh(s); s.tickCh = tickerCh(s); });
+    const chs = [...new Set(panels.flatMap(s => [s.bookCh, s.tickCh]))];
+    if (chs.length) ws.send(JSON.stringify({ jsonrpc:'2.0', id:idCounter++, method:'public/subscribe', params:{ channels:chs } }));
+    pingTimer = setInterval(() => {
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ jsonrpc:'2.0', method:'public/test', id:idCounter++, params:{} }));
+    }, 20000);
+    blotterWsAuth();   // authenticate for private channels
+  };
+  ws.onmessage = evt => {
+    let msg; try { msg = JSON.parse(evt.data); } catch { return; }
+    if (msg.method === 'subscription' && msg.params) route(msg.params.channel, msg.params.data);
+    if (msg.id != null && wsRequests.has(msg.id)) {
+      const { resolve, reject } = wsRequests.get(msg.id);
+      wsRequests.delete(msg.id);
+      if (msg.error) reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+      else resolve(msg.result);
+    }
+    if (msg.error && msg.id == null) console.error('WS:', msg.error);
+  };
+  ws.onerror = () => setDot('error');
+  ws.onclose = () => { setDot('error'); clearInterval(pingTimer); reconnectTimer = setTimeout(connect, 3000); };
+}
+
+function route(ch, data) {
+  for (const s of panels) {
+    if (ch === s.bookCh) {
+      if (data.type === 'snapshot') {
+        if (!s.bids.length && !s.asks.length) {
+          s.bids = data.bids.map(r => [r[1],r[2]]); s.asks = data.asks.map(r => [r[1],r[2]]);
+          s.bids.sort((a,b)=>b[0]-a[0]); s.asks.sort((a,b)=>a[0]-b[0]);
+        }
+      } else {
+        applyD(s.bids, data.bids||[], 'desc'); applyD(s.asks, data.asks||[], 'asc');
+      }
+      renderPanel(s);
+    } else if (ch === s.tickCh) {
+      s.ticker = data; updateCentre(s);
+    }
+  }
+  // Block RFQ quote channel
+  if (rfqState && rfqState.blockRfqId && ch === `user.block_rfq.${rfqState.blockRfqId}`) {
+    handleRFQMessage(data);
+  }
+  // Blotter private channels
+  if (ch === 'user.trades.any.any.raw')  blotterHandleTrades(Array.isArray(data) ? data : [data]);
+  if (ch === 'user.orders.any.any.raw')  blotterHandleOrders(Array.isArray(data) ? data : [data]);
+  if (ch === 'user.changes.any.any.raw') blotterHandleChanges(data);
+  if (ch.startsWith('user.portfolio.'))  blotterHandlePortfolio(ch, data);
+}
+
+function applyD(lvls, deltas, dir) {
+  for (const e of deltas) {
+    const price = e.length===3 ? e[1] : e[0];
+    const size  = e.length===3 ? e[2] : e[1];
+    const i = lvls.findIndex(l => l[0]===price);
+    if (size===0) { if (i!==-1) lvls.splice(i,1); }
+    else if (i!==-1) { lvls[i][1]=size; }
+    else { lvls.push([price,size]); dir==='desc'?lvls.sort((a,b)=>b[0]-a[0]):lvls.sort((a,b)=>a[0]-b[0]); }
+  }
+}
+
+function setDot(s) {
+  const d=document.getElementById('dot'),t=document.getElementById('status');
+  if (s==='live')       { d.className='dot live'; t.textContent='Live · Deribit Testnet'; }
+  else if (s==='error') { d.className='dot err';  t.textContent='Disconnected — reconnecting…'; }
+  else                  { d.className='dot';       t.textContent='Connecting…'; }
+}
+
+// ── Centre UI ─────────────────────────────────────────────────────────────────
+function updateCentre(s) {
+  try {
+    const d = pDec(s.ticker.best_bid_price ?? s.bids[0]?.[0]);
+    // spread
+    const bid = s.ticker.best_bid_price, ask = s.ticker.best_ask_price;
+    if (bid != null && ask != null)
+      document.getElementById(`spread-${s.id}`).textContent = fmt(ask-bid, d);
+    // H/L
+    const hi=s.ticker.stats?.high, lo=s.ticker.stats?.low;
+    document.getElementById(`hl-${s.id}`).textContent =
+      `H ${hi!=null?'$'+fmt(hi,d):'—'} / L ${lo!=null?'$'+fmt(lo,d):'—'}`;
+    // funding
+    const fr = s.ticker.current_funding ?? s.ticker.funding_8h;
+    const fundEl = document.getElementById(`fund-${s.id}`);
+    if (fr != null) {
+      fundEl.textContent = (fr>=0?'+':'')+(fr*100).toFixed(4)+'%';
+      fundEl.className = 'centre-fund '+(fr>0?'fund-pos':fr<0?'fund-neg':'fund-zero');
+    }
+    // 24h chg
+    const chg=s.ticker.price_change, cel=document.getElementById(`chg-${s.id}`);
+    if (chg != null) {
+      cel.textContent = (chg>=0?'+':'')+chg.toFixed(2)+'%';
+      cel.className = 'centre-chg '+(chg>=0?'chg-pos':'chg-neg');
+    }
+    // base labels
+    document.getElementById(`sbase-${s.id}`).textContent = base(s.instrument);
+    document.getElementById(`bbase-${s.id}`).textContent = base(s.instrument);
+    updateVWAP(s);
+  } catch(e) { console.error('updateCentre:', e); }
+}
+
+// Price button shows VWAP for entered qty; otherwise shows best bid/ask.
+// qty is in base units (BTC, SOL, etc.) regardless of instrument type.
+// The book is walked in base units (inverse: size_USD/price → base; linear: size directly).
+function updateVWAP(s) {
+  const bid = s.ticker.best_bid_price ?? s.bids[0]?.[0];
+  const ask = s.ticker.best_ask_price ?? s.asks[0]?.[0];
+  const mid = (bid != null && ask != null) ? (bid + ask) / 2 : (bid ?? ask);
+  const d   = pDec(bid ?? ask);
+  const inv = isInverse(s.instrument);
+
+  const sbid   = document.getElementById(`sbid-${s.id}`);
+  const bask   = document.getElementById(`bask-${s.id}`);
+  const ctlbl  = document.getElementById(`ctlabel-${s.id}`);
+
+  if (s.qty > 0) {
+    // Convert base units → contracts for display
+    if (ctlbl && mid) {
+      const cts = baseToContracts(s.qty, s.instrument, mid);
+      ctlbl.textContent = '≈ ' + fmtK(cts) + ' ct';
+    }
+
+    // Walk bid side → sell VWAP (avg price you receive selling qty base units)
+    // Walk ask side → buy  VWAP (avg price you pay buying qty base units)
+    const sv = calcVWAP(s.bids, s.qty, inv);
+    const bv = calcVWAP(s.asks, s.qty, inv);
+    // Guarantee sell ≤ buy (inverse books on testnet can be crossed)
+    const sellP = (sv != null && bv != null) ? Math.min(sv, bv) : sv;
+    const buyP  = (sv != null && bv != null) ? Math.max(sv, bv) : bv;
+    sbid.textContent = sellP != null ? '$'+fmt(sellP,d) : 'No liq.';
+    bask.textContent = buyP  != null ? '$'+fmt(buyP,d)  : 'No liq.';
+  } else {
+    if (ctlbl) ctlbl.textContent = '— ct';
+    sbid.textContent = bid != null ? '$'+fmt(bid,d) : '—';
+    bask.textContent = ask != null ? '$'+fmt(ask,d) : '—';
+  }
+}
+
+// ── Canvas ────────────────────────────────────────────────────────────────────
+function resizeAndRender(s) {
+  ['b','a'].forEach(side => {
+    const canvas = document.getElementById(`${side}canv-${s.id}`);
+    const col    = document.getElementById(`${side}c-${s.id}`);
+    const w = col.clientWidth, h = col.clientHeight;
+    if (w>0 && h>0 && (canvas.width!==w || canvas.height!==h)) { canvas.width=w; canvas.height=h; }
+  });
+  renderPanel(s);
+}
+function renderPanel(s) {
+  try {
+    s.bidMeta = drawSide(document.getElementById(`bcanv-${s.id}`), s.bids, 'bid') || null;
+    s.askMeta = drawSide(document.getElementById(`acanv-${s.id}`), s.asks, 'ask') || null;
+    updateVWAP(s);
+  } catch(e) { console.error('renderPanel:', e); }
+}
+
+function drawSide(canvas, rawLevels, side) {
+  const W=canvas.width, H=canvas.height;
+  if (W<4||H<4) return;
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  if (!rawLevels.length) return;
+  const isBid=side==='bid';
+  const PB=18,PT=6,PL=isBid?36:4,PR=isBid?4:36;
+  const cW=W-PL-PR, cH=H-PB-PT;
+  if (cW<4||cH<4) return;
+  const levels=rawLevels.slice(0,20);
+  let run=0;
+  const cum=levels.map(([p,sz])=>{run+=sz;return[p,run];});
+  const pts=isBid?[...cum].reverse():cum;
+  const pMin=pts[0][0],pMax=pts[pts.length-1][0],cMax=cum[cum.length-1][1];
+  if (pMax===pMin||cMax===0) return;
+  const xP=p=>PL+((p-pMin)/(pMax-pMin))*cW;
+  const yC=c=>PT+(1-c/cMax)*cH;
+  const steps=[],stepPrices=[];
+  for (let i=0;i<pts.length;i++) {
+    if (i>0) steps.push([xP(pts[i][0]),yC(pts[i-1][1]),null]);
+    steps.push([xP(pts[i][0]),yC(pts[i][1]),pts[i][0]]);
+    stepPrices.push({x:xP(pts[i][0]),p:pts[i][0]});
+  }
+  const color=isBid?'#00c896':'#e05252';
+  const fillHi=isBid?'rgba(0,200,150,0.15)':'rgba(224,82,82,0.15)';
+  const fillLo=isBid?'rgba(0,200,150,0.03)':'rgba(224,82,82,0.03)';
+  ctx.strokeStyle='#13131d'; ctx.lineWidth=1;
+  [0.25,0.5,0.75].forEach(t=>{const y=yC(cMax*t);ctx.beginPath();ctx.moveTo(PL,y);ctx.lineTo(W-PR,y);ctx.stroke();});
+  ctx.beginPath(); ctx.moveTo(PL,PT+cH);
+  for (const[x,y]of steps) ctx.lineTo(x,y);
+  ctx.lineTo(W-PR,PT+cH); ctx.closePath();
+  const g=ctx.createLinearGradient(PL,0,W-PR,0);
+  g.addColorStop(isBid?0:1,fillLo); g.addColorStop(isBid?1:0,fillHi);
+  ctx.fillStyle=g; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(steps[0][0],steps[0][1]);
+  for (const[x,y]of steps) ctx.lineTo(x,y);
+  ctx.strokeStyle=color; ctx.lineWidth=1.5; ctx.lineJoin='round'; ctx.stroke();
+  const d=pDec(pMin);
+  ctx.font='8px monospace'; ctx.fillStyle='#3a3a52'; ctx.textAlign='center';
+  const MIN_SPACING=34; let lastX=-Infinity;
+  for (const{x,p}of stepPrices) {
+    if (x<PL+2||x>W-PR-2) continue;
+    if (x-lastX>=MIN_SPACING) {
+      ctx.fillText(fmt(p,d),x,H-4);
+      ctx.strokeStyle='#2a2a3a'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(x,PT+cH); ctx.lineTo(x,PT+cH+3); ctx.stroke();
+      lastX=x;
+    }
+  }
+  ctx.fillStyle='#3a3a52'; ctx.font='8px monospace';
+  ctx.textAlign=isBid?'right':'left';
+  [0.25,0.5,0.75,1].forEach(t=>{
+    const y=yC(cMax*t);
+    if (y>PT+4&&y<PT+cH-4) ctx.fillText(fmtK(cMax*t),isBid?PL-3:W-PR+3,y+3);
+  });
+  // Return render metadata for click-to-price hit testing
+  return { pMin, pMax, PL, PR, cW, levels };
+}
+
+// ── Drag panels (free absolute position) ─────────────────────────────────────
+// ── Snap panels to neighbours ─────────────────────────────────────────────────
+function snapPanel(s, panelEl) {
+  const GAP   = 10;   // gap between panels (matches .panels-area padding/gap)
+  const THRESH = 28;  // snap if within this many px
+  const pw = panelEl.offsetWidth;
+  const ph = panelEl.offsetHeight;
+  let sx = s.x, sy = s.y;
+  let bestY = THRESH, bestX = THRESH;
+
+  for (const other of panels) {
+    if (other.id === s.id) continue;
+    const oel = document.getElementById(`panel-${other.id}`);
+    if (!oel) continue;
+    const ow = oel.offsetWidth, oh = oel.offsetHeight;
+
+    // ── Y snapping: align top edges or bottom edges ──────────────────────────
+    const dy_top    = Math.abs(s.y - other.y);           // same top
+    const dy_bottom = Math.abs((s.y + ph) - (other.y + oh)); // same bottom
+
+    if (dy_top < bestY)    { bestY = dy_top;    sy = other.y; }
+    if (dy_bottom < bestY) { bestY = dy_bottom; sy = other.y + oh - ph; }
+
+    // ── X snapping: snap to right of other, left of other, or same left ──────
+    // Only apply X snap when Y is already aligned (within 2× threshold)
+    if (Math.abs(sy - other.y) < THRESH * 2) {
+      const dx_right  = Math.abs(s.x - (other.x + ow + GAP)); // place right of other
+      const dx_left   = Math.abs(s.x - (other.x - pw - GAP)); // place left of other
+      const dx_align  = Math.abs(s.x - other.x);              // align left edges
+
+      if (dx_right < bestX)  { bestX = dx_right;  sx = other.x + ow + GAP; }
+      if (dx_left  < bestX)  { bestX = dx_left;   sx = other.x - pw - GAP; }
+      if (dx_align < bestX)  { bestX = dx_align;  sx = other.x; }
+    }
+  }
+
+  s.x = Math.max(0, sx);
+  s.y = Math.max(0, sy);
+  panelEl.style.left = s.x + 'px';
+  panelEl.style.top  = s.y + 'px';
+}
+
+function startDrag(panelEl, s, e) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  const rect = panelEl.getBoundingClientRect();
+  const offsetX = e.clientX - rect.left;
+  const offsetY = e.clientY - rect.top;
+  panelEl.classList.add('is-dragging');
+  panelEl.style.zIndex = 1000;
+
+  const onMove = ev => {
+    const area = document.getElementById('panels-area');
+    const ar = area.getBoundingClientRect();
+    const x = Math.max(0, Math.round((ev.clientX - ar.left - offsetX + area.scrollLeft) / 8) * 8);
+    const y = Math.max(0, Math.round((ev.clientY - ar.top  - offsetY + area.scrollTop)  / 8) * 8);
+    s.x = x; s.y = y;
+    panelEl.style.left = x + 'px';
+    panelEl.style.top  = y + 'px';
+    updateAreaSize();
+  };
+  const onUp = () => {
+    panelEl.classList.remove('is-dragging');
+    panelEl.style.zIndex = '';
+    snapPanel(s, panelEl);   // ← snap to neighbours on release
+    updateAreaSize();
+    persistLayouts();
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// ── Resize panels ─────────────────────────────────────────────────────────────
+function startResize(panelEl, s, e) {
+  if (e.button !== 0) return;
+  e.preventDefault(); e.stopPropagation();
+  const startX = e.clientX;
+  const startW = panelEl.getBoundingClientRect().width;
+  const handle = document.getElementById(`resize-${s.id}`);
+  handle.classList.add('resizing');
+  const onMove = ev => {
+    const newW = Math.max(200, startW + ev.clientX - startX);
+    panelEl.style.width = newW + 'px';
+    resizeAndRender(s); updateAreaSize();
+  };
+  const onUp = () => {
+    handle.classList.remove('resizing');
+    persistLayouts();
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CONTRACT SPECS
+// ══════════════════════════════════════════════════════════════════════════════
+// CONTRACT_SPECS — verify against each exchange's official contract specs page
+// Fields: instrument, exchange, base (asset), type (linear|inverse),
+//         contractSize, unit (what 1 contract is denominated in),
+//         tickSize, minOrder, settlement
+// ══════════════════════════════════════════════════════════════════════════════
+const CONTRACT_SPECS = [
+
+  // ── BINANCE — USDT-margined linear perpetuals ──────────────────────────────
+  { instrument:'BTCUSDT',  exchange:'Binance', base:'BTC',  type:'linear',  contractSize:0.001, unit:'BTC',  tickSize:0.10,     minOrder:0.001, settlement:'USDT' },
+  { instrument:'ETHUSDT',  exchange:'Binance', base:'ETH',  type:'linear',  contractSize:0.01,  unit:'ETH',  tickSize:0.01,     minOrder:0.01,  settlement:'USDT' },
+  { instrument:'SOLUSDT',  exchange:'Binance', base:'SOL',  type:'linear',  contractSize:1,     unit:'SOL',  tickSize:0.010,    minOrder:1,     settlement:'USDT' },
+  { instrument:'BNBUSDT',  exchange:'Binance', base:'BNB',  type:'linear',  contractSize:1,     unit:'BNB',  tickSize:0.010,    minOrder:1,     settlement:'USDT' },
+  { instrument:'XRPUSDT',  exchange:'Binance', base:'XRP',  type:'linear',  contractSize:1,     unit:'XRP',  tickSize:0.0001,   minOrder:1,     settlement:'USDT' },
+  { instrument:'ADAUSDT',  exchange:'Binance', base:'ADA',  type:'linear',  contractSize:1,     unit:'ADA',  tickSize:0.0001,   minOrder:1,     settlement:'USDT' },
+  { instrument:'AVAXUSDT', exchange:'Binance', base:'AVAX', type:'linear',  contractSize:1,     unit:'AVAX', tickSize:0.010,    minOrder:1,     settlement:'USDT' },
+  { instrument:'DOGEUSDT', exchange:'Binance', base:'DOGE', type:'linear',  contractSize:1,     unit:'DOGE', tickSize:0.00001,  minOrder:1,     settlement:'USDT' },
+  { instrument:'DOTUSDT',  exchange:'Binance', base:'DOT',  type:'linear',  contractSize:1,     unit:'DOT',  tickSize:0.001,    minOrder:1,     settlement:'USDT' },
+  { instrument:'LINKUSDT', exchange:'Binance', base:'LINK', type:'linear',  contractSize:1,     unit:'LINK', tickSize:0.001,    minOrder:1,     settlement:'USDT' },
+  { instrument:'MATICUSDT',exchange:'Binance', base:'MATIC',type:'linear',  contractSize:1,     unit:'MATIC',tickSize:0.0001,   minOrder:1,     settlement:'USDT' },
+  { instrument:'LTCUSDT',  exchange:'Binance', base:'LTC',  type:'linear',  contractSize:0.1,   unit:'LTC',  tickSize:0.010,    minOrder:0.1,   settlement:'USDT' },
+  { instrument:'UNIUSDT',  exchange:'Binance', base:'UNI',  type:'linear',  contractSize:1,     unit:'UNI',  tickSize:0.001,    minOrder:1,     settlement:'USDT' },
+  { instrument:'ATOMUSDT', exchange:'Binance', base:'ATOM', type:'linear',  contractSize:1,     unit:'ATOM', tickSize:0.001,    minOrder:1,     settlement:'USDT' },
+  { instrument:'BCHUSDT',  exchange:'Binance', base:'BCH',  type:'linear',  contractSize:0.01,  unit:'BCH',  tickSize:0.010,    minOrder:0.01,  settlement:'USDT' },
+  { instrument:'FILUSDT',  exchange:'Binance', base:'FIL',  type:'linear',  contractSize:1,     unit:'FIL',  tickSize:0.001,    minOrder:1,     settlement:'USDT' },
+  { instrument:'NEARUSDT', exchange:'Binance', base:'NEAR', type:'linear',  contractSize:1,     unit:'NEAR', tickSize:0.001,    minOrder:1,     settlement:'USDT' },
+  { instrument:'APTUSDT',  exchange:'Binance', base:'APT',  type:'linear',  contractSize:1,     unit:'APT',  tickSize:0.001,    minOrder:1,     settlement:'USDT' },
+  { instrument:'ARBUSDT',  exchange:'Binance', base:'ARB',  type:'linear',  contractSize:1,     unit:'ARB',  tickSize:0.0001,   minOrder:1,     settlement:'USDT' },
+  { instrument:'OPUSDT',   exchange:'Binance', base:'OP',   type:'linear',  contractSize:1,     unit:'OP',   tickSize:0.0001,   minOrder:1,     settlement:'USDT' },
+
+  // ── BYBIT — USDT-margined linear perpetuals ────────────────────────────────
+  { instrument:'BTCUSDT',  exchange:'Bybit',   base:'BTC',  type:'linear',  contractSize:0.001, unit:'BTC',  tickSize:0.10,     minOrder:0.001, settlement:'USDT' },
+  { instrument:'ETHUSDT',  exchange:'Bybit',   base:'ETH',  type:'linear',  contractSize:0.01,  unit:'ETH',  tickSize:0.01,     minOrder:0.01,  settlement:'USDT' },
+  { instrument:'SOLUSDT',  exchange:'Bybit',   base:'SOL',  type:'linear',  contractSize:1,     unit:'SOL',  tickSize:0.010,    minOrder:1,     settlement:'USDT' },
+  { instrument:'BNBUSDT',  exchange:'Bybit',   base:'BNB',  type:'linear',  contractSize:1,     unit:'BNB',  tickSize:0.010,    minOrder:1,     settlement:'USDT' },
+  { instrument:'XRPUSDT',  exchange:'Bybit',   base:'XRP',  type:'linear',  contractSize:1,     unit:'XRP',  tickSize:0.0001,   minOrder:1,     settlement:'USDT' },
+  { instrument:'ADAUSDT',  exchange:'Bybit',   base:'ADA',  type:'linear',  contractSize:1,     unit:'ADA',  tickSize:0.0001,   minOrder:1,     settlement:'USDT' },
+  { instrument:'AVAXUSDT', exchange:'Bybit',   base:'AVAX', type:'linear',  contractSize:1,     unit:'AVAX', tickSize:0.010,    minOrder:1,     settlement:'USDT' },
+  { instrument:'DOGEUSDT', exchange:'Bybit',   base:'DOGE', type:'linear',  contractSize:1,     unit:'DOGE', tickSize:0.00001,  minOrder:1,     settlement:'USDT' },
+  { instrument:'DOTUSDT',  exchange:'Bybit',   base:'DOT',  type:'linear',  contractSize:1,     unit:'DOT',  tickSize:0.001,    minOrder:1,     settlement:'USDT' },
+  { instrument:'LINKUSDT', exchange:'Bybit',   base:'LINK', type:'linear',  contractSize:1,     unit:'LINK', tickSize:0.001,    minOrder:1,     settlement:'USDT' },
+  { instrument:'MATICUSDT',exchange:'Bybit',   base:'MATIC',type:'linear',  contractSize:1,     unit:'MATIC',tickSize:0.0001,   minOrder:1,     settlement:'USDT' },
+  { instrument:'LTCUSDT',  exchange:'Bybit',   base:'LTC',  type:'linear',  contractSize:0.1,   unit:'LTC',  tickSize:0.010,    minOrder:0.1,   settlement:'USDT' },
+  { instrument:'UNIUSDT',  exchange:'Bybit',   base:'UNI',  type:'linear',  contractSize:1,     unit:'UNI',  tickSize:0.001,    minOrder:1,     settlement:'USDT' },
+  { instrument:'ATOMUSDT', exchange:'Bybit',   base:'ATOM', type:'linear',  contractSize:1,     unit:'ATOM', tickSize:0.001,    minOrder:1,     settlement:'USDT' },
+  { instrument:'BCHUSDT',  exchange:'Bybit',   base:'BCH',  type:'linear',  contractSize:0.01,  unit:'BCH',  tickSize:0.010,    minOrder:0.01,  settlement:'USDT' },
+  { instrument:'FILUSDT',  exchange:'Bybit',   base:'FIL',  type:'linear',  contractSize:1,     unit:'FIL',  tickSize:0.001,    minOrder:1,     settlement:'USDT' },
+  { instrument:'NEARUSDT', exchange:'Bybit',   base:'NEAR', type:'linear',  contractSize:1,     unit:'NEAR', tickSize:0.001,    minOrder:1,     settlement:'USDT' },
+  { instrument:'APTUSDT',  exchange:'Bybit',   base:'APT',  type:'linear',  contractSize:1,     unit:'APT',  tickSize:0.001,    minOrder:1,     settlement:'USDT' },
+  { instrument:'ARBUSDT',  exchange:'Bybit',   base:'ARB',  type:'linear',  contractSize:1,     unit:'ARB',  tickSize:0.0001,   minOrder:1,     settlement:'USDT' },
+  { instrument:'OPUSDT',   exchange:'Bybit',   base:'OP',   type:'linear',  contractSize:1,     unit:'OP',   tickSize:0.0001,   minOrder:1,     settlement:'USDT' },
+
+  // ── OKX — USDT-margined linear perpetuals (1 ct = stated size) ────────────
+  { instrument:'BTC-USDT-SWAP',   exchange:'OKX', base:'BTC',  type:'linear',  contractSize:0.01,  unit:'BTC',  tickSize:0.10,     minOrder:1,  settlement:'USDT' },
+  { instrument:'ETH-USDT-SWAP',   exchange:'OKX', base:'ETH',  type:'linear',  contractSize:0.1,   unit:'ETH',  tickSize:0.01,     minOrder:1,  settlement:'USDT' },
+  { instrument:'SOL-USDT-SWAP',   exchange:'OKX', base:'SOL',  type:'linear',  contractSize:1,     unit:'SOL',  tickSize:0.010,    minOrder:1,  settlement:'USDT' },
+  { instrument:'BNB-USDT-SWAP',   exchange:'OKX', base:'BNB',  type:'linear',  contractSize:0.1,   unit:'BNB',  tickSize:0.010,    minOrder:1,  settlement:'USDT' },
+  { instrument:'XRP-USDT-SWAP',   exchange:'OKX', base:'XRP',  type:'linear',  contractSize:10,    unit:'XRP',  tickSize:0.0001,   minOrder:1,  settlement:'USDT' },
+  { instrument:'ADA-USDT-SWAP',   exchange:'OKX', base:'ADA',  type:'linear',  contractSize:100,   unit:'ADA',  tickSize:0.0001,   minOrder:1,  settlement:'USDT' },
+  { instrument:'AVAX-USDT-SWAP',  exchange:'OKX', base:'AVAX', type:'linear',  contractSize:1,     unit:'AVAX', tickSize:0.010,    minOrder:1,  settlement:'USDT' },
+  { instrument:'DOGE-USDT-SWAP',  exchange:'OKX', base:'DOGE', type:'linear',  contractSize:100,   unit:'DOGE', tickSize:0.00001,  minOrder:1,  settlement:'USDT' },
+  { instrument:'DOT-USDT-SWAP',   exchange:'OKX', base:'DOT',  type:'linear',  contractSize:10,    unit:'DOT',  tickSize:0.001,    minOrder:1,  settlement:'USDT' },
+  { instrument:'LINK-USDT-SWAP',  exchange:'OKX', base:'LINK', type:'linear',  contractSize:1,     unit:'LINK', tickSize:0.001,    minOrder:1,  settlement:'USDT' },
+  { instrument:'MATIC-USDT-SWAP', exchange:'OKX', base:'MATIC',type:'linear',  contractSize:100,   unit:'MATIC',tickSize:0.0001,   minOrder:1,  settlement:'USDT' },
+  { instrument:'LTC-USDT-SWAP',   exchange:'OKX', base:'LTC',  type:'linear',  contractSize:1,     unit:'LTC',  tickSize:0.010,    minOrder:1,  settlement:'USDT' },
+  { instrument:'UNI-USDT-SWAP',   exchange:'OKX', base:'UNI',  type:'linear',  contractSize:1,     unit:'UNI',  tickSize:0.001,    minOrder:1,  settlement:'USDT' },
+  { instrument:'ATOM-USDT-SWAP',  exchange:'OKX', base:'ATOM', type:'linear',  contractSize:1,     unit:'ATOM', tickSize:0.001,    minOrder:1,  settlement:'USDT' },
+  { instrument:'BCH-USDT-SWAP',   exchange:'OKX', base:'BCH',  type:'linear',  contractSize:0.1,   unit:'BCH',  tickSize:0.010,    minOrder:1,  settlement:'USDT' },
+  { instrument:'FIL-USDT-SWAP',   exchange:'OKX', base:'FIL',  type:'linear',  contractSize:1,     unit:'FIL',  tickSize:0.001,    minOrder:1,  settlement:'USDT' },
+  { instrument:'NEAR-USDT-SWAP',  exchange:'OKX', base:'NEAR', type:'linear',  contractSize:10,    unit:'NEAR', tickSize:0.0001,   minOrder:1,  settlement:'USDT' },
+  { instrument:'APT-USDT-SWAP',   exchange:'OKX', base:'APT',  type:'linear',  contractSize:1,     unit:'APT',  tickSize:0.001,    minOrder:1,  settlement:'USDT' },
+  { instrument:'ARB-USDT-SWAP',   exchange:'OKX', base:'ARB',  type:'linear',  contractSize:10,    unit:'ARB',  tickSize:0.0001,   minOrder:1,  settlement:'USDT' },
+  { instrument:'OP-USDT-SWAP',    exchange:'OKX', base:'OP',   type:'linear',  contractSize:10,    unit:'OP',   tickSize:0.0001,   minOrder:1,  settlement:'USDT' },
+  // OKX — USD coin-margined inverse perpetuals
+  { instrument:'BTC-USD-SWAP',    exchange:'OKX', base:'BTC',  type:'inverse', contractSize:100,   unit:'USD',  tickSize:0.10,     minOrder:1,  settlement:'BTC'  },
+  { instrument:'ETH-USD-SWAP',    exchange:'OKX', base:'ETH',  type:'inverse', contractSize:10,    unit:'USD',  tickSize:0.01,     minOrder:1,  settlement:'ETH'  },
+  { instrument:'SOL-USD-SWAP',    exchange:'OKX', base:'SOL',  type:'inverse', contractSize:10,    unit:'USD',  tickSize:0.010,    minOrder:1,  settlement:'SOL'  },
+
+  // ── DERIBIT ────────────────────────────────────────────────────────────────
+  // Inverse perpetuals — size in USD, settlement in coin; 1 ct = $10 (BTC) / $1 (ETH)
+  { instrument:'BTC-PERPETUAL',      exchange:'Deribit', base:'BTC',  type:'inverse', contractSize:10,    unit:'USD',  tickSize:0.50,     minOrder:10,   settlement:'BTC'  },
+  { instrument:'ETH-PERPETUAL',      exchange:'Deribit', base:'ETH',  type:'inverse', contractSize:1,     unit:'USD',  tickSize:0.05,     minOrder:1,    settlement:'ETH'  },
+  // Linear USDC perpetuals — size in base coin
+  { instrument:'BTC_USDC-PERPETUAL', exchange:'Deribit', base:'BTC',  type:'linear',  contractSize:0.001, unit:'BTC',  tickSize:0.50,     minOrder:0.001,settlement:'USDC' },
+  { instrument:'ETH_USDC-PERPETUAL', exchange:'Deribit', base:'ETH',  type:'linear',  contractSize:0.01,  unit:'ETH',  tickSize:0.05,     minOrder:0.01, settlement:'USDC' },
+  { instrument:'SOL_USDC-PERPETUAL', exchange:'Deribit', base:'SOL',  type:'linear',  contractSize:1,     unit:'SOL',  tickSize:0.0010,   minOrder:1,    settlement:'USDC' },
+  { instrument:'XRP_USDC-PERPETUAL', exchange:'Deribit', base:'XRP',  type:'linear',  contractSize:1,     unit:'XRP',  tickSize:0.0001,   minOrder:1,    settlement:'USDC' },
+  { instrument:'BNB_USDC-PERPETUAL', exchange:'Deribit', base:'BNB',  type:'linear',  contractSize:1,     unit:'BNB',  tickSize:0.010,    minOrder:1,    settlement:'USDC' },
+  { instrument:'ADA_USDC-PERPETUAL', exchange:'Deribit', base:'ADA',  type:'linear',  contractSize:1,     unit:'ADA',  tickSize:0.0001,   minOrder:1,    settlement:'USDC' },
+  { instrument:'AVAX_USDC-PERPETUAL',exchange:'Deribit', base:'AVAX', type:'linear',  contractSize:1,     unit:'AVAX', tickSize:0.010,    minOrder:1,    settlement:'USDC' },
+  { instrument:'DOGE_USDC-PERPETUAL',exchange:'Deribit', base:'DOGE', type:'linear',  contractSize:1,     unit:'DOGE', tickSize:0.00001,  minOrder:1,    settlement:'USDC' },
+  { instrument:'DOT_USDC-PERPETUAL', exchange:'Deribit', base:'DOT',  type:'linear',  contractSize:1,     unit:'DOT',  tickSize:0.001,    minOrder:1,    settlement:'USDC' },
+  { instrument:'LINK_USDC-PERPETUAL',exchange:'Deribit', base:'LINK', type:'linear',  contractSize:1,     unit:'LINK', tickSize:0.001,    minOrder:1,    settlement:'USDC' },
+  { instrument:'MATIC_USDC-PERPETUAL',exchange:'Deribit',base:'MATIC',type:'linear',  contractSize:1,     unit:'MATIC',tickSize:0.0001,   minOrder:1,    settlement:'USDC' },
+  { instrument:'LTC_USDC-PERPETUAL', exchange:'Deribit', base:'LTC',  type:'linear',  contractSize:1,     unit:'LTC',  tickSize:0.010,    minOrder:1,    settlement:'USDC' },
+  { instrument:'NEAR_USDC-PERPETUAL',exchange:'Deribit', base:'NEAR', type:'linear',  contractSize:1,     unit:'NEAR', tickSize:0.001,    minOrder:1,    settlement:'USDC' },
+
+  // ── KUCOIN FUTURES ─────────────────────────────────────────────────────────
+  // USDT-margined (suffix M = multiplier 1)
+  { instrument:'XBTUSDTM',  exchange:'KuCoin', base:'BTC',  type:'linear',  contractSize:0.001, unit:'BTC',  tickSize:0.10,     minOrder:1, settlement:'USDT' },
+  { instrument:'ETHUSDTM',  exchange:'KuCoin', base:'ETH',  type:'linear',  contractSize:0.01,  unit:'ETH',  tickSize:0.01,     minOrder:1, settlement:'USDT' },
+  { instrument:'SOLUSDTM',  exchange:'KuCoin', base:'SOL',  type:'linear',  contractSize:1,     unit:'SOL',  tickSize:0.010,    minOrder:1, settlement:'USDT' },
+  { instrument:'XRPUSDTM',  exchange:'KuCoin', base:'XRP',  type:'linear',  contractSize:1,     unit:'XRP',  tickSize:0.0001,   minOrder:1, settlement:'USDT' },
+  { instrument:'ADAUSDTM',  exchange:'KuCoin', base:'ADA',  type:'linear',  contractSize:1,     unit:'ADA',  tickSize:0.0001,   minOrder:1, settlement:'USDT' },
+  { instrument:'AVAXUSDTM', exchange:'KuCoin', base:'AVAX', type:'linear',  contractSize:1,     unit:'AVAX', tickSize:0.010,    minOrder:1, settlement:'USDT' },
+  { instrument:'DOGEUSDTM', exchange:'KuCoin', base:'DOGE', type:'linear',  contractSize:1,     unit:'DOGE', tickSize:0.00001,  minOrder:1, settlement:'USDT' },
+  { instrument:'DOTUSDTM',  exchange:'KuCoin', base:'DOT',  type:'linear',  contractSize:1,     unit:'DOT',  tickSize:0.001,    minOrder:1, settlement:'USDT' },
+  { instrument:'LINKUSDTM', exchange:'KuCoin', base:'LINK', type:'linear',  contractSize:1,     unit:'LINK', tickSize:0.001,    minOrder:1, settlement:'USDT' },
+  { instrument:'LTCUSDTM',  exchange:'KuCoin', base:'LTC',  type:'linear',  contractSize:0.1,   unit:'LTC',  tickSize:0.010,    minOrder:1, settlement:'USDT' },
+  { instrument:'UNIUSDTM',  exchange:'KuCoin', base:'UNI',  type:'linear',  contractSize:1,     unit:'UNI',  tickSize:0.001,    minOrder:1, settlement:'USDT' },
+  { instrument:'ATOMUSDTM', exchange:'KuCoin', base:'ATOM', type:'linear',  contractSize:1,     unit:'ATOM', tickSize:0.001,    minOrder:1, settlement:'USDT' },
+  { instrument:'BCHUSDTM',  exchange:'KuCoin', base:'BCH',  type:'linear',  contractSize:0.01,  unit:'BCH',  tickSize:0.010,    minOrder:1, settlement:'USDT' },
+  { instrument:'NEARUSDTM', exchange:'KuCoin', base:'NEAR', type:'linear',  contractSize:1,     unit:'NEAR', tickSize:0.001,    minOrder:1, settlement:'USDT' },
+  { instrument:'APTUSDTM',  exchange:'KuCoin', base:'APT',  type:'linear',  contractSize:1,     unit:'APT',  tickSize:0.001,    minOrder:1, settlement:'USDT' },
+  { instrument:'ARBUSDTM',  exchange:'KuCoin', base:'ARB',  type:'linear',  contractSize:1,     unit:'ARB',  tickSize:0.0001,   minOrder:1, settlement:'USDT' },
+  { instrument:'OPUSDTM',   exchange:'KuCoin', base:'OP',   type:'linear',  contractSize:1,     unit:'OP',   tickSize:0.0001,   minOrder:1, settlement:'USDT' },
+  // KuCoin inverse (coin-margined, 1 ct = $1)
+  { instrument:'XBTUSDM',   exchange:'KuCoin', base:'BTC',  type:'inverse', contractSize:1,     unit:'USD',  tickSize:0.50,     minOrder:1, settlement:'BTC'  },
+  { instrument:'ETHUSDM',   exchange:'KuCoin', base:'ETH',  type:'inverse', contractSize:1,     unit:'USD',  tickSize:0.05,     minOrder:1, settlement:'ETH'  },
+
+  // ── BITMEX ─────────────────────────────────────────────────────────────────
+  // Classic inverse perpetuals (coin-settled, 1 ct = $1 USD)
+  { instrument:'XBTUSD',  exchange:'BitMEX', base:'BTC',  type:'inverse', contractSize:1,     unit:'USD',  tickSize:0.50,     minOrder:1, settlement:'BTC'  },
+  { instrument:'ETHUSD',  exchange:'BitMEX', base:'ETH',  type:'inverse', contractSize:1,     unit:'USD',  tickSize:0.05,     minOrder:1, settlement:'ETH'  },
+  { instrument:'SOLUSD',  exchange:'BitMEX', base:'SOL',  type:'inverse', contractSize:1,     unit:'USD',  tickSize:0.0010,   minOrder:1, settlement:'SOL'  },
+  { instrument:'XRPUSD',  exchange:'BitMEX', base:'XRP',  type:'inverse', contractSize:1,     unit:'USD',  tickSize:0.0001,   minOrder:1, settlement:'XRP'  },
+  { instrument:'ADAUSD',  exchange:'BitMEX', base:'ADA',  type:'inverse', contractSize:1,     unit:'USD',  tickSize:0.00001,  minOrder:1, settlement:'ADA'  },
+  { instrument:'DOTUSD',  exchange:'BitMEX', base:'DOT',  type:'inverse', contractSize:1,     unit:'USD',  tickSize:0.0001,   minOrder:1, settlement:'DOT'  },
+  { instrument:'LINKUSD', exchange:'BitMEX', base:'LINK', type:'inverse', contractSize:1,     unit:'USD',  tickSize:0.0001,   minOrder:1, settlement:'LINK' },
+  { instrument:'LTCUSD',  exchange:'BitMEX', base:'LTC',  type:'inverse', contractSize:1,     unit:'USD',  tickSize:0.010,    minOrder:1, settlement:'LTC'  },
+  { instrument:'BCHUSD',  exchange:'BitMEX', base:'BCH',  type:'inverse', contractSize:1,     unit:'USD',  tickSize:0.050,    minOrder:1, settlement:'BCH'  },
+  { instrument:'AVAXUSD', exchange:'BitMEX', base:'AVAX', type:'inverse', contractSize:1,     unit:'USD',  tickSize:0.0010,   minOrder:1, settlement:'AVAX' },
+  { instrument:'DOGEUSD', exchange:'BitMEX', base:'DOGE', type:'inverse', contractSize:1,     unit:'USD',  tickSize:0.00001,  minOrder:1, settlement:'DOGE' },
+  // BitMEX linear USDT perpetuals
+  { instrument:'XBTUSDT', exchange:'BitMEX', base:'BTC',  type:'linear',  contractSize:0.001, unit:'BTC',  tickSize:0.50,     minOrder:1, settlement:'USDT' },
+  { instrument:'ETHUSDT', exchange:'BitMEX', base:'ETH',  type:'linear',  contractSize:0.01,  unit:'ETH',  tickSize:0.05,     minOrder:1, settlement:'USDT' },
+  { instrument:'SOLUSDT', exchange:'BitMEX', base:'SOL',  type:'linear',  contractSize:1,     unit:'SOL',  tickSize:0.0010,   minOrder:1, settlement:'USDT' },
+  { instrument:'BNBUSDT', exchange:'BitMEX', base:'BNB',  type:'linear',  contractSize:1,     unit:'BNB',  tickSize:0.010,    minOrder:1, settlement:'USDT' },
+  { instrument:'XRPUSDT', exchange:'BitMEX', base:'XRP',  type:'linear',  contractSize:1,     unit:'XRP',  tickSize:0.0001,   minOrder:1, settlement:'USDT' },
+
+];
+
+let expandedRow = null;
+
+// Populate filter dropdowns from data
+function buildFilterOptions() {
+  const bases    = [...new Set(CONTRACT_SPECS.map(r => r.base))].sort();
+  const exchanges= [...new Set(CONTRACT_SPECS.map(r => r.exchange))].sort();
+  const sfBase = document.getElementById('sf-base');
+  const sfExch = document.getElementById('sf-exchange');
+  bases.forEach(b => { const o=document.createElement('option'); o.value=o.textContent=b; sfBase.appendChild(o); });
+  exchanges.forEach(e => { const o=document.createElement('option'); o.value=o.textContent=e; sfExch.appendChild(o); });
+}
+
+function renderSpecsTable() {
+  const baseFilter = document.getElementById('sf-base').value;
+  const exchFilter = document.getElementById('sf-exchange').value;
+  const typeFilter = document.getElementById('sf-type').value;
+  const textFilter = document.getElementById('sf-text').value.toLowerCase().trim();
+  const tbody = document.getElementById('specs-tbody');
+  tbody.innerHTML = '';
+  expandedRow = null;
+
+  const filtered = CONTRACT_SPECS.filter(r =>
+    (!baseFilter || r.base     === baseFilter) &&
+    (!exchFilter || r.exchange === exchFilter) &&
+    (!typeFilter || r.type     === typeFilter) &&
+    (!textFilter || r.instrument.toLowerCase().includes(textFilter) || r.base.toLowerCase().includes(textFilter))
+  );
+
+  filtered.forEach((row, i) => {
+    // For inverse contracts tick value is price-dependent; show formula
+    const tickValStr = row.type === 'inverse'
+      ? `${row.contractSize}×${row.tickSize}/P`
+      : '$' + (row.contractSize * row.tickSize).toFixed(8).replace(/\.?0+$/, '');
+    const exchCls = row.exchange.toLowerCase().replace(/\s+/g,'');
+    const typeBadge = row.type === 'inverse'
+      ? `<span style="font-size:9px;color:#aa6600;background:#1a1000;border:1px solid #332000;border-radius:3px;padding:1px 5px;margin-left:4px">INV</span>`
+      : `<span style="font-size:9px;color:#006688;background:#001020;border:1px solid #002040;border-radius:3px;padding:1px 5px;margin-left:4px">LIN</span>`;
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.innerHTML = `
+      <td><strong>${row.instrument}</strong>${typeBadge}</td>
+      <td><span class="tag-exchange tag-${exchCls}">${row.exchange}</span></td>
+      <td>${row.contractSize} ${row.unit}</td>
+      <td>${row.tickSize}</td>
+      <td>${tickValStr}</td>
+      <td>${row.minOrder} ${row.unit}</td>
+      <td>${row.settlement}</td>`;
+    tr.addEventListener('click', () => toggleDetail(tbody, tr, row, i));
+    tbody.appendChild(tr);
+  });
+
+  if (!filtered.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="7" style="text-align:center;color:#333;padding:20px">No matching contracts</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function toggleDetail(tbody, tr, row, idx) {
+  const existingDetail = tbody.querySelector('.detail-row');
+  if (existingDetail) {
+    const wasThis = existingDetail.dataset.idx == idx;
+    existingDetail.remove();
+    expandedRow = null;
+    if (wasThis) return;
+  }
+  expandedRow = idx;
+  const tickValStr = row.type === 'inverse'
+    ? `${row.contractSize} × ${row.tickSize} / price (coin-margined — price-dependent)`
+    : '$' + (row.contractSize * row.tickSize).toFixed(8).replace(/\.?0+$/, '') + ' USDT';
+  const detail = document.createElement('tr');
+  detail.className = 'detail-row'; detail.dataset.idx = idx;
+  detail.innerHTML = `<td colspan="7"><div class="detail-grid">
+    <div class="detail-item"><span class="detail-item-label">Instrument</span><span class="detail-item-val">${row.instrument}</span></div>
+    <div class="detail-item"><span class="detail-item-label">Exchange</span><span class="detail-item-val">${row.exchange}</span></div>
+    <div class="detail-item"><span class="detail-item-label">Type</span><span class="detail-item-val">${row.type}</span></div>
+    <div class="detail-item"><span class="detail-item-label">Base Asset</span><span class="detail-item-val">${row.base}</span></div>
+    <div class="detail-item"><span class="detail-item-label">Contract Size</span><span class="detail-item-val">${row.contractSize} ${row.unit}</span></div>
+    <div class="detail-item"><span class="detail-item-label">Tick Size</span><span class="detail-item-val">${row.tickSize} ${row.type==='linear'?row.settlement:'USD'}</span></div>
+    <div class="detail-item"><span class="detail-item-label">Tick Value / Contract</span><span class="detail-item-val">${tickValStr}</span></div>
+    <div class="detail-item"><span class="detail-item-label">Min Order</span><span class="detail-item-val">${row.minOrder} ${row.unit}</span></div>
+    <div class="detail-item"><span class="detail-item-label">Settlement</span><span class="detail-item-val">${row.settlement}</span></div>
+  </div></td>`;
+  tr.after(detail);
+}
+
+['sf-base','sf-exchange','sf-type'].forEach(id =>
+  document.getElementById(id).addEventListener('change', renderSpecsTable));
+document.getElementById('sf-text').addEventListener('input', renderSpecsTable);
+
+// ── Converter ─────────────────────────────────────────────────────────────────
+function populateConvInstruments() {
+  const exchange = document.getElementById('conv-exchange').value;
+  const sel = document.getElementById('conv-instrument');
+  sel.innerHTML = '';
+  CONTRACT_SPECS.filter(r => r.exchange === exchange).forEach(r => {
+    const o = document.createElement('option');
+    o.value = r.instrument;
+    o.textContent = `${r.instrument} (${r.base}, ${r.type})`;
+    sel.appendChild(o);
+  });
+}
+document.getElementById('conv-exchange').addEventListener('change', populateConvInstruments);
+
+async function fetchLivePrice(base) {
+  // Try Binance first; works for most assets
+  try {
+    const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${base}USDT`);
+    const j = await r.json();
+    const p = parseFloat(j.price);
+    if (p > 0) return p;
+  } catch {}
+  return null;
+}
+
+document.getElementById('conv-calc-btn').addEventListener('click', async () => {
+  const qty      = parseFloat(document.getElementById('conv-qty').value);
+  const exchange = document.getElementById('conv-exchange').value;
+  const instrName= document.getElementById('conv-instrument').value;
+  const manualP  = parseFloat(document.getElementById('conv-price').value);
+
+  if (!qty || qty <= 0 || !instrName) return;
+
+  const spec = CONTRACT_SPECS.find(r => r.instrument === instrName && r.exchange === exchange);
+  if (!spec) { alert('Spec not found for ' + instrName + ' / ' + exchange); return; }
+
+  let price = manualP || null;
+  const srcEl = document.getElementById('conv-price-src');
+  if (!price) {
+    srcEl.textContent = '(fetching…)';
+    price = await fetchLivePrice(spec.base);
+    if (price) {
+      document.getElementById('conv-price').value = price.toFixed(4);
+      srcEl.textContent = '(live · Binance)';
+    } else {
+      srcEl.textContent = '(unavailable)';
+    }
+  } else {
+    srcEl.textContent = '(manual)';
+  }
+
+  if (!price) { alert('Enter a price manually.'); return; }
+
+  // contracts = qty (base units) / contractSize (base units per contract)
+  // For inverse: contractSize is in USD, so contracts = qty * price / contractSize
+  let contracts;
+  if (spec.type === 'inverse') {
+    contracts = (qty * price) / spec.contractSize;
+  } else {
+    contracts = qty / spec.contractSize;
+  }
+
+  const notional = qty * price;
+
+  // Tick value per contract
+  // linear: tickVal = contractSize * tickSize (in settlement currency)
+  // inverse: tickVal = contractSize * tickSize / price² (in coin) → in USD = contractSize * tickSize / price
+  let tickValPerCon, posTickVal;
+  if (spec.type === 'inverse') {
+    tickValPerCon = (spec.contractSize * spec.tickSize) / price;
+    posTickVal    = contracts * tickValPerCon;
+  } else {
+    tickValPerCon = spec.contractSize * spec.tickSize;
+    posTickVal    = contracts * tickValPerCon;
+  }
+
+  document.getElementById('cr-contracts').textContent = contracts.toLocaleString('en-US', {maximumFractionDigits:2});
+  document.getElementById('cr-notional').textContent  = '$' + notional.toLocaleString('en-US', {maximumFractionDigits:2});
+  document.getElementById('cr-tickval').textContent   = '$' + tickValPerCon.toFixed(6).replace(/\.?0+$/,'')
+    + (spec.type==='inverse' ? ' (@ $'+price.toFixed(0)+')' : '');
+  document.getElementById('cr-pos-tick').textContent  = '$' + posTickVal.toFixed(4).replace(/\.?0+$/,'');
+
+  document.getElementById('conv-results').style.display = 'flex';
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ORDER MODAL
+// ══════════════════════════════════════════════════════════════════════════════
+let orderState = { instrument: '', side: 'buy', tab: 'limit', price: null, qty: null };
+let authToken = null, authExpiry = 0;
+
+// ── Panel helpers ─────────────────────────────────────────────────────────────
+function getPanelMid(s) {
+  const bid = s.ticker.best_bid_price ?? s.bids[0]?.[0];
+  const ask = s.ticker.best_ask_price ?? s.asks[0]?.[0];
+  return (bid != null && ask != null) ? (bid + ask) / 2 : (bid ?? ask ?? null);
+}
+function getPanelQty(s) {
+  if (s.qty > 0) return s.qty;
+  const b = base(s.instrument);
+  if (b === 'BTC') return 0.001;
+  if (b === 'ETH') return 0.01;
+  return 1;
+}
+// Tick size for price stepping (from API spec or CONTRACT_SPECS)
+function priceStep(instr) {
+  const spec = instrSpec(instr);
+  if (spec?.tick_size) return spec.tick_size;
+  const cs = CONTRACT_SPECS.find(r => r.instrument === instr && r.exchange === 'Deribit');
+  return cs?.tickSize ?? 1;
+}
+// Qty step: one sensible increment in base units
+function qtyStep(instr) {
+  const b = base(instr);
+  if (b === 'BTC') return 0.001;
+  if (b === 'ETH') return 0.01;
+  return 1;
+}
+
+// ── Credentials ───────────────────────────────────────────────────────────────
+function loadAuthCreds() {
+  document.getElementById('auth-client-id').value     = localStorage.getItem('deribit_cid')  || '';
+  document.getElementById('auth-client-secret').value = localStorage.getItem('deribit_csec') || '';
+}
+function saveAuthCreds() {
+  localStorage.setItem('deribit_cid',  document.getElementById('auth-client-id').value.trim());
+  localStorage.setItem('deribit_csec', document.getElementById('auth-client-secret').value.trim());
+}
+async function ensureAuth() {
+  const now = Date.now() / 1000;
+  if (authToken && now < authExpiry - 30) return authToken;
+  let cid  = document.getElementById('auth-client-id').value.trim();
+  let csec = document.getElementById('auth-client-secret').value.trim();
+  // Fall back to vault / localStorage if order-modal inputs are empty
+  if (!cid || !csec) {
+    const vaultCreds = blotterGetCreds();
+    if (vaultCreds) { cid = vaultCreds.cid; csec = vaultCreds.csec; }
+  } else {
+    saveAuthCreds();
+  }
+  if (!cid || !csec) throw new Error('Enter API credentials (bottom of modal)');
+  setAuthStatus('…', '');
+  const r = await fetch('https://test.deribit.com/api/v2/public/auth?' +
+    new URLSearchParams({ grant_type:'client_credentials', client_id:cid, client_secret:csec }));
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message || 'Auth failed');
+  authToken  = j.result.access_token;
+  authExpiry = now + (j.result.expires_in || 900);
+  setAuthStatus('Authenticated ✓', 'ok');
+  return authToken;
+}
+function setAuthStatus(txt, cls) {
+  const el = document.getElementById('auth-status');
+  el.textContent = txt;
+  el.className = 'order-auth-status' + (cls ? ' ' + cls : '');
+}
+
+// ── Draggable modal ───────────────────────────────────────────────────────────
+(function initModalDrag() {
+  const box    = document.querySelector('.order-box');
+  const header = document.querySelector('.order-header');
+  let sx, sy, bx, by;
+  header.addEventListener('mousedown', e => {
+    if (e.target.closest('#order-close-btn')) return;
+    if (e.button !== 0) return;
+    const rect = box.getBoundingClientRect();
+    sx = e.clientX; sy = e.clientY;
+    bx = rect.left;  by = rect.top;
+    e.preventDefault();
+    const onMove = ev => {
+      box.style.left = Math.max(0, Math.min(window.innerWidth  - box.offsetWidth,  bx + ev.clientX - sx)) + 'px';
+      box.style.top  = Math.max(0, Math.min(window.innerHeight - box.offsetHeight, by + ev.clientY - sy)) + 'px';
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+})();
+
+// ── Open / close ──────────────────────────────────────────────────────────────
+function openOrderModal(instrument, side, price, qty) {
+  orderState = { instrument, side, tab: 'limit', price, qty: qty || null };
+  // Reset to centre on each fresh open
+  const box = document.querySelector('.order-box');
+  box.style.left = 'calc(50vw - 170px)';
+  box.style.top  = 'calc(50vh - 230px)';
+  document.getElementById('order-title').textContent = `Order · ${instrument}`;
+  document.querySelectorAll('.order-type-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.otab === 'limit'));
+  renderOrderBody();
+  syncSubmitBtn();
+  document.getElementById('order-msg').textContent = '';
+  document.getElementById('order-overlay').style.display = 'block';
+}
+function closeOrderModal() {
+  document.getElementById('order-overlay').style.display = 'none';
+}
+
+// ── Submit button label / colour ──────────────────────────────────────────────
+function syncSubmitBtn() {
+  const btn = document.getElementById('order-submit-btn');
+  const s   = orderState.side;
+  btn.textContent = s === 'sell' ? 'Place Sell Order' : 'Place Buy Order';
+  btn.className   = `order-submit-btn ${s}`;
+}
+
+// ── Stepper helper — builds [−] input [+] row ─────────────────────────────────
+function stepperHTML(id, val, suffix) {
+  const sfx = suffix ? `<span class="order-input-suffix">${suffix}</span>` : '';
+  return `<div class="order-stepper" data-target="${id}">
+    <button class="step-btn step-dn" type="button">−</button>
+    <input class="order-input" id="${id}" type="number" step="any" value="${val ?? ''}">
+    <button class="step-btn step-up" type="button">+</button>
+    ${sfx}
+  </div>`;
+}
+function wireSteppers(body, instr) {
+  const ps = priceStep(instr);
+  const qs = qtyStep(instr);
+  body.querySelectorAll('.order-stepper').forEach(st => {
+    const id   = st.dataset.target;
+    const isQty = id.includes('qty');
+    const step = isQty ? qs : ps;
+    const inp  = document.getElementById(id);
+    st.querySelector('.step-dn').addEventListener('click', () => {
+      inp.value = Math.max(0, +(parseFloat(inp.value) || 0) - step).toPrecision(10).replace(/\.?0+$/, '');
+    });
+    st.querySelector('.step-up').addEventListener('click', () => {
+      inp.value = (+(parseFloat(inp.value) || 0) + step).toPrecision(10).replace(/\.?0+$/, '');
+    });
+  });
+}
+
+// ── Render modal body ─────────────────────────────────────────────────────────
+function renderOrderBody() {
+  const body   = document.getElementById('order-body');
+  const { tab, side, price, qty, instrument } = orderState;
+  const ba  = base(instrument);
+  const ccy = instrument.includes('_USDC') ? 'USDC' : 'USD';
+  const pv  = price != null ? price : '';
+  const qv  = qty   != null ? qty   : '';
+
+  if (tab === 'limit') {
+    body.innerHTML = `
+      <div class="order-side-row">
+        <button class="order-side-btn sell${side==='sell'?' active':''}" data-side="sell">Sell</button>
+        <button class="order-side-btn buy${side==='buy'?' active':''}" data-side="buy">Buy</button>
+      </div>
+      <div class="order-field">
+        <span class="order-label">Price (${ccy})</span>
+        ${stepperHTML('om-price', pv)}
+      </div>
+      <div class="order-field">
+        <span class="order-label">Quantity (${ba})</span>
+        ${stepperHTML('om-qty', qv, ba)}
+      </div>
+      <div>
+        <span class="order-label" style="display:block;margin-bottom:5px">Time in Force</span>
+        <div class="order-tif">
+          <button class="order-tif-btn active" data-tif="good_til_cancelled">GTC</button>
+          <button class="order-tif-btn" data-tif="immediate_or_cancel">IOC</button>
+          <button class="order-tif-btn" data-tif="fill_or_kill">FOK</button>
+        </div>
+      </div>
+      <div class="order-checks">
+        <label class="order-check"><input type="checkbox" id="om-postonly"><span>Post-Only</span></label>
+        <label class="order-check"><input type="checkbox" id="om-reduceonly"><span>Reduce-Only</span></label>
+      </div>`;
+
+  } else if (tab === 'stop') {
+    body.innerHTML = `
+      <div class="order-side-row">
+        <button class="order-side-btn sell${side==='sell'?' active':''}" data-side="sell">Sell</button>
+        <button class="order-side-btn buy${side==='buy'?' active':''}" data-side="buy">Buy</button>
+      </div>
+      <div class="order-field">
+        <span class="order-label">Trigger Price (${ccy})</span>
+        ${stepperHTML('om-stop-trigger', pv)}
+      </div>
+      <div>
+        <span class="order-label" style="display:block;margin-bottom:5px">Order Type</span>
+        <div class="order-radio-row">
+          <label class="order-check"><input type="radio" name="stop-type" value="market" checked><span>Market</span></label>
+          <label class="order-check"><input type="radio" name="stop-type" value="limit"><span>Limit</span></label>
+        </div>
+      </div>
+      <div class="order-field" id="om-stop-lp-row" style="display:none">
+        <span class="order-label">Limit Price (${ccy})</span>
+        ${stepperHTML('om-stop-lp', pv)}
+      </div>
+      <div class="order-field">
+        <span class="order-label">Quantity (${ba})</span>
+        ${stepperHTML('om-stop-qty', qv, ba)}
+      </div>
+      <label class="order-check"><input type="checkbox" id="om-stop-reduce"><span>Reduce-Only</span></label>`;
+    body.querySelectorAll('input[name="stop-type"]').forEach(r =>
+      r.addEventListener('change', () => {
+        document.getElementById('om-stop-lp-row').style.display = r.value === 'limit' ? '' : 'none';
+      }));
+
+  } else {
+    const info = { ifdone: ['🔗', 'If Done'], oco: ['⚖️', 'OCO'] }[tab];
+    body.innerHTML = `
+      <div class="order-stub">
+        <div class="order-stub-icon">${info[0]}</div>
+        ${info[1]} orders are not yet supported.<br>
+        <span style="font-size:10px;color:#333">Use Limit + Stop separately on Deribit.</span>
+      </div>`;
+  }
+
+  // Side toggle
+  body.querySelectorAll('.order-side-btn').forEach(btn =>
+    btn.addEventListener('click', () => {
+      orderState.side = btn.dataset.side;
+      body.querySelectorAll('.order-side-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.side === orderState.side));
+      syncSubmitBtn();
+    }));
+  // TIF toggle
+  body.querySelectorAll('.order-tif-btn').forEach(btn =>
+    btn.addEventListener('click', () =>
+      body.querySelectorAll('.order-tif-btn').forEach(b => b.classList.toggle('active', b === btn))));
+  // Stepper arrows
+  wireSteppers(body, instrument);
+}
+
+// ── Place order via Deribit REST ──────────────────────────────────────────────
+async function placeOrder() {
+  const btn   = document.getElementById('order-submit-btn');
+  const msgEl = document.getElementById('order-msg');
+  msgEl.textContent = ''; btn.disabled = true;
+  try {
+    if (orderState.tab === 'ifdone' || orderState.tab === 'oco')
+      throw new Error('Order type not supported yet');
+
+    const token  = await ensureAuth();
+    const { instrument, side, tab } = orderState;
+    const inv    = isInverse(instrument);
+    const cs     = getContractSize(instrument);
+    const method = side === 'buy' ? 'private/buy' : 'private/sell';
+    let params   = { instrument_name: instrument };
+
+    if (tab === 'limit') {
+      const price = parseFloat(document.getElementById('om-price').value);
+      const qty   = parseFloat(document.getElementById('om-qty').value);
+      const tif   = document.querySelector('#order-body .order-tif-btn.active')?.dataset.tif || 'good_til_cancelled';
+      if (!price || !qty) throw new Error('Price and quantity required');
+      const amount = inv ? Math.round(qty * price / cs) * cs : qty;
+      params = { ...params, type:'limit', price, amount, time_in_force:tif };
+      if (document.getElementById('om-postonly')?.checked)   params.post_only   = true;
+      if (document.getElementById('om-reduceonly')?.checked) params.reduce_only = true;
+
+    } else if (tab === 'stop') {
+      const trigger  = parseFloat(document.getElementById('om-stop-trigger').value);
+      const qty      = parseFloat(document.getElementById('om-stop-qty').value);
+      const stopType = document.querySelector('input[name="stop-type"]:checked')?.value || 'market';
+      if (!trigger || !qty) throw new Error('Trigger price and quantity required');
+      const amount = inv ? Math.round(qty * trigger / cs) * cs : qty;
+      if (stopType === 'market') {
+        params = { ...params, type:'stop_market', stop_price:trigger, amount, trigger:'last_price' };
+      } else {
+        const lp = parseFloat(document.getElementById('om-stop-lp').value);
+        if (!lp) throw new Error('Limit price required for stop-limit');
+        params = { ...params, type:'stop_limit', stop_price:trigger, price:lp, amount, trigger:'last_price' };
+      }
+      if (document.getElementById('om-stop-reduce')?.checked) params.reduce_only = true;
+    }
+
+    const url  = `https://test.deribit.com/api/v2/${method}`;
+    const qstr = Object.entries(params).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    const r    = await fetch(`${url}?${qstr}`, { headers: { 'Authorization': `Bearer ${token}` } });
+    const j    = await r.json();
+    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+    const oid = j.result?.order?.order_id || '?';
+    msgEl.textContent = `✓ Order placed · ${oid}`;
+    msgEl.className = 'order-msg ok';
+    setTimeout(closeOrderModal, 1600);
+
+  } catch(e) {
+    msgEl.textContent = e.message;
+    msgEl.className = 'order-msg err';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Modal event wiring ────────────────────────────────────────────────────────
+document.getElementById('order-close-btn').addEventListener('click', closeOrderModal);
+document.getElementById('order-cancel-btn').addEventListener('click', closeOrderModal);
+document.getElementById('order-submit-btn').addEventListener('click', placeOrder);
+document.getElementById('order-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('order-overlay')) closeOrderModal();
+});
+document.querySelectorAll('.order-type-tab').forEach(btn =>
+  btn.addEventListener('click', () => {
+    orderState.tab = btn.dataset.otab;
+    document.querySelectorAll('.order-type-tab').forEach(b => b.classList.toggle('active', b === btn));
+    renderOrderBody();
+  }));
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RFQ SYSTEM
+// ══════════════════════════════════════════════════════════════════════════════
+
+const RFQ_TTL_MS = 300000; // 5-minute Block RFQ lifespan
+
+let rfqMakers = []; // populated by get_block_rfq_makers when modal opens
+
+let rfqFavourites = new Set(JSON.parse(localStorage.getItem('rfq_block_favourites') || '[]'));
+let rfqMakerTab   = 'all';
+let rfqSelectedMakers = new Set();
+
+function saveFavourites() {
+  localStorage.setItem('rfq_block_favourites', JSON.stringify([...rfqFavourites]));
+}
+function toggleFavourite(maker) {
+  rfqFavourites.has(maker) ? rfqFavourites.delete(maker) : rfqFavourites.add(maker);
+  saveFavourites();
+}
+
+// ── Open / close ──────────────────────────────────────────────────────────────
+async function openRFQModal(panelState) {
+  // Clean up any previous session
+  if (rfqState?.countdownInterval) clearInterval(rfqState.countdownInterval);
+  rfqState = null;
+  rfqMakers = [];
+  rfqMakerTab = 'all';
+  rfqSelectedMakers = new Set();
+
+  const box = document.getElementById('rfq-box');
+  box.style.left = 'calc(50vw - 190px)';
+  box.style.top  = 'calc(50vh - 270px)';
+  document.getElementById('rfq-title').textContent   = `RFQ · ${panelState.instrument}`;
+  document.getElementById('rfq-timer').style.display = 'none';
+  document.getElementById('rfq-cancel-rfq').style.display = 'none';
+  document.getElementById('rfq-msg').textContent = '';
+  document.getElementById('rfq-confirm-area').innerHTML = '';
+  document.getElementById('rfq-overlay').style.display = 'block';
+
+  const hasCredentials = !!(
+    document.getElementById('auth-client-id')?.value.trim() ||
+    localStorage.getItem('deribit_cid')
+  );
+  if (!hasCredentials) {
+    document.getElementById('rfq-body').innerHTML = `
+      <div class="rfq-noauth">
+        Not authenticated to Deribit.<br>
+        <span style="font-size:10px;color:#333">Open an order window and enter your API credentials first.</span>
+      </div>`;
+  } else {
+    document.getElementById('rfq-body').innerHTML =
+      '<div class="rfq-noauth" style="color:#333">Loading makers…</div>';
+    try {
+      const result = await wsSend('private/get_block_rfq_makers', {});
+      if (Array.isArray(result)) rfqMakers = result;
+    } catch { /* non-fatal — proceed with empty list, all makers will be targeted */ }
+    renderRFQStep1(panelState);
+  }
+}
+
+function closeRFQModal() {
+  if (rfqState?.countdownInterval) clearInterval(rfqState.countdownInterval);
+  if (rfqState?.blockRfqId && ws?.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ jsonrpc:'2.0', id:idCounter++, method:'private/unsubscribe',
+      params:{ channels:[`user.block_rfq.${rfqState.blockRfqId}`] } }));
+  }
+  rfqState = null;
+  document.getElementById('rfq-overlay').style.display = 'none';
+}
+
+async function cancelBlockRFQ() {
+  if (rfqState?.blockRfqId) {
+    try {
+      await wsSend('private/cancel_block_rfq', { block_rfq_id: rfqState.blockRfqId });
+    } catch { /* best effort */ }
+  }
+  closeRFQModal();
+}
+
+// ── Step 1: Build & Send ──────────────────────────────────────────────────────
+function renderRFQStep1(panelState) {
+  const body = document.getElementById('rfq-body');
+  const ba   = base(panelState.instrument);
+  const qs   = qtyStep(panelState.instrument);
+  const dq   = getPanelQty(panelState);
+
+  body.innerHTML = `
+    <div class="order-field">
+      <span class="rfq-label">Amount (${ba})</span>
+      <div class="order-stepper" data-target="rfq-amount">
+        <button class="step-btn step-dn" type="button">−</button>
+        <input class="order-input" id="rfq-amount" type="number" step="any" value="${dq}">
+        <button class="step-btn step-up" type="button">+</button>
+        <span class="order-input-suffix">${ba}</span>
+      </div>
+    </div>
+    <div class="order-field">
+      <span class="rfq-label">Side</span>
+      <div class="rfq-side-row">
+        <button class="rfq-side-btn buy"  data-rfqside="buy">Buy</button>
+        <button class="rfq-side-btn sell" data-rfqside="sell">Sell</button>
+        <button class="rfq-side-btn two active" data-rfqside="two">Two-Way</button>
+      </div>
+    </div>
+    <div class="order-field">
+      <span class="rfq-label">Market Makers</span>
+      <div class="rfq-mm-tabs">
+        <button class="rfq-mm-tab active" data-mmtab="all">All</button>
+        <button class="rfq-mm-tab" data-mmtab="favourites">Favourites</button>
+        <button class="rfq-mm-tab" data-mmtab="individual">Individual</button>
+      </div>
+      <div id="rfq-mm-panel"></div>
+    </div>
+    <div style="font-size:9px;color:#444;text-align:center;padding:2px 0">Block trade fees apply</div>
+    <button class="rfq-send-btn" id="rfq-send-btn">Send Block RFQ</button>`;
+
+  // Amount steppers
+  const inp = document.getElementById('rfq-amount');
+  body.querySelector('.step-dn').addEventListener('click', () => {
+    inp.value = Math.max(0, +(parseFloat(inp.value)||0) - qs).toPrecision(10).replace(/\.?0+$/,'');
+  });
+  body.querySelector('.step-up').addEventListener('click', () => {
+    inp.value = (+(parseFloat(inp.value)||0) + qs).toPrecision(10).replace(/\.?0+$/,'');
+  });
+
+  // Side toggle
+  body.querySelectorAll('.rfq-side-btn').forEach(btn =>
+    btn.addEventListener('click', () => {
+      body.querySelectorAll('.rfq-side-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }));
+
+  // MM tab toggle
+  body.querySelectorAll('.rfq-mm-tab').forEach(tab =>
+    tab.addEventListener('click', () => {
+      body.querySelectorAll('.rfq-mm-tab').forEach(t => t.classList.toggle('active', t === tab));
+      rfqMakerTab = tab.dataset.mmtab;
+      renderMMPanel(panelState.instrument);
+    }));
+
+  renderMMPanel(panelState.instrument);
+  document.getElementById('rfq-send-btn').addEventListener('click', () => doCreateBlockRFQ(panelState));
+}
+
+function renderMMPanel(instrument) {
+  const panel = document.getElementById('rfq-mm-panel');
+  if (!panel) return;
+
+  if (rfqMakerTab === 'all') {
+    panel.innerHTML = `<div class="rfq-mm-empty" style="padding:12px;color:#444">
+      Block RFQ will be broadcast to all available market makers on Deribit.</div>`;
+    return;
+  }
+
+  if (rfqMakerTab === 'favourites') {
+    const favUids = [...rfqFavourites];
+    if (!favUids.length) {
+      panel.innerHTML = `<div class="rfq-mm-empty">No favourites yet.<br>
+        <span style="color:#2a2a3a">Star makers in the Individual view to add them.</span></div>`;
+      return;
+    }
+    const favMakers = favUids.map(uid => {
+      const found = rfqMakers.find(m => (m.uid || m.entity_uid || m.id) === uid);
+      return found || { uid, entity_name: uid };
+    });
+    panel.innerHTML = `<div class="rfq-mm-wrap"><div class="rfq-mm-list" id="rfq-mm-rows">${
+      favMakers.map(m => mmRowHTML(m, rfqSelectedMakers.has(m.uid || m.entity_uid || m.id), true)).join('')
+    }</div></div>`;
+    wireMMRows(panel, instrument);
+    return;
+  }
+
+  // Individual
+  if (!rfqMakers.length) {
+    panel.innerHTML = `<div class="rfq-mm-empty" style="padding:12px;color:#444">
+      No makers available — check your API key has block_rfq:read scope.</div>`;
+    return;
+  }
+  panel.innerHTML = `<div class="rfq-mm-wrap">
+    <input class="rfq-mm-search" id="rfq-mm-search" placeholder="Search…">
+    <div class="rfq-mm-list" id="rfq-mm-rows">${
+      rfqMakers.map(m => mmRowHTML(m, rfqSelectedMakers.has(m.uid || m.entity_uid || m.id), rfqFavourites.has(m.uid || m.entity_uid || m.id))).join('')
+    }</div>
+  </div>`;
+
+  document.getElementById('rfq-mm-search').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    const rows = document.getElementById('rfq-mm-rows');
+    rows.innerHTML = rfqMakers
+      .filter(m => (m.entity_name || m.name || m.uid || '').toLowerCase().includes(q))
+      .map(m => mmRowHTML(m, rfqSelectedMakers.has(m.uid || m.entity_uid || m.id), rfqFavourites.has(m.uid || m.entity_uid || m.id))).join('');
+    wireMMRows(rows, instrument);
+  });
+  wireMMRows(panel, instrument);
+}
+
+function mmRowHTML(maker, checked, starred) {
+  const uid  = maker.uid || maker.entity_uid || maker.id || maker;
+  const name = maker.entity_name || maker.name || uid;
+  const esc  = String(uid).replace(/"/g, '&quot;');
+  return `<div class="rfq-mm-row" data-maker="${esc}">
+    <input type="checkbox" class="rfq-mm-check" data-maker="${esc}" ${checked ? 'checked' : ''}>
+    <span class="rfq-mm-name">${name}</span>
+    <button class="rfq-mm-star${starred ? ' fav' : ''}" data-maker="${esc}" title="Toggle favourite">★</button>
+  </div>`;
+}
+
+function wireMMRows(container, instrument) {
+  container.querySelectorAll('.rfq-mm-check').forEach(cb =>
+    cb.addEventListener('change', () =>
+      cb.checked ? rfqSelectedMakers.add(cb.dataset.maker) : rfqSelectedMakers.delete(cb.dataset.maker)));
+
+  container.querySelectorAll('.rfq-mm-star').forEach(star =>
+    star.addEventListener('click', e => {
+      e.stopPropagation();
+      toggleFavourite(star.dataset.maker);
+      star.classList.toggle('fav', rfqFavourites.has(star.dataset.maker));
+      // If we're on favourites tab, re-render the list
+      if (rfqMakerTab === 'favourites') renderMMPanel(instrument);
+    }));
+
+  container.querySelectorAll('.rfq-mm-row').forEach(row =>
+    row.addEventListener('click', e => {
+      if (e.target.closest('.rfq-mm-star,.rfq-mm-check')) return;
+      const cb = row.querySelector('.rfq-mm-check');
+      if (cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); }
+    }));
+}
+
+// ── Send ──────────────────────────────────────────────────────────────────────
+async function doCreateBlockRFQ(panelState) {
+  const btn   = document.getElementById('rfq-send-btn');
+  const msgEl = document.getElementById('rfq-msg');
+  msgEl.textContent = ''; btn.disabled = true;
+
+  try {
+    const amount = parseFloat(document.getElementById('rfq-amount').value);
+    if (!amount || amount <= 0) throw new Error('Enter a valid amount');
+
+    const sideVal = document.querySelector('.rfq-side-btn.active')?.dataset.rfqside || 'two';
+    const { instrument } = panelState;
+    const inv = isInverse(instrument);
+    const cs  = getContractSize(instrument);
+    const mid = getPanelMid(panelState) || 1;
+    const deribitAmount = inv ? Math.round(amount * mid / cs) * cs : amount;
+
+    const leg = { instrument_name: instrument, amount: deribitAmount };
+    if (sideVal !== 'two') leg.direction = sideVal;
+    const body = { legs: [leg] };
+    if (rfqSelectedMakers.size > 0) body.makers = [...rfqSelectedMakers];
+
+    const result = await wsSend('private/create_block_rfq', body);
+    const blockRfqId = result?.block_rfq_id || result?.id || null;
+    rfqState = {
+      blockRfqId,
+      instrument, side: sideVal, amount,
+      quotes: new Map(),
+      startTime: Date.now(),
+      countdownInterval: null,
+    };
+
+    // Subscribe to block RFQ quote updates on existing WS
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ jsonrpc:'2.0', id:idCounter++,
+        method:'private/subscribe', params:{ channels:[`user.block_rfq.${blockRfqId}`] } }));
+    }
+
+    renderRFQStep2();
+    // Poll for any quotes already submitted before WS subscription
+    pollBlockRFQQuotes(blockRfqId);
+
+  } catch(e) {
+    msgEl.textContent = e.message;
+    msgEl.className = 'rfq-msg err';
+    btn.disabled = false;
+  }
+}
+
+async function pollBlockRFQQuotes(blockRfqId) {
+  try {
+    const result = await wsSend('private/get_block_rfq_quotes', { block_rfq_id: blockRfqId });
+    if (result && rfqState?.blockRfqId === blockRfqId) handleRFQMessage(result);
+  } catch { /* non-fatal */ }
+}
+
+// ── Step 2: Live Quotes ───────────────────────────────────────────────────────
+function renderRFQStep2() {
+  const body = document.getElementById('rfq-body');
+  document.getElementById('rfq-timer').style.display      = '';
+  document.getElementById('rfq-cancel-rfq').style.display = '';
+  document.getElementById('rfq-msg').textContent = '';
+  document.getElementById('rfq-confirm-area').innerHTML   = '';
+
+  body.innerHTML = `
+    <div class="rfq-bbo" id="rfq-bbo">
+      <div class="rfq-bbo-side">
+        <div class="rfq-bbo-label bid">Best Bid</div>
+        <div class="rfq-bbo-price bid" id="rfq-bbo-bid">—</div>
+        <button class="rfq-bbo-btn sell" id="rfq-bbo-sell-btn" disabled>Sell at Bid</button>
+      </div>
+      <div class="rfq-bbo-divider"></div>
+      <div class="rfq-bbo-spread" id="rfq-bbo-spread" style="opacity:0">
+        <span style="font-size:9px;color:#333;letter-spacing:.05em">SPREAD</span>
+        <span class="rfq-bbo-spread-val" id="rfq-bbo-spread-val">—</span>
+      </div>
+      <div class="rfq-bbo-divider"></div>
+      <div class="rfq-bbo-side">
+        <div class="rfq-bbo-label ask">Best Ask</div>
+        <div class="rfq-bbo-price ask" id="rfq-bbo-ask">—</div>
+        <button class="rfq-bbo-btn buy" id="rfq-bbo-buy-btn" disabled>Buy at Ask</button>
+      </div>
+    </div>
+    <div class="rfq-quotes-status" id="rfq-quotes-status">Waiting for quotes…</div>
+    <div style="overflow-x:auto">
+      <table class="rfq-qtable">
+        <thead><tr>
+          <th>Market Maker</th><th>Bid</th><th>Ask</th><th>Size</th><th>Type</th><th>Age</th>
+        </tr></thead>
+        <tbody id="rfq-quotes-tbody"></tbody>
+      </table>
+    </div>`;
+
+  // Countdown (5:00 → M:SS format)
+  rfqState.startTime = Date.now();
+  rfqState.countdownInterval = setInterval(() => {
+    const remMs = Math.max(0, RFQ_TTL_MS - (Date.now() - rfqState.startTime));
+    const remS  = Math.ceil(remMs / 1000);
+    const mins  = Math.floor(remS / 60);
+    const secs  = remS % 60;
+    const el    = document.getElementById('rfq-timer');
+    if (el) {
+      el.textContent = `${mins}:${String(secs).padStart(2,'0')}`;
+      el.className = 'rfq-timer' + (remS <= 30 ? ' urgent' : '');
+    }
+    if (rfqState.quotes.size) updateQuotesTable(); // refresh "X ago"
+    if (remMs <= 0) {
+      clearInterval(rfqState.countdownInterval);
+      document.getElementById('rfq-cancel-rfq').style.display = 'none';
+      const st = document.getElementById('rfq-quotes-status');
+      if (st) st.textContent = 'Block RFQ expired.';
+    }
+  }, 500);
+}
+
+// ── Handle incoming WS quote data ─────────────────────────────────────────────
+function handleRFQMessage(data) {
+  if (!rfqState) return;
+  const items = Array.isArray(data) ? data : [data];
+  for (const q of items) {
+    // key by quote_id, then maker uid, then a content hash
+    const key = q.quote_id || q.maker_uid || q.market_maker_id || q.sender_id || q.id || JSON.stringify(q).slice(0, 40);
+    rfqState.quotes.set(key, { ...q, _receivedAt: q._receivedAt || Date.now() });
+  }
+  updateQuotesTable();
+}
+
+function updateQuotesTable() {
+  const tbody  = document.getElementById('rfq-quotes-tbody');
+  const status = document.getElementById('rfq-quotes-status');
+  if (!tbody || !rfqState) return;
+  if (rfqState.quotes.size === 0) return;
+  if (status) status.style.display = 'none';
+
+  // ── Compute BBO ────────────────────────────────────────────────────────────
+  let bestBid = null, bestAsk = null, bestBidKey = null, bestAskKey = null;
+  for (const [key, q] of rfqState.quotes) {
+    const bid = q.bid_price ?? q.bid ?? null;
+    const ask = q.ask_price ?? q.ask ?? null;
+    if (bid != null && (bestBid === null || bid > bestBid)) { bestBid = bid; bestBidKey = key; }
+    if (ask != null && (bestAsk === null || ask < bestAsk)) { bestAsk = ask; bestAskKey = key; }
+  }
+
+  // ── Update BBO display ─────────────────────────────────────────────────────
+  const bidEl     = document.getElementById('rfq-bbo-bid');
+  const askEl     = document.getElementById('rfq-bbo-ask');
+  const spreadBox = document.getElementById('rfq-bbo-spread');
+  const spreadVal = document.getElementById('rfq-bbo-spread-val');
+  const sellBtn   = document.getElementById('rfq-bbo-sell-btn');
+  const buyBtn    = document.getElementById('rfq-bbo-buy-btn');
+
+  if (bidEl && bestBid != null) {
+    const d = pDec(bestBid);
+    const txt = '$' + fmt(bestBid, d);
+    if (bidEl.textContent !== txt) { bidEl.textContent = txt; bidEl.classList.add('live'); setTimeout(() => bidEl.classList.remove('live'), 400); }
+    if (sellBtn) {
+      sellBtn.disabled = false;
+      sellBtn.onclick = () => selectQuote(bestBidKey, rfqState.quotes.get(bestBidKey), rfqState.quotes.get(bestBidKey)?.market_maker || 'Best Bid');
+    }
+  }
+  if (askEl && bestAsk != null) {
+    const d = pDec(bestAsk);
+    const txt = '$' + fmt(bestAsk, d);
+    if (askEl.textContent !== txt) { askEl.textContent = txt; askEl.classList.add('live'); setTimeout(() => askEl.classList.remove('live'), 400); }
+    if (buyBtn) {
+      buyBtn.disabled = false;
+      buyBtn.onclick = () => selectQuote(bestAskKey, rfqState.quotes.get(bestAskKey), rfqState.quotes.get(bestAskKey)?.market_maker || 'Best Ask');
+    }
+  }
+  if (spreadBox && bestBid != null && bestAsk != null) {
+    spreadBox.style.opacity = '1';
+    if (spreadVal) spreadVal.textContent = '$' + fmt(bestAsk - bestBid, pDec(bestAsk - bestBid));
+  }
+
+  // ── Render table ───────────────────────────────────────────────────────────
+  const nowMs = Date.now();
+  const d = pDec(bestBid ?? bestAsk ?? 1000);
+
+  tbody.innerHTML = '';
+  for (const [key, q] of rfqState.quotes) {
+    const bid      = q.bid_price ?? q.bid ?? null;
+    const ask      = q.ask_price ?? q.ask ?? null;
+    const size     = q.amount ?? q.size ?? rfqState.amount;
+    const age      = Math.round((nowMs - q._receivedAt) / 1000);
+    const name     = q.maker_name || q.market_maker || q.entity_name || q.sender || key;
+    const quoteType = (q.quote_type || q.type || '').toString().toUpperCase().replace('_', ' ') || '—';
+    const isBestBid = key === bestBidKey && bid != null;
+    const isBestAsk = key === bestAskKey && ask != null;
+    const tr = document.createElement('tr');
+    tr.className = 'rfq-qrow';
+    tr.innerHTML = `
+      <td class="rfq-maker">${name}</td>
+      <td class="rfq-bid">${bid != null ? (isBestBid ? '★ ' : '') + '$'+fmt(bid,d) : '—'}</td>
+      <td class="rfq-ask">${ask != null ? (isBestAsk ? '★ ' : '') + '$'+fmt(ask,d) : '—'}</td>
+      <td style="color:#666">${size} ${base(rfqState.instrument)}</td>
+      <td style="color:#555;font-size:9px">${quoteType}</td>
+      <td class="rfq-ago">${age}s</td>`;
+    tr.addEventListener('click', () => selectQuote(key, q, name));
+    tbody.appendChild(tr);
+  }
+}
+
+// ── Step 3: Select & Confirm ──────────────────────────────────────────────────
+function selectQuote(key, q, displayName) {
+  document.querySelectorAll('.rfq-qrow').forEach(r => r.classList.remove('selected'));
+  document.querySelectorAll('.rfq-qrow').forEach(r => {
+    if (r.querySelector('.rfq-maker')?.textContent === displayName) r.classList.add('selected');
+  });
+
+  const bid = q.bid_price ?? q.bid ?? null;
+  const ask = q.ask_price ?? q.ask ?? null;
+  const sSide = rfqState.side === 'two'
+    ? (bid != null ? 'sell' : 'buy')  // for two-way, default to sell (lift bid)
+    : rfqState.side;
+  const price = sSide === 'sell' ? bid : ask;
+  if (price == null) return;
+
+  const d  = pDec(price);
+  const ba = base(rfqState.instrument);
+
+  document.getElementById('rfq-confirm-area').innerHTML = `
+    <div class="rfq-confirm-bar">
+      <div class="rfq-confirm-text">
+        ${sSide === 'sell' ? 'Sell' : 'Buy'}
+        <strong>${rfqState.amount} ${ba}</strong> at
+        <strong>$${fmt(price,d)}</strong> — <strong>${displayName}</strong>
+      </div>
+      <div class="rfq-confirm-btns">
+        <button class="rfq-confirm-dismiss" id="rfq-confirm-dismiss">Dismiss</button>
+        <button class="rfq-confirm-go ${sSide}" id="rfq-confirm-go">
+          Confirm ${sSide === 'sell' ? 'Sell' : 'Buy'}
+        </button>
+      </div>
+    </div>`;
+
+  document.getElementById('rfq-confirm-dismiss').addEventListener('click', () => {
+    document.getElementById('rfq-confirm-area').innerHTML = '';
+    document.querySelectorAll('.rfq-qrow').forEach(r => r.classList.remove('selected'));
+  });
+  document.getElementById('rfq-confirm-go').addEventListener('click', () =>
+    doTradeBlockRFQ(sSide, price, rfqState.amount, q.quote_id || q.id || null));
+}
+
+async function doTradeBlockRFQ(side, price, qty, quoteId) {
+  const goBtn = document.getElementById('rfq-confirm-go');
+  const msgEl = document.getElementById('rfq-msg');
+  if (goBtn) goBtn.disabled = true;
+  msgEl.textContent = '';
+
+  try {
+    const { blockRfqId, instrument } = rfqState;
+    const inv    = isInverse(instrument);
+    const cs     = getContractSize(instrument);
+    const amount = inv ? Math.round(qty * price / cs) * cs : qty;
+
+    const params = { block_rfq_id: blockRfqId, direction: side, price, amount };
+    if (quoteId) params.quote_id = quoteId;
+
+    const result = await wsSend('private/accept_block_rfq', params);
+    const tradeId = result?.trade?.trade_id || result?.block_rfq_id || '?';
+    msgEl.textContent = `✓ Block trade filled · ${tradeId}`;
+    msgEl.className = 'rfq-msg ok';
+    setTimeout(closeRFQModal, 1800);
+
+  } catch(e) {
+    msgEl.textContent = e.message;
+    msgEl.className = 'rfq-msg err';
+    if (goBtn) goBtn.disabled = false;
+  }
+}
+
+// ── Draggable RFQ modal ───────────────────────────────────────────────────────
+(function() {
+  const box = document.getElementById('rfq-box');
+  const hdr = document.getElementById('rfq-header');
+  let sx, sy, bx, by;
+  hdr.addEventListener('mousedown', e => {
+    if (e.target.closest('.rfq-hdr-close,.rfq-cancel-rfq')) return;
+    if (e.button !== 0) return;
+    const r = box.getBoundingClientRect();
+    sx = e.clientX; sy = e.clientY; bx = r.left; by = r.top;
+    e.preventDefault();
+    const mv = ev => {
+      box.style.left = Math.max(0, Math.min(window.innerWidth  - box.offsetWidth,  bx + ev.clientX - sx)) + 'px';
+      box.style.top  = Math.max(0, Math.min(window.innerHeight - box.offsetHeight, by + ev.clientY - sy)) + 'px';
+    };
+    const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); };
+    document.addEventListener('mousemove', mv);
+    document.addEventListener('mouseup', up);
+  });
+})();
+
+// ── Modal wiring ──────────────────────────────────────────────────────────────
+document.getElementById('rfq-close-btn').addEventListener('click', closeRFQModal);
+document.getElementById('rfq-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('rfq-overlay')) closeRFQModal();
+});
+document.getElementById('rfq-cancel-rfq').addEventListener('click', () => cancelBlockRFQ());
+
+// ── Admin tab switching ───────────────────────────────────────────────────────
+document.querySelectorAll('.admin-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    const which = tab.dataset.admin;
+    document.getElementById('admin-pane-specs').style.display    = which === 'specs'    ? '' : 'none';
+    document.getElementById('admin-pane-apikeys').style.display  = which === 'apikeys'  ? 'flex' : 'none';
+    if (which === 'apikeys') akOpen();
+  });
+});
+
+// ── API Keys (Web Crypto vault — no server required) ──────────────────────────
+// Encryption: PBKDF2 (310k iterations, SHA-256) → AES-256-GCM per field.
+// Ciphertext stored in localStorage. Raw secrets never stored in plaintext.
+
+const AK_VAULT_LSKEY = 'ak_vault';
+const AK_PBKDF2_ITER = 310000;
+
+const AK_EXCHANGES = {
+  Deribit:  { fields: [{id:'clientId',   label:'Client ID'},   {id:'clientSecret', label:'Client Secret', secret:true}], note: 'Block RFQ requires <strong>block_rfq:read_write</strong> scope on your API key.' },
+  Binance:  { fields: [{id:'apiKey',     label:'API Key'},     {id:'secretKey',    label:'Secret Key',    secret:true}] },
+  OKX:      { fields: [{id:'apiKey',     label:'API Key'},     {id:'secretKey',    label:'Secret Key',    secret:true}, {id:'passphrase', label:'Passphrase', secret:true}] },
+  Bybit:    { fields: [{id:'apiKey',     label:'API Key'},     {id:'secretKey',    label:'Secret Key',    secret:true}] },
+  'Gate.io':{ fields: [{id:'apiKey',     label:'API Key'},     {id:'secretKey',    label:'Secret Key',    secret:true}], noTestnet:true },
+  KuCoin:   { fields: [{id:'apiKey',     label:'API Key'},     {id:'secretKey',    label:'Secret Key',    secret:true}, {id:'passphrase', label:'Passphrase', secret:true}], noTestnet:true },
+  Kraken:   { fields: [{id:'apiKey',     label:'API Key'},     {id:'privateKey',   label:'Private Key',   secret:true}], noTestnet:true },
+  BitMEX:   { fields: [{id:'apiKey',     label:'API Key'},     {id:'apiSecret',    label:'API Secret',    secret:true}] },
+};
+const AK_ORDER = ['Deribit','Binance','OKX','Bybit','Gate.io','KuCoin','Kraken','BitMEX'];
+
+let akVaultKey = null;   // CryptoKey in memory — null = locked
+let akEntries  = [];     // decrypted: [{id, exchange, label, permissions, testnet, status, lastTested, fields:{k:plaintext}}]
+let akExchange = null;
+let akEntryId  = null;
+
+// ── Crypto helpers ────────────────────────────────────────────────────────────
+
+function akBufToHex(buf) {
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+function akHexToBuf(hex) {
+  return new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b,16)));
+}
+async function akDeriveKey(password, saltHex) {
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name:'PBKDF2', salt:akHexToBuf(saltHex), iterations:AK_PBKDF2_ITER, hash:'SHA-256' },
+    km, { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']
+  );
+}
+async function akEncryptStr(key, plaintext) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM',iv}, key, new TextEncoder().encode(plaintext));
+  return { iv: akBufToHex(iv), ct: akBufToHex(new Uint8Array(ct)) };
+}
+async function akDecryptStr(key, {iv, ct}) {
+  const buf = await crypto.subtle.decrypt({name:'AES-GCM', iv:akHexToBuf(iv)}, key, akHexToBuf(ct));
+  return new TextDecoder().decode(buf);
+}
+
+// ── Vault storage ─────────────────────────────────────────────────────────────
+
+function akReadRaw()    { try { return JSON.parse(localStorage.getItem(AK_VAULT_LSKEY)||'null'); } catch { return null; } }
+function akWriteRaw(v)  { localStorage.setItem(AK_VAULT_LSKEY, JSON.stringify(v)); }
+
+async function akPersist() {
+  const raw = akReadRaw();
+  if (!raw || !akVaultKey) return;
+  const encEntries = await Promise.all(akEntries.map(async e => {
+    const encFields = {};
+    for (const [k,v] of Object.entries(e.fields||{})) encFields[k] = await akEncryptStr(akVaultKey, v);
+    return { ...e, fields: encFields };
+  }));
+  akWriteRaw({ ...raw, keys: encEntries });
+}
+async function akDecryptEntries(raw) {
+  const out = [];
+  for (const e of raw.keys||[]) {
+    const fields = {};
+    for (const [k,v] of Object.entries(e.fields||{})) {
+      try { fields[k] = await akDecryptStr(akVaultKey, v); } catch { fields[k] = ''; }
+    }
+    out.push({ ...e, fields });
+  }
+  return out;
+}
+
+// ── Vault UI: setup / unlock ──────────────────────────────────────────────────
+
+async function akOpen() {
+  const raw = akReadRaw();
+  if (!raw)          akRenderVaultSetup();
+  else if (!akVaultKey) akRenderVaultUnlock();
+  else { akRenderExBar(); akRenderBody(); }
+}
+
+function akRenderVaultSetup() {
+  const body = document.getElementById('ak-body');
+  body.innerHTML = `
+    <div class="ak-vault-screen"><div class="ak-vault-box">
+      <div class="ak-vault-title">Set Vault Password</div>
+      <div class="ak-vault-sub">Your API keys will be encrypted with AES-256-GCM using a key derived from this password.<br>Choose something strong — it cannot be recovered if lost.</div>
+      <div class="ak-form-group" style="margin-top:16px">
+        <label class="ak-flabel">Password</label>
+        <div class="ak-secret-row">
+          <input class="ak-input" id="ak-vp1" type="password" placeholder="Choose a strong password" autocomplete="new-password">
+          <button class="ak-eye-btn" data-tgt="ak-vp1" type="button">👁</button>
+        </div>
+      </div>
+      <div class="ak-form-group">
+        <label class="ak-flabel">Confirm Password</label>
+        <div class="ak-secret-row">
+          <input class="ak-input" id="ak-vp2" type="password" placeholder="Repeat password" autocomplete="new-password">
+          <button class="ak-eye-btn" data-tgt="ak-vp2" type="button">👁</button>
+        </div>
+      </div>
+      <div class="ak-form-actions" style="margin-top:16px">
+        <button class="ak-save-btn" id="ak-vc-btn">Create Vault</button>
+      </div>
+      <div class="ak-result" id="ak-vault-msg"></div>
+    </div></div>`;
+  body.querySelectorAll('.ak-eye-btn').forEach(btn => btn.addEventListener('click', () => {
+    const i = document.getElementById(btn.dataset.tgt); if(i) i.type = i.type==='password'?'text':'password';
+  }));
+  document.getElementById('ak-vc-btn').addEventListener('click', async () => {
+    const p1  = document.getElementById('ak-vp1').value;
+    const p2  = document.getElementById('ak-vp2').value;
+    const msg = document.getElementById('ak-vault-msg');
+    if (!p1)     { msg.textContent='Password cannot be empty.'; msg.className='ak-result err'; return; }
+    if (p1!==p2) { msg.textContent='Passwords do not match.';   msg.className='ak-result err'; return; }
+    msg.textContent='Creating vault…'; msg.className='ak-result';
+    try {
+      const saltHex = akBufToHex(crypto.getRandomValues(new Uint8Array(16)));
+      akVaultKey    = await akDeriveKey(p1, saltHex);
+      const check   = await akEncryptStr(akVaultKey, 'ok');
+      akWriteRaw({ version:1, salt:saltHex, iterations:AK_PBKDF2_ITER, check, keys:[] });
+      akEntries = [];
+      akRenderExBar(); akRenderBody();
+    } catch(e) { msg.textContent=e.message; msg.className='ak-result err'; }
+  });
+}
+
+function akRenderVaultUnlock() {
+  const body = document.getElementById('ak-body');
+  body.innerHTML = `
+    <div class="ak-vault-screen"><div class="ak-vault-box">
+      <div class="ak-vault-title">Unlock Vault</div>
+      <div class="ak-vault-sub">Enter your vault password to decrypt stored API keys.</div>
+      <div class="ak-form-group" style="margin-top:16px">
+        <label class="ak-flabel">Password</label>
+        <div class="ak-secret-row">
+          <input class="ak-input" id="ak-vp" type="password" placeholder="Vault password" autocomplete="current-password">
+          <button class="ak-eye-btn" data-tgt="ak-vp" type="button">👁</button>
+        </div>
+      </div>
+      <div class="ak-form-actions" style="margin-top:16px">
+        <button class="ak-save-btn" id="ak-vu-btn">Unlock</button>
+        <button class="ak-del-btn" id="ak-vr-btn" title="Delete vault and all stored keys">Reset Vault</button>
+      </div>
+      <div class="ak-result" id="ak-vault-msg"></div>
+    </div></div>`;
+  const inp = document.getElementById('ak-vp');
+  inp.addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('ak-vu-btn').click(); });
+  body.querySelector('.ak-eye-btn').addEventListener('click', () => { inp.type = inp.type==='password'?'text':'password'; });
+  document.getElementById('ak-vu-btn').addEventListener('click', async () => {
+    const pw  = inp.value;
+    const msg = document.getElementById('ak-vault-msg');
+    if (!pw) { msg.textContent='Enter password.'; msg.className='ak-result err'; return; }
+    msg.textContent='Unlocking…'; msg.className='ak-result';
+    try {
+      const raw = akReadRaw();
+      const key = await akDeriveKey(pw, raw.salt);
+      await akDecryptStr(key, raw.check);   // throws if wrong password
+      akVaultKey = key;
+      akEntries  = await akDecryptEntries(raw);
+      akRenderExBar(); akRenderBody();
+      // Retry blotter auth with newly-unlocked credentials
+      if (ws?.readyState === WebSocket.OPEN) blotterWsAuth();
+    } catch { document.getElementById('ak-vault-msg').textContent='Wrong password.'; document.getElementById('ak-vault-msg').className='ak-result err'; }
+  });
+  document.getElementById('ak-vr-btn').addEventListener('click', () => {
+    if (!confirm('Delete vault and ALL stored API keys? This cannot be undone.')) return;
+    localStorage.removeItem(AK_VAULT_LSKEY);
+    akVaultKey=null; akEntries=[]; akExchange=null; akEntryId=null;
+    akRenderVaultSetup();
+  });
+}
+
+// ── Exchange bar & body ───────────────────────────────────────────────────────
+
+function akStatusDotClass(s) { return s==='ok'?'ak-sdot-green':s==='error'?'ak-sdot-red':'ak-sdot-grey'; }
+
+function akExchangeStatus(exchange) {
+  const ee = akEntries.filter(k => k.exchange===exchange);
+  if (!ee.length) return 'none';
+  if (ee.some(k=>k.status==='ok'))    return 'ok';
+  if (ee.some(k=>k.status==='error')) return 'error';
+  return 'unchecked';
+}
+
+function akRenderExBar() {
+  const bar = document.getElementById('ak-ex-bar');
+  if (!bar) return;
+  bar.innerHTML = AK_ORDER.map(ex => {
+    const act = akExchange===ex?' active':'';
+    return `<button class="ak-ex-btn${act}" data-ex="${ex}">
+      <span class="ak-sdot ${akStatusDotClass(akExchangeStatus(ex))}"></span>${ex}
+    </button>`;
+  }).join('') + `<button class="ak-lock-btn" id="ak-lock-btn">🔒 Lock</button>`;
+  bar.querySelectorAll('.ak-ex-btn').forEach(btn => btn.addEventListener('click', () => {
+    akExchange = btn.dataset.ex;
+    const ee = akEntries.filter(k=>k.exchange===akExchange);
+    akEntryId = ee.length ? ee[0].id : null;
+    akRenderExBar(); akRenderBody();
+  }));
+  document.getElementById('ak-lock-btn').addEventListener('click', () => {
+    akVaultKey=null; akEntries=[]; akExchange=null; akEntryId=null;
+    akRenderVaultUnlock();
+  });
+}
+
+function akRenderBody() {
+  const body = document.getElementById('ak-body');
+  if (!body) return;
+  if (!akExchange) { body.innerHTML='<div class="ak-placeholder">Select an exchange above to configure API keys.</div>'; return; }
+  const entries = akEntries.filter(k=>k.exchange===akExchange);
+  const cfg     = AK_EXCHANGES[akExchange];
+  const entry   = akEntryId ? entries.find(e=>e.id===akEntryId) : null;
+  body.innerHTML = `
+    <div class="ak-split">
+      <div class="ak-entry-panel">
+        <div class="ak-entry-list" id="ak-entry-list">
+          ${entries.length
+            ? entries.map(e=>`<div class="ak-entry-item${akEntryId===e.id?' active':''}" data-id="${e.id}">
+                <span class="ak-sdot ${akStatusDotClass(e.status)}"></span>
+                <span>${escHtml(e.label||'Unnamed')}</span></div>`).join('')
+            : '<div class="ak-not-configured">Not configured</div>'}
+        </div>
+        <button class="ak-add-btn" id="ak-add-btn">+ Add New</button>
+      </div>
+      <div class="ak-form-panel" id="ak-form-panel">${akFormHTML(cfg,entry)}</div>
+    </div>`;
+  body.querySelectorAll('.ak-entry-item').forEach(el =>
+    el.addEventListener('click', () => { akEntryId=el.dataset.id; akRenderBody(); }));
+  document.getElementById('ak-add-btn').addEventListener('click', () => {
+    akEntryId=null;
+    document.getElementById('ak-form-panel').innerHTML = akFormHTML(cfg,null);
+    akWireForm(cfg);
+  });
+  akWireForm(cfg);
+}
+
+function akFormHTML(cfg, entry) {
+  const isNew = !entry;
+  return `<div class="ak-form">
+    <div class="ak-form-group">
+      <label class="ak-flabel">Label / Nickname</label>
+      <input class="ak-input" id="ak-f-label" type="text"
+        value="${entry?escHtml(entry.label):''}" placeholder="e.g. Main Account" autocomplete="off">
+    </div>
+    ${cfg.fields.map(f => {
+      const val = entry?.fields?.[f.id]||'';
+      const eye = f.secret ? `<button class="ak-eye-btn" data-tgt="ak-f-${f.id}" type="button">👁</button>` : '';
+      return `<div class="ak-form-group">
+        <label class="ak-flabel">${f.label}</label>
+        <div class="ak-secret-row">
+          <input class="ak-input" id="ak-f-${f.id}" type="${f.secret?'password':'text'}"
+            value="${escHtml(val)}" autocomplete="off">
+          ${eye}
+        </div>
+      </div>`;
+    }).join('')}
+    ${cfg.note ? `<div style="font-size:10px;color:#556;background:#0a0a14;border:1px solid #1a1a28;border-radius:4px;padding:8px 10px;line-height:1.5">${cfg.note}</div>` : ''}
+    <div class="ak-form-group">
+      <label class="ak-flabel">Permissions (reminder only)</label>
+      <div class="ak-perms">
+        <label class="ak-perm-lbl"><input type="radio" name="ak-perm" value="read"
+          ${(!entry||entry.permissions!=='trading')?'checked':''}> Read Only</label>
+        <label class="ak-perm-lbl"><input type="radio" name="ak-perm" value="trading"
+          ${entry?.permissions==='trading'?'checked':''}> Trading</label>
+      </div>
+    </div>
+    <div class="ak-form-group">
+      <label class="ak-testnet-lbl">
+        <input type="checkbox" id="ak-f-testnet" ${entry?.testnet?'checked':''} ${cfg.noTestnet?'disabled':''}>
+        Use Testnet
+        ${cfg.noTestnet?'<span class="ak-testnet-warn">Testnet not available for this exchange</span>':''}
+      </label>
+    </div>
+    <div class="ak-form-actions">
+      <button class="ak-save-btn" id="ak-save-btn">Save</button>
+      <button class="ak-test-btn" id="ak-test-btn" ${isNew?'disabled':''}>Test Connection</button>
+      ${!isNew?'<button class="ak-del-btn" id="ak-del-btn">Delete</button>':''}
+    </div>
+    <div class="ak-result" id="ak-result"></div>
+  </div>`;
+}
+
+function escHtml(s) { return String(s??'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+function akWireForm(cfg) {
+  document.querySelectorAll('#ak-form-panel .ak-eye-btn').forEach(btn => btn.addEventListener('click', () => {
+    const i = document.getElementById(btn.dataset.tgt); if(i) i.type = i.type==='password'?'text':'password';
+  }));
+  const s = document.getElementById('ak-save-btn'); if(s) s.addEventListener('click', ()=>akSave(cfg));
+  const t = document.getElementById('ak-test-btn'); if(t) t.addEventListener('click', akTest);
+  const d = document.getElementById('ak-del-btn');  if(d) d.addEventListener('click', akDelete);
+}
+
+// ── Save ──────────────────────────────────────────────────────────────────────
+
+async function akSave(cfg) {
+  if (!akVaultKey) return;
+  const label       = document.getElementById('ak-f-label')?.value.trim()||'';
+  const permissions = document.querySelector('input[name="ak-perm"]:checked')?.value||'read';
+  const testnet     = document.getElementById('ak-f-testnet')?.checked||false;
+  const result      = document.getElementById('ak-result');
+  result.textContent='Saving…'; result.className='ak-result';
+  try {
+    if (!label) throw new Error('Label is required');
+    let entry = akEntryId ? akEntries.find(e=>e.id===akEntryId) : null;
+    if (!entry) {
+      entry = { id:crypto.randomUUID(), exchange:akExchange, label, fields:{}, permissions, testnet, status:'unknown', lastTested:null };
+      akEntries.push(entry);
+      akEntryId = entry.id;
+    }
+    entry.label=label; entry.permissions=permissions; entry.testnet=testnet;
+    for (const f of cfg.fields) {
+      const val = document.getElementById(`ak-f-${f.id}`)?.value;
+      if (val!==undefined && val!=='') entry.fields[f.id]=val;
+    }
+    await akPersist();
+    result.textContent='Saved.'; result.className='ak-result ok';
+    akRenderExBar(); akRenderBody();
+  } catch(e) { result.textContent=e.message; result.className='ak-result err'; }
+}
+
+// ── Delete ────────────────────────────────────────────────────────────────────
+
+async function akDelete() {
+  const entry = akEntries.find(k=>k.id===akEntryId);
+  if (!confirm(`Delete "${entry?.label||'this entry'}" for ${akExchange}? This cannot be undone.`)) return;
+  akEntries = akEntries.filter(e=>e.id!==akEntryId);
+  akEntryId = null;
+  await akPersist();
+  akRenderExBar(); akRenderBody();
+}
+
+// ── Test Connection (direct browser calls via Web Crypto HMAC) ────────────────
+
+async function akTest() {
+  if (!akVaultKey) return;
+  const entry  = akEntries.find(e=>e.id===akEntryId);
+  if (!entry) return;
+  const result = document.getElementById('ak-result');
+  result.textContent='Testing connection…'; result.className='ak-result';
+  try {
+    const msg = await akTestExchange(entry.exchange, entry.fields, entry.testnet);
+    entry.status='ok'; entry.lastTested=new Date().toISOString();
+    await akPersist();
+    result.textContent=`✓ ${msg}`; result.className='ak-result ok';
+    akRenderExBar();
+  } catch(e) {
+    entry.status='error'; entry.lastTested=new Date().toISOString();
+    await akPersist();
+    result.textContent=`✗ ${e.message}`; result.className='ak-result err';
+    akRenderExBar();
+  }
+}
+
+async function akHmacHex(secret, message) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
+  return akBufToHex(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message)));
+}
+
+async function akTestExchange(exchange, fields, testnet) {
+  switch (exchange) {
+    case 'Deribit': {
+      const base = testnet ? 'https://test.deribit.com/api/v2' : 'https://www.deribit.com/api/v2';
+      const r = await fetch(`${base}/public/auth?client_id=${encodeURIComponent(fields.clientId)}&client_secret=${encodeURIComponent(fields.clientSecret)}&grant_type=client_credentials`);
+      const j = await r.json();
+      if (j.error) throw new Error(j.error.message);
+      return `Connected to Deribit${testnet?' (testnet)':''}`;
+    }
+    case 'Binance': {
+      const base = testnet ? 'https://testnet.binance.vision' : 'https://api.binance.com';
+      const ts   = Date.now();
+      const sig  = await akHmacHex(fields.secretKey, `timestamp=${ts}`);
+      const r    = await fetch(`${base}/api/v3/account?timestamp=${ts}&signature=${sig}`, { headers:{'X-MBX-APIKEY':fields.apiKey} });
+      const j    = await r.json();
+      if (j.code) throw new Error(j.msg||`Error ${j.code}`);
+      return `Connected to Binance${testnet?' (testnet)':''}`;
+    }
+    case 'Bybit': {
+      const base = testnet ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
+      const ts   = String(Date.now()), recv='5000', qs='accountType=UNIFIED';
+      const sig  = await akHmacHex(fields.secretKey, `${ts}${fields.apiKey}${recv}${qs}`);
+      const r    = await fetch(`${base}/v5/account/wallet-balance?${qs}`, { headers:{'X-BAPI-API-KEY':fields.apiKey,'X-BAPI-SIGN':sig,'X-BAPI-SIGN-METHOD':'HMAC-SHA256','X-BAPI-TIMESTAMP':ts,'X-BAPI-RECV-WINDOW':recv} });
+      const j    = await r.json();
+      if (j.retCode!==0) throw new Error(j.retMsg||`Error ${j.retCode}`);
+      return `Connected to Bybit${testnet?' (testnet)':''}`;
+    }
+    case 'BitMEX': {
+      const base    = testnet ? 'https://testnet.bitmex.com' : 'https://www.bitmex.com';
+      const expires = Math.floor(Date.now()/1000)+60;
+      const sig     = await akHmacHex(fields.apiSecret, `GET/api/v1/user${expires}`);
+      const r       = await fetch(`${base}/api/v1/user`, { headers:{'api-key':fields.apiKey,'api-signature':sig,'api-expires':String(expires)} });
+      const j       = await r.json();
+      if (j.error) throw new Error(j.error.message);
+      return `Connected to BitMEX${testnet?' (testnet)':''} — ${j.username||''}`;
+    }
+    default:
+      throw new Error(`${exchange}: direct browser testing blocked by exchange CORS policy. Keys are saved securely.`);
+  }
+}
+
+// ── WS request-response helper ────────────────────────────────────────────────
+function wsSend(method, params = {}) {
+  return new Promise((resolve, reject) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) { reject(new Error('WebSocket not connected')); return; }
+    const id = idCounter++;
+    wsRequests.set(id, { resolve, reject });
+    ws.send(JSON.stringify({ jsonrpc:'2.0', id, method, params }));
+    setTimeout(() => { if (wsRequests.has(id)) { wsRequests.delete(id); reject(new Error('WS timeout')); } }, 15000);
+  });
+}
+
+// ── FOK VWAP instant order execution ──────────────────────────────────────────
+async function executeFokOrder(s, side) {
+  const oc    = document.getElementById(`oc-${s.id}`);
+  const btn   = oc.querySelector(side === 'sell' ? '.ocol-fok-sell' : '.ocol-fok-buy');
+  const errEl = document.getElementById(`vwap-err-${s.id}`);
+  errEl.textContent = '';
+  btn.disabled = true;
+  try {
+    const priceEl = document.getElementById(side === 'sell' ? `sbid-${s.id}` : `bask-${s.id}`);
+    const price   = parseFloat((priceEl?.textContent || '').replace(/[$,]/g, ''));
+    const qty     = getPanelQty(s);
+    if (!price || isNaN(price)) throw new Error('No VWAP — set qty first');
+    if (!qty)                   throw new Error('Set a quantity');
+
+    const token  = await ensureAuth();
+    const inv    = isInverse(s.instrument);
+    const cs     = getContractSize(s.instrument);
+    const method = side === 'buy' ? 'private/buy' : 'private/sell';
+    const amount = inv ? Math.round(qty * price / cs) * cs : qty;
+    const params = { instrument_name: s.instrument, type:'limit', price, amount, time_in_force:'fill_or_kill' };
+    const qstr   = Object.entries(params).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    const r      = await fetch(`https://test.deribit.com/api/v2/${method}?${qstr}`, { headers:{ 'Authorization':`Bearer ${token}` } });
+    const j      = await r.json();
+    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+
+    btn.classList.add('btn-ok');
+    setTimeout(() => btn.classList.remove('btn-ok'), 800);
+
+    if (j.result?.order) {
+      const o   = j.result.order;
+      const tab = isOptionInstr(o.instrument_name) ? 'opt-orders' : 'orders';
+      blotterData[tab][o.order_id] = o;
+      if (blotterTab === tab) renderBlotterTable();
+      else { blotterBadge[tab]++; blotterUpdateBadge(tab); }
+    }
+  } catch(e) {
+    errEl.textContent = e.message;
+    setTimeout(() => { errEl.textContent = ''; }, 7000);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Blotter helpers ───────────────────────────────────────────────────────────
+function isOptionInstr(name) { return /-(C|P)$/.test(String(name)); }
+
+function blotterGetCreds() {
+  // Prefer unlocked vault entry for Deribit
+  if (typeof akVaultKey !== 'undefined' && akVaultKey && typeof akEntries !== 'undefined') {
+    const e = akEntries.find(x => x.exchange === 'Deribit');
+    if (e?.fields?.clientId && e?.fields?.clientSecret)
+      return { cid: e.fields.clientId, csec: e.fields.clientSecret };
+  }
+  // Fall back to order-modal stored credentials
+  const cid  = localStorage.getItem('deribit_cid')  || document.getElementById('auth-client-id')?.value?.trim();
+  const csec = localStorage.getItem('deribit_csec') || document.getElementById('auth-client-secret')?.value?.trim();
+  return (cid && csec) ? { cid, csec } : null;
+}
+
+function blotterSetNoAuth(show) {
+  const el = document.getElementById('bl-noauth');
+  if (el) el.style.display = show ? 'flex' : 'none';
+}
+
+function blotterUpdateBadge(tabId) {
+  const el = document.getElementById(`bl-badge-${tabId}`);
+  if (!el) return;
+  const n = blotterBadge[tabId];
+  el.textContent = n > 99 ? '99+' : String(n);
+  el.classList.toggle('on', n > 0);
+}
+
+// ── Blotter WS auth & subscription ───────────────────────────────────────────
+async function blotterWsAuth() {
+  blotterAuthed = false;
+  const creds = blotterGetCreds();
+  if (!creds) { blotterSetNoAuth(true); return; }
+
+  // ── Step 1: WS authentication (noauth banner only reflects this) ──────────
+  try {
+    await wsSend('public/auth', { grant_type:'client_credentials', client_id:creds.cid, client_secret:creds.csec });
+    blotterAuthed = true;
+    blotterSetNoAuth(false);
+  } catch(e) {
+    console.warn('Blotter WS auth failed:', e.message);
+    blotterSetNoAuth(true);
+    return;
+  }
+
+  // ── Step 2: Subscribe to private channels (errors here don't show noauth) ─
+  try {
+    await wsSend('private/subscribe', { channels:[
+      'user.trades.any.any.raw',
+      'user.orders.any.any.raw',
+      'user.changes.any.any.raw',
+      'user.portfolio.btc',
+      'user.portfolio.eth',
+      'user.portfolio.usdc',
+    ]});
+  } catch(e) {
+    console.warn('Blotter subscribe failed:', e.message);
+  }
+
+  // ── Step 3: Fetch initial data via REST using creds directly ───────────────
+  try {
+    // Get REST token using vault/localStorage creds (not ensureAuth which needs DOM inputs)
+    const authR = await fetch('https://test.deribit.com/api/v2/public/auth?' +
+      new URLSearchParams({ grant_type:'client_credentials', client_id:creds.cid, client_secret:creds.csec }));
+    const authJ = await authR.json();
+    if (authJ.error) throw new Error(authJ.error.message || 'Auth failed');
+    const token = authJ.result.access_token;
+    // Cache token so ensureAuth() can reuse it
+    authToken  = token;
+    authExpiry = Date.now() / 1000 + (authJ.result.expires_in || 900);
+
+    for (const cur of ['BTC','ETH','USDC']) {
+      try {
+        const r = await fetch(`https://test.deribit.com/api/v2/private/get_account_summary?currency=${cur}&extended=true`, { headers:{'Authorization':`Bearer ${token}`} });
+        const j = await r.json();
+        if (!j.error && j.result) { blotterData.balances[cur] = j.result; }
+      } catch {}
+    }
+    for (const [kind, cur] of [['future','BTC'],['future','ETH'],['option','BTC'],['option','ETH']]) {
+      try {
+        const r = await fetch(`https://test.deribit.com/api/v2/private/get_positions?currency=${cur}&kind=${kind}`, { headers:{'Authorization':`Bearer ${token}`} });
+        const j = await r.json();
+        if (!j.error && Array.isArray(j.result)) {
+          j.result.forEach(p => {
+            const tab = isOptionInstr(p.instrument_name) ? 'opt-positions' : 'positions';
+            if (p.size !== 0) blotterData[tab][p.instrument_name] = p;
+          });
+        }
+      } catch {}
+    }
+    blotterBadge.positions        = Object.keys(blotterData.positions).length;
+    blotterBadge['opt-positions'] = Object.keys(blotterData['opt-positions']).length;
+    blotterUpdateBadge('positions'); blotterUpdateBadge('opt-positions');
+    if (blotterTab === 'balances' || blotterTab === 'positions' || blotterTab === 'opt-positions') renderBlotterTable();
+  } catch(e) {
+    console.warn('Blotter initial data fetch failed:', e.message);
+  }
+}
+
+// ── Blotter data handlers ─────────────────────────────────────────────────────
+function blotterHandleTrades(arr) {
+  for (const t of arr) {
+    const tab = isOptionInstr(t.instrument_name) ? 'opt-trades' : 'trades';
+    blotterData[tab].unshift(t);
+    if (blotterData[tab].length > 500) blotterData[tab].pop();
+    if (blotterTab !== tab) { blotterBadge[tab]++; blotterUpdateBadge(tab); }
+  }
+  const hit = arr.some(t => !isOptionInstr(t.instrument_name));
+  const hitOpt = arr.some(t => isOptionInstr(t.instrument_name));
+  if ((hit && blotterTab === 'trades') || (hitOpt && blotterTab === 'opt-trades')) renderBlotterTable();
+}
+
+function blotterHandleOrders(arr) {
+  let hitFut = false, hitOpt = false;
+  for (const o of arr) {
+    const tab = isOptionInstr(o.instrument_name) ? 'opt-orders' : 'orders';
+    const existed = !!blotterData[tab][o.order_id];
+    blotterData[tab][o.order_id] = o;
+    if (blotterTab !== tab) { blotterBadge[tab]++; blotterUpdateBadge(tab); }
+    // Flash row if already visible
+    if (blotterTab === tab) {
+      if (!isOptionInstr(o.instrument_name)) hitFut = true; else hitOpt = true;
+      if (existed) setTimeout(() => blotterFlashRow(`bl-row-${o.order_id}`), 10);
+    }
+  }
+  if ((hitFut && blotterTab === 'orders') || (hitOpt && blotterTab === 'opt-orders')) renderBlotterTable();
+}
+
+function blotterHandleChanges(data) {
+  // Only extract positions from this channel (trades/orders come from dedicated channels)
+  if (!Array.isArray(data.positions)) return;
+  let changed = false;
+  for (const p of data.positions) {
+    const tab = isOptionInstr(p.instrument_name) ? 'opt-positions' : 'positions';
+    if (p.size === 0) { delete blotterData[tab][p.instrument_name]; }
+    else              { blotterData[tab][p.instrument_name] = p; }
+    changed = true;
+  }
+  if (!changed) return;
+  blotterBadge.positions        = Object.keys(blotterData.positions).length;
+  blotterBadge['opt-positions'] = Object.keys(blotterData['opt-positions']).length;
+  blotterUpdateBadge('positions'); blotterUpdateBadge('opt-positions');
+  if (blotterTab === 'positions' || blotterTab === 'opt-positions') renderBlotterTable();
+}
+
+function blotterHandlePortfolio(ch, data) {
+  const cur = ch.split('.').pop().toUpperCase();
+  blotterData.balances[cur] = { ...(blotterData.balances[cur] || {}), ...data };
+  if (blotterTab !== 'balances') { blotterBadge.balances++; blotterUpdateBadge('balances'); }
+  else renderBlotterTable();
+}
+
+function blotterFlashRow(id) {
+  const row = document.getElementById(id);
+  if (!row) return;
+  row.classList.remove('bl-flash');
+  void row.offsetWidth;
+  row.classList.add('bl-flash');
+  setTimeout(() => row.classList.remove('bl-flash'), 700);
+}
+
+// ── Blotter rendering ─────────────────────────────────────────────────────────
+const BL_FMT = (v, d=2) => v == null ? '—' : Number(v).toFixed(d);
+const BL_TS  = ts => ts ? new Date(ts).toLocaleTimeString() : '—';
+
+function renderBlotterTable() {
+  const wrap = document.getElementById('bl-table-wrap');
+  if (!wrap) return;
+  switch (blotterTab) {
+    case 'trades':        wrap.innerHTML = blotterTradesHTML(blotterData.trades, 'trades'); break;
+    case 'opt-trades':    wrap.innerHTML = blotterTradesHTML(blotterData['opt-trades'], 'opt-trades'); break;
+    case 'orders':        wrap.innerHTML = blotterOrdersHTML(blotterData.orders, 'orders'); break;
+    case 'opt-orders':    wrap.innerHTML = blotterOrdersHTML(blotterData['opt-orders'], 'opt-orders'); break;
+    case 'positions':     wrap.innerHTML = blotterPositionsHTML(blotterData.positions, false); break;
+    case 'opt-positions': wrap.innerHTML = blotterPositionsHTML(blotterData['opt-positions'], true); break;
+    case 'balances':      wrap.innerHTML = blotterBalancesHTML(); break;
+    case 'alerts':        wrap.innerHTML = blotterListHTML(blotterData.alerts, 'No alerts this session'); break;
+    case 'notifs':        wrap.innerHTML = blotterListHTML(blotterData.notifs, 'No notifications this session'); break;
+  }
+  blotterWireActions();
+  blotterWireSortHeaders();
+}
+
+function blotterSortRows(rows, tabId) {
+  const { col, dir } = blotterSort[tabId];
+  if (!col) return rows;
+  return [...rows].sort((a, b) => {
+    let av = a[col] ?? '', bv = b[col] ?? '';
+    if (typeof av === 'string') return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    return dir === 'asc' ? av - bv : bv - av;
+  });
+}
+
+function blotterTH(col, label, tabId) {
+  const s = blotterSort[tabId];
+  const cls = s.col === col ? (s.dir === 'asc' ? 'sort-asc' : 'sort-desc') : '';
+  return `<th class="${cls}" data-col="${col}" data-tab="${tabId}">${label}</th>`;
+}
+
+function blotterTradesHTML(rows, tabId) {
+  if (!rows.length) return '<div class="bl-empty">No fills this session</div>';
+  const sorted = blotterSort[tabId].col
+    ? blotterSortRows(rows, tabId)
+    : rows;   // already newest-first
+  const head = [
+    blotterTH('timestamp','Time',tabId), blotterTH('instrument_name','Instrument',tabId),
+    blotterTH('direction','Side',tabId), blotterTH('amount','Amount',tabId),
+    blotterTH('price','Price',tabId),    blotterTH('fee','Fee',tabId),
+    blotterTH('order_id','Order ID',tabId), blotterTH('trade_id','Trade ID',tabId),
+    '<th>Liq</th>', '<th>Block RFQ</th>',
+  ].join('');
+  const body = sorted.map(t => {
+    const sc = t.direction === 'buy' ? 'bl-green' : 'bl-red';
+    return `<tr id="bl-row-${t.trade_id}">
+      <td>${BL_TS(t.timestamp)}</td>
+      <td>${t.instrument_name||'—'}</td>
+      <td class="${sc}">${(t.direction||'').toUpperCase()}</td>
+      <td>${t.amount??'—'}</td><td>${t.price??'—'}</td>
+      <td>${t.fee != null ? Number(t.fee).toFixed(6) : '—'}</td>
+      <td style="font-size:9px;color:#444">${t.order_id||'—'}</td>
+      <td style="font-size:9px;color:#444">${t.trade_id||'—'}</td>
+      <td>${t.liquidation ? '<span class="bl-red">LIQ</span>' : '—'}</td>
+      <td style="font-size:9px;color:#444">${t.block_rfq_id||'—'}</td>
+    </tr>`;
+  }).join('');
+  return `<table class="bl-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function blotterOrdersHTML(ordersMap, tabId) {
+  let rows = Object.values(ordersMap);
+  rows = blotterSort[tabId].col ? blotterSortRows(rows, tabId) : rows.sort((a,b) => (b.last_update_timestamp||0)-(a.last_update_timestamp||0));
+  if (!rows.length) return '<div class="bl-empty">No orders this session</div>';
+  const head = [
+    blotterTH('creation_timestamp','Time',tabId), blotterTH('instrument_name','Instrument',tabId),
+    blotterTH('order_type','Type',tabId),         blotterTH('direction','Side',tabId),
+    blotterTH('amount','Amount',tabId),            blotterTH('filled_amount','Filled',tabId),
+    '<th>Remaining</th>',                          blotterTH('price','Price',tabId),
+    blotterTH('order_state','Status',tabId),       blotterTH('order_id','Order ID',tabId),
+    '<th></th>',
+  ].join('');
+  const body = rows.map(o => {
+    const sc   = o.direction === 'buy' ? 'bl-green' : 'bl-red';
+    const stc  = o.order_state === 'open' ? 'bl-st-open' : o.order_state === 'filled' ? 'bl-st-filled' : 'bl-st-cancelled';
+    const rem  = (o.amount||0) - (o.filled_amount||0);
+    const canc = o.order_state === 'open' ? `<button class="bl-cancel-btn" data-oid="${o.order_id}">✕</button>` : '';
+    return `<tr id="bl-row-${o.order_id}">
+      <td>${BL_TS(o.creation_timestamp)}</td>
+      <td>${o.instrument_name||'—'}</td>
+      <td>${o.order_type||'—'}</td>
+      <td class="${sc}">${(o.direction||'').toUpperCase()}</td>
+      <td>${o.amount??'—'}</td><td>${o.filled_amount??'—'}</td><td>${rem}</td>
+      <td>${o.price??'—'}</td>
+      <td class="${stc}">${o.order_state||'—'}</td>
+      <td style="font-size:9px;color:#444">${o.order_id||'—'}</td>
+      <td>${canc}</td>
+    </tr>`;
+  }).join('');
+  return `<table class="bl-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function blotterPositionsHTML(posMap, showGreeks) {
+  const tabId = showGreeks ? 'opt-positions' : 'positions';
+  let rows = Object.values(posMap);
+  if (blotterSort[tabId].col) rows = blotterSortRows(rows, tabId);
+  if (!rows.length) return '<div class="bl-empty">No open positions</div>';
+  const greekCols = showGreeks ? [blotterTH('delta','Delta',tabId), blotterTH('gamma','Gamma',tabId)] : [];
+  const head = [
+    blotterTH('instrument_name','Instrument',tabId), blotterTH('direction','Side',tabId),
+    blotterTH('size','Size',tabId),                  blotterTH('average_price','Entry',tabId),
+    blotterTH('mark_price','Mark',tabId),             blotterTH('floating_profit_loss','uPnL',tabId),
+    blotterTH('realized_profit_loss','rPnL',tabId),  blotterTH('estimated_liquidation_price','Liq Price',tabId),
+    blotterTH('initial_margin','Margin',tabId),       ...greekCols,
+  ].join('');
+  const body = rows.map(p => {
+    const sc  = p.direction === 'buy' ? 'bl-green' : 'bl-red';
+    const upc = (p.floating_profit_loss||0) >= 0 ? 'bl-green' : 'bl-red';
+    const rpc = (p.realized_profit_loss||0) >= 0 ? 'bl-green' : 'bl-red';
+    let cells = `
+      <td>${p.instrument_name||'—'}</td>
+      <td class="${sc}">${(p.direction||'').toUpperCase()}</td>
+      <td>${p.size??'—'}</td>
+      <td>${BL_FMT(p.average_price)}</td>
+      <td>${BL_FMT(p.mark_price)}</td>
+      <td class="${upc}">${BL_FMT(p.floating_profit_loss,6)}</td>
+      <td class="${rpc}">${BL_FMT(p.realized_profit_loss,6)}</td>
+      <td>${BL_FMT(p.estimated_liquidation_price)}</td>
+      <td>${BL_FMT(p.initial_margin,6)}</td>`;
+    if (showGreeks) cells += `<td>${BL_FMT(p.delta,4)}</td><td>${BL_FMT(p.gamma,6)}</td>`;
+    return `<tr id="bl-row-${p.instrument_name}">${cells}</tr>`;
+  }).join('');
+  return `<table class="bl-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function blotterBalancesHTML() {
+  const head = `<th>Currency</th><th>Available</th><th>Total Balance</th><th>Reserved Margin</th><th>Unrealised PnL</th><th>Equity</th>`;
+  const body = ['BTC','ETH','USDC'].map(cur => {
+    const b   = blotterData.balances[cur] || {};
+    const upc = (b.futures_session_upl||0) >= 0 ? 'bl-green' : 'bl-red';
+    return `<tr>
+      <td>${cur}</td>
+      <td>${BL_FMT(b.available_funds,6)}</td>
+      <td>${BL_FMT(b.balance,6)}</td>
+      <td>${BL_FMT(b.initial_margin,6)}</td>
+      <td class="${upc}">${BL_FMT(b.futures_session_upl,6)}</td>
+      <td>${BL_FMT(b.margin_balance,6)}</td>
+    </tr>`;
+  }).join('');
+  return `<table class="bl-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function blotterListHTML(items, emptyMsg) {
+  if (!items.length) return `<div class="bl-empty">${emptyMsg}</div>`;
+  return `<div style="padding:8px 12px;font-size:11px;color:#666">${items.map(i=>`<div style="padding:4px 0;border-bottom:1px solid #0d0d12">${i}</div>`).join('')}</div>`;
+}
+
+// ── Blotter table wiring ──────────────────────────────────────────────────────
+function blotterWireActions() {
+  document.querySelectorAll('#bl-table-wrap .bl-cancel-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const oid = btn.dataset.oid;
+      btn.disabled = true; btn.textContent = '…';
+      try {
+        const token = await ensureAuth();
+        const r = await fetch(`https://test.deribit.com/api/v2/private/cancel?order_id=${encodeURIComponent(oid)}`, { headers:{'Authorization':`Bearer ${token}`} });
+        const j = await r.json();
+        if (j.error) throw new Error(j.error.message);
+        // Order update will arrive via WS subscription
+      } catch(e) {
+        btn.disabled = false; btn.textContent = '✕';
+        console.error('Cancel:', e.message);
+      }
+    });
+  });
+}
+
+function blotterWireSortHeaders() {
+  document.querySelectorAll('#bl-table-wrap .bl-table th[data-col]').forEach(th => {
+    th.addEventListener('click', () => {
+      const { col, tab } = th.dataset;
+      const s = blotterSort[tab];
+      if (s.col === col) s.dir = s.dir === 'asc' ? 'desc' : 'asc';
+      else               { s.col = col; s.dir = 'desc'; }
+      renderBlotterTable();
+    });
+  });
+}
+
+// ── Blotter init ──────────────────────────────────────────────────────────────
+function initBlotter() {
+  const blEl   = document.getElementById('blotter');
+  const COLL_H = 39;   // height when collapsed: 5px handle + 34px tab bar
+  const MIN_H  = 160;  // minimum when expanded
+  const clampH = h => Math.max(MIN_H, Math.min(Math.floor(window.innerHeight * 0.6), h));
+
+  // Start collapsed
+  blEl.style.height = COLL_H + 'px';
+  blotterExpanded = false;
+
+  function expandBlotter() {
+    blEl.style.height = clampH(blotterSavedH) + 'px';
+    blotterExpanded = true;
+    document.getElementById('bl-collapse-btn').style.display = 'flex';
+    renderBlotterTable();
+  }
+
+  function collapseBlotter() {
+    blEl.style.height = COLL_H + 'px';
+    blotterExpanded = false;
+    document.getElementById('bl-collapse-btn').style.display = 'none';
+  }
+
+  // Render tab bar with collapse button on right
+  const tabBar = document.getElementById('bl-tab-bar');
+  tabBar.innerHTML = BL_TABS.map(t => `
+    <button class="bl-tab${t.id === blotterTab ? ' active' : ''}" data-bl="${t.id}">
+      ${t.label}<span class="bl-badge" id="bl-badge-${t.id}"></span>
+    </button>`).join('') +
+    `<button id="bl-collapse-btn" title="Collapse blotter" style="position:sticky;right:0;flex-shrink:0;background:#090910;border:none;border-left:1px solid #1a1a22;color:#555;cursor:pointer;font-size:13px;padding:0 10px;display:none;align-items:center;height:100%">▼</button>`;
+
+  tabBar.querySelectorAll('.bl-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (!blotterExpanded) expandBlotter();
+      blotterTab = btn.dataset.bl;
+      tabBar.querySelectorAll('.bl-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      blotterBadge[blotterTab] = 0;
+      blotterUpdateBadge(blotterTab);
+      renderBlotterTable();
+    });
+  });
+
+  document.getElementById('bl-collapse-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    collapseBlotter();
+  });
+
+  // No-auth link → open API Keys tab
+  document.getElementById('bl-noauth-link')?.addEventListener('click', e => {
+    e.preventDefault();
+    const ov = document.getElementById('specs-overlay');
+    ov.style.display = 'flex';
+    document.getElementById('specs-btn').classList.add('active');
+    document.querySelector('.admin-tab[data-admin="apikeys"]')?.click();
+  });
+
+  // Resize drag (only when expanded)
+  const handle = document.getElementById('bl-handle');
+  let drag = null;
+  handle.addEventListener('mousedown', e => {
+    if (!blotterExpanded) return;
+    drag = { y: e.clientY, h: blEl.offsetHeight };
+    handle.classList.add('dragging');
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!drag) return;
+    const newH = clampH(drag.h + (drag.y - e.clientY));
+    blEl.style.height = newH + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (!drag) return;
+    blotterSavedH = blEl.offsetHeight;
+    localStorage.setItem('blotter_h', blotterSavedH);
+    drag = null;
+    handle.classList.remove('dragging');
+  });
+
+  renderBlotterTable();
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+loadAuthCreds();
+initBlotter();
+buildFilterOptions();
+populateConvInstruments();
+renderSpecsTable();
+
+loadInstruments().then(() => {
+  if (!loadPersistedLayouts()) {
+    layouts = [{ id: layoutNextId++, name: 'Layout 1', panels: [] }];
+    activeLayoutId = layouts[0].id;
+  }
+  renderLayoutTabs();
+  restoreLayoutPanels(layouts.find(l => l.id === activeLayoutId));
+  connect();
+});
+</script>
+</body>
+</html>

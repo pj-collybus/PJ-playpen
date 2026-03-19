@@ -1,0 +1,4 @@
+node_modules/
+.env
+keys_store.json
+.claude/
