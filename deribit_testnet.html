@@ -24,6 +24,11 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
   background: #10101c; border: 1px solid #2a2a44; border-radius: 5px; color: #6666cc; cursor: pointer;
 }
 .add-panel-btn:hover { background: #14142a; border-color: #4444aa; color: #9999ff; }
+.tca-btn {
+  font-size: 11px; padding: 4px 12px;
+  background: #10101c; border: 1px solid #2a3a2a; border-radius: 5px; color: #6c9; cursor: pointer;
+}
+.tca-btn:hover, .tca-btn.active { background: #0f1f14; border-color: #4a8; color: #8fd8a0; }
 .specs-btn {
   font-size: 11px; padding: 4px 12px;
   background: #10101c; border: 1px solid #2a2a3a; border-radius: 5px; color: #888; cursor: pointer;
@@ -155,6 +160,50 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 .ak-vault-sub { font-size: 11px; color: #555; line-height: 1.65; }
 .ak-lock-btn { margin-left: auto; padding: 5px 12px; background: none; border: 1px solid #1e1e28; border-radius: 5px; color: #555; cursor: pointer; font-size: 11px; font-family: inherit; transition: all .15s; }
 .ak-lock-btn:hover { border-color: #4444aa; color: #9999ff; }
+
+/* ── TCA Dashboard ── */
+#tca-view {
+  display: none; position: fixed; inset: 0; z-index: 8000;
+  background: #0d0d0f; flex-direction: column; overflow: hidden;
+}
+#tca-view.active { display: flex; }
+.tca-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 18px; border-bottom: 1px solid #1a1a22; flex-shrink: 0; }
+.tca-header-title { font-size: 13px; font-weight: 700; color: #d0d0d0; letter-spacing: .05em; }
+.tca-close-btn { width: 28px; height: 28px; background: none; border: 1px solid #1e1e28; border-radius: 4px; color: #555; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+.tca-close-btn:hover { border-color: #e05252; color: #e05252; }
+.tca-stub-banner { background: #2a2000; color: #d4a017; padding: 6px 18px; font-size: 11px; border-bottom: 1px solid #3a3000; flex-shrink: 0; }
+.tca-body { flex: 1; overflow-y: auto; padding: 14px 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 1000px) { .tca-body { grid-template-columns: 1fr; } }
+.tca-panel { background: #0a0a10; border: 1px solid #1a1a22; border-radius: 8px; display: flex; flex-direction: column; min-height: 200px; }
+.tca-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid #1a1a22; flex-shrink: 0; }
+.tca-panel-title { font-size: 11px; font-weight: 700; color: #888; letter-spacing: .05em; text-transform: uppercase; }
+.tca-panel-body { flex: 1; overflow: auto; padding: 10px 14px; position: relative; }
+.tca-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.tca-table th { text-align: left; padding: 5px 8px; color: #555; font-weight: 600; border-bottom: 1px solid #1a1a22; position: sticky; top: 0; background: #0a0a10; }
+.tca-table td { padding: 5px 8px; border-bottom: 1px solid #0f0f14; color: #bbb; white-space: nowrap; }
+.tca-table tr:hover td { background: #0f0f18; }
+.tca-slip-pos { color: #e05252; }
+.tca-slip-neg { color: #00c896; }
+.tca-filters { display: flex; gap: 8px; padding: 8px 14px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid #1a1a22; }
+.tca-filters input, .tca-filters select { font-size: 11px; padding: 4px 8px; background: #0d0d14; border: 1px solid #1e1e28; border-radius: 4px; color: #ccc; font-family: inherit; }
+.tca-filters input:focus, .tca-filters select:focus { border-color: #4444aa; outline: none; }
+.tca-filters label { font-size: 10px; color: #555; }
+.tca-refresh-btn { font-size: 10px; padding: 4px 10px; background: #10101c; border: 1px solid #2a2a3a; border-radius: 4px; color: #888; cursor: pointer; font-family: inherit; }
+.tca-refresh-btn:hover { border-color: #4444aa; color: #9999ff; }
+.tca-empty { text-align: center; padding: 40px 20px; color: #444; font-size: 12px; }
+.tca-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #333; border-top-color: #6666cc; border-radius: 50%; animation: spin .6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.tca-sor-active { border-left: 3px solid #3366cc; }
+.tca-latency-green { color: #00c896; }
+.tca-latency-amber { color: #d4a017; }
+.tca-latency-red   { color: #e05252; }
+.tca-mi-input { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.tca-mi-input input { flex: 1; font-size: 11px; padding: 5px 8px; background: #0d0d14; border: 1px solid #1e1e28; border-radius: 4px; color: #ccc; font-family: inherit; }
+.tca-mi-input button { font-size: 11px; padding: 5px 12px; background: #10101c; border: 1px solid #2a2a3a; border-radius: 4px; color: #888; cursor: pointer; font-family: inherit; }
+.tca-mi-input button:hover { border-color: #4444aa; color: #9999ff; }
+.tca-mi-detail { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; }
+.tca-mi-detail dt { color: #555; font-weight: 600; }
+.tca-mi-detail dd { color: #ccc; }
 
 /* ── Blotter ── */
 @keyframes bl-flash { 0%,100%{background:transparent} 50%{background:#16162a} }
@@ -851,6 +900,7 @@ canvas.clickable { cursor: crosshair; }
   </div>
   <div class="topbar-right">
     <button class="add-panel-btn" id="add-panel-btn">＋ Add Panel</button>
+    <button class="tca-btn" id="tca-btn">TCA</button>
     <button class="specs-btn" id="specs-btn">Contract Specs</button>
   </div>
 </div>
@@ -872,6 +922,72 @@ canvas.clickable { cursor: crosshair; }
       <a id="bl-noauth-link">Open API Keys</a>
     </div>
     <div class="bl-table-wrap" id="bl-table-wrap"></div>
+  </div>
+</div>
+
+<!-- ── TCA Dashboard view ── -->
+<div id="tca-view">
+  <div class="tca-header">
+    <span class="tca-header-title">Transaction Cost Analysis</span>
+    <button class="tca-close-btn" id="tca-close-btn">&times;</button>
+  </div>
+  <div class="tca-stub-banner" id="tca-stub-banner">&#9888;&#65039; Running on stub data store — connect ClickHouse for production analytics</div>
+  <div class="tca-body">
+
+    <!-- Panel 1: Slippage Report -->
+    <div class="tca-panel" style="grid-column: 1 / -1;">
+      <div class="tca-panel-header"><span class="tca-panel-title">Slippage Report</span></div>
+      <div class="tca-filters">
+        <label>Client <input id="tca-f-client" type="text" placeholder="client ID" style="width:100px"></label>
+        <label>Venue <select id="tca-f-venue"><option value="">All</option><option>DERIBIT</option><option>BINANCE</option><option>BYBIT</option><option>OKX</option><option>KRAKEN</option><option>LMAX</option><option>EBS</option><option>360T</option></select></label>
+        <label>Symbol <input id="tca-f-symbol" type="text" placeholder="e.g. BTC" style="width:80px"></label>
+        <label>From <input id="tca-f-from" type="date"></label>
+        <label>To <input id="tca-f-to" type="date"></label>
+        <button class="tca-refresh-btn" id="tca-slip-refresh">Refresh</button>
+      </div>
+      <div class="tca-panel-body" id="tca-slip-body">
+        <div class="tca-empty">No data yet — orders will appear here once trading begins</div>
+      </div>
+    </div>
+
+    <!-- Panel 2: Venue Scorecard -->
+    <div class="tca-panel">
+      <div class="tca-panel-header"><span class="tca-panel-title">Venue Scorecard</span></div>
+      <div class="tca-filters">
+        <label>Symbol <input id="tca-sc-symbol" type="text" value="BTC-PERP" style="width:100px"></label>
+        <label>Days <select id="tca-sc-days"><option>1</option><option>3</option><option selected>7</option><option>30</option></select></label>
+        <button class="tca-refresh-btn" id="tca-sc-refresh">Refresh</button>
+      </div>
+      <div class="tca-panel-body" id="tca-sc-body">
+        <div class="tca-empty">No data yet — orders will appear here once trading begins</div>
+      </div>
+    </div>
+
+    <!-- Panel 3: Order Latency -->
+    <div class="tca-panel">
+      <div class="tca-panel-header"><span class="tca-panel-title">Order Latency</span></div>
+      <div class="tca-filters">
+        <button class="tca-refresh-btn" id="tca-lat-refresh">Refresh</button>
+      </div>
+      <div class="tca-panel-body" id="tca-lat-body">
+        <div class="tca-empty">No data yet — orders will appear here once trading begins</div>
+      </div>
+    </div>
+
+    <!-- Panel 4: Market Impact -->
+    <div class="tca-panel" style="grid-column: 1 / -1;">
+      <div class="tca-panel-header"><span class="tca-panel-title">Market Impact</span></div>
+      <div class="tca-panel-body">
+        <div class="tca-mi-input">
+          <input id="tca-mi-orderid" type="text" placeholder="Enter Order ID...">
+          <button id="tca-mi-go">Lookup</button>
+        </div>
+        <div id="tca-mi-body">
+          <div class="tca-empty">Enter an Order ID above</div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -3579,7 +3695,13 @@ function setAuthStatus(txt, cls) {
 
 // ── Open / close ──────────────────────────────────────────────────────────────
 function openOrderModal(instrument, side, price, qty, exchange, tab) {
-  orderState = { instrument, side, tab: tab || 'limit', price, qty: qty || null, exchange: exchange || 'Deribit' };
+  // Capture TCA arrival anchors from the panel's live ticker data
+  const ps = panels.find(p => p.instrument === instrument);
+  const aBid = ps?.ticker?.best_bid_price || 0;
+  const aAsk = ps?.ticker?.best_ask_price || 0;
+  const aMid = (aBid && aAsk) ? (aBid + aAsk) / 2 : (aBid || aAsk || price || 0);
+  const aSpread = aMid > 0 ? (aAsk - aBid) / aMid * 10000 : 0;
+  orderState = { instrument, side, tab: tab || 'limit', price, qty: qty || null, exchange: exchange || 'Deribit', arrivalBid: aBid, arrivalAsk: aAsk, arrivalMid: aMid, arrivalSpreadBps: aSpread };
   // Reset to centre on each fresh open
   const box = document.querySelector('.order-box');
   box.style.left = 'calc(50vw - 170px)';
@@ -3770,13 +3892,32 @@ async function placeOrder() {
 
     const url  = `https://test.deribit.com/api/v2/${method}`;
     const qstr = Object.entries(params).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    const _submittedTs = Date.now();
     const r    = await fetch(`${url}?${qstr}`, { headers: { 'Authorization': `Bearer ${token}` } });
+    const _acknowledgedTs = Date.now();
     const j    = await r.json();
     if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
     const oid = j.result?.order?.order_id || '?';
     msgEl.textContent = `✓ Order placed · ${oid}`;
     msgEl.className = 'order-msg ok';
     setTimeout(closeOrderModal, 1600);
+
+    // Notify TCA pipeline (fire-and-forget)
+    const ord = j.result?.order;
+    if (ord) {
+      fetch(TCA_BASE + '/api/tca/notify-order', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: ord.order_id, instrument_name: ord.instrument_name,
+          direction: ord.direction, amount: ord.amount, price: ord.price,
+          order_type: ord.order_type, order_state: ord.order_state,
+          filled_amount: ord.filled_amount,
+          arrivalBid: orderState.arrivalBid, arrivalAsk: orderState.arrivalAsk,
+          arrivalMid: orderState.arrivalMid, arrivalSpreadBps: orderState.arrivalSpreadBps,
+          submittedTs: _submittedTs, acknowledgedTs: _acknowledgedTs,
+        }),
+      }).catch(() => {});
+    }
 
   } catch(e) {
     msgEl.textContent = e.message;
@@ -4773,12 +4914,20 @@ async function executeFokOrder(s, side) {
     const amount = inv ? Math.round(qty * price / cs) * cs : qty;
     const params = { instrument_name: s.instrument, type:'limit', price, amount, time_in_force:'fill_or_kill' };
     const qstr   = Object.entries(params).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    const _fokSubmittedTs = Date.now();
     const r      = await fetch(`https://test.deribit.com/api/v2/${method}?${qstr}`, { headers:{ 'Authorization':`Bearer ${token}` } });
+    const _fokAcknowledgedTs = Date.now();
     const j      = await r.json();
     if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
 
     btn.classList.add('btn-ok');
     setTimeout(() => btn.classList.remove('btn-ok'), 800);
+
+    // Capture TCA arrival anchors from live ticker
+    const fokBid = s.ticker?.best_bid_price || 0;
+    const fokAsk = s.ticker?.best_ask_price || 0;
+    const fokMid = (fokBid && fokAsk) ? (fokBid + fokAsk) / 2 : (fokBid || fokAsk || price || 0);
+    const fokSpread = fokMid > 0 ? (fokAsk - fokBid) / fokMid * 10000 : 0;
 
     if (j.result?.order) {
       const o   = j.result.order;
@@ -4786,6 +4935,20 @@ async function executeFokOrder(s, side) {
       blotterData[tab][o.order_id] = o;
       if (blotterTab === tab) renderBlotterTable();
       else { blotterBadge[tab]++; blotterUpdateBadge(tab); }
+
+      // Notify TCA pipeline (fire-and-forget)
+      fetch(TCA_BASE + '/api/tca/notify-order', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: o.order_id, instrument_name: o.instrument_name,
+          direction: o.direction, amount: o.amount, price: o.price,
+          order_type: o.order_type, order_state: o.order_state,
+          filled_amount: o.filled_amount,
+          arrivalBid: fokBid, arrivalAsk: fokAsk,
+          arrivalMid: fokMid, arrivalSpreadBps: fokSpread,
+          submittedTs: _fokSubmittedTs, acknowledgedTs: _fokAcknowledgedTs,
+        }),
+      }).catch(() => {});
     }
   } catch(e) {
     errEl.textContent = e.message;
@@ -4902,6 +5065,24 @@ function blotterHandleTrades(arr) {
     blotterData[tab].unshift(t);
     if (blotterData[tab].length > 500) blotterData[tab].pop();
     if (blotterTab !== tab) { blotterBadge[tab]++; blotterUpdateBadge(tab); }
+
+    // Forward fill to TCA pipeline (fire-and-forget)
+    const ps = panels.find(p => p.instrument === t.instrument_name);
+    const fBid = ps?.ticker?.best_bid_price || 0;
+    const fAsk = ps?.ticker?.best_ask_price || 0;
+    const fMid = (fBid && fAsk) ? (fBid + fAsk) / 2 : (fBid || fAsk || t.price || 0);
+    const _fillReceivedTs = Date.now();
+    fetch(TCA_BASE + '/api/tca/notify-fill', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        trade_id: t.trade_id, order_id: t.order_id,
+        instrument_name: t.instrument_name,
+        direction: t.direction, price: t.price, amount: t.amount,
+        fee: t.fee, fee_currency: t.fee_currency,
+        timestamp: t.timestamp, arrivalMid: fMid,
+        receivedTs: _fillReceivedTs,
+      }),
+    }).catch(() => {});
   }
   const hit = arr.some(t => !isOptionInstr(t.instrument_name));
   const hitOpt = arr.some(t => isOptionInstr(t.instrument_name));
@@ -5227,6 +5408,191 @@ function initBlotter() {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
+// ── TCA Dashboard ────────────────────────────────────────────────────────────
+// Resolve server base URL — handles both http://localhost:3000 and file:// origins
+const TCA_BASE = (location.protocol === 'file:') ? 'http://localhost:3000' : '';
+
+(function initTCA() {
+  const tcaBtn   = document.getElementById('tca-btn');
+  const tcaView  = document.getElementById('tca-view');
+  const tcaClose = document.getElementById('tca-close-btn');
+
+  let tcaAutoTimers = [];
+  let tcaOpen = false;
+
+  tcaBtn.addEventListener('click', () => {
+    tcaOpen = !tcaOpen;
+    tcaView.classList.toggle('active', tcaOpen);
+    tcaBtn.classList.toggle('active', tcaOpen);
+    if (tcaOpen) {
+      tcaCheckStubBanner();
+      tcaRefreshAll();
+      tcaStartAutoRefresh();
+    } else {
+      tcaStopAutoRefresh();
+    }
+  });
+
+  tcaClose.addEventListener('click', () => {
+    tcaOpen = false;
+    tcaView.classList.remove('active');
+    tcaBtn.classList.remove('active');
+    tcaStopAutoRefresh();
+  });
+
+  function tcaStopAutoRefresh() {
+    tcaAutoTimers.forEach(t => clearInterval(t));
+    tcaAutoTimers = [];
+  }
+
+  function tcaStartAutoRefresh() {
+    tcaStopAutoRefresh();
+    tcaAutoTimers.push(setInterval(tcaRefreshSlippage, 30000));
+    tcaAutoTimers.push(setInterval(tcaRefreshScorecard, 60000));
+    tcaAutoTimers.push(setInterval(tcaRefreshLatency, 60000));
+  }
+
+  function tcaRefreshAll() {
+    tcaRefreshSlippage();
+    tcaRefreshScorecard();
+    tcaRefreshLatency();
+  }
+
+  // ── Stub banner ──
+  async function tcaCheckStubBanner() {
+    const banner = document.getElementById('tca-stub-banner');
+    try {
+      const r = await fetch(TCA_BASE + '/api/tca/config');
+      const cfg = await r.json();
+      banner.style.display = cfg.useRealClickhouse ? 'none' : 'block';
+    } catch { banner.style.display = 'block'; }
+  }
+
+  // ── Panel 1: Slippage Report ──
+  const slipBody = document.getElementById('tca-slip-body');
+  document.getElementById('tca-slip-refresh').addEventListener('click', tcaRefreshSlippage);
+
+  async function tcaRefreshSlippage() {
+    const clientId = document.getElementById('tca-f-client').value;
+    const venue    = document.getElementById('tca-f-venue').value;
+    const symbol   = document.getElementById('tca-f-symbol').value;
+    const from     = document.getElementById('tca-f-from').value;
+    const to       = document.getElementById('tca-f-to').value;
+
+    slipBody.innerHTML = '<div class="tca-empty"><span class="tca-spinner"></span></div>';
+    try {
+      const qs = new URLSearchParams();
+      if (clientId) qs.set('clientId', clientId);
+      if (from) qs.set('from', from);
+      if (to) qs.set('to', to);
+      const r = await fetch(TCA_BASE + '/api/tca/slippage?' + qs);
+      let rows = await r.json();
+      if (venue) rows = rows.filter(r => r.venue === venue);
+      if (symbol) rows = rows.filter(r => r.symbol.includes(symbol.toUpperCase()));
+
+      if (rows.length === 0) {
+        slipBody.innerHTML = '<div class="tca-empty">No data yet — orders will appear here once trading begins</div>';
+        return;
+      }
+      let html = '<table class="tca-table"><thead><tr><th>Time</th><th>Symbol</th><th>Venue</th><th>Side</th><th>Qty</th><th>Avg Fill</th><th>Arrival Mid</th><th>Slippage Bps</th></tr></thead><tbody>';
+      for (const r of rows) {
+        const cls = r.slippage_bps < 0 ? 'tca-slip-neg' : r.slippage_bps > 0 ? 'tca-slip-pos' : '';
+        const t = r.createdTs ? new Date(r.createdTs).toLocaleTimeString() : '—';
+        html += `<tr><td>${t}</td><td>${r.symbol}</td><td>${r.venue}</td><td>${r.side}</td><td>${r.quantity}</td><td>${r.avgFillPrice?.toFixed(2) ?? '—'}</td><td>${r.arrivalMid?.toFixed(2) ?? '—'}</td><td class="${cls}">${r.slippage_bps}</td></tr>`;
+      }
+      html += '</tbody></table>';
+      slipBody.innerHTML = html;
+    } catch (e) {
+      slipBody.innerHTML = `<div class="tca-empty" style="color:#e05252">Error: ${e.message}</div>`;
+    }
+  }
+
+  // ── Panel 2: Venue Scorecard ──
+  const scBody = document.getElementById('tca-sc-body');
+
+  async function tcaRefreshScorecard() {
+    const sym  = document.getElementById('tca-sc-symbol').value || 'BTC-PERP';
+    const days = document.getElementById('tca-sc-days').value || '7';
+    scBody.innerHTML = '<div class="tca-empty"><span class="tca-spinner"></span></div>';
+    try {
+      const r = await fetch(`${TCA_BASE}/api/tca/venue-scorecard?symbol=${encodeURIComponent(sym)}&days=${days}`);
+      const rows = await r.json();
+      if (rows.length === 0) {
+        scBody.innerHTML = '<div class="tca-empty">No data yet — orders will appear here once trading begins</div>';
+        return;
+      }
+      let html = '<table class="tca-table"><thead><tr><th>Venue</th><th>Fills</th><th>Avg Slip Bps</th><th>Avg Fee Bps</th><th>Avg Spread Bps</th><th>All-In Cost Bps</th><th>Score</th></tr></thead><tbody>';
+      for (const r of rows) {
+        html += `<tr><td>${r.venue}</td><td>${r.fills}</td><td>${r.avgSlippage_bps}</td><td>${r.avgFee_bps}</td><td>${r.avgSpread_bps}</td><td>${r.allInCost_bps}</td><td>${r.score}</td></tr>`;
+      }
+      html += '</tbody></table>';
+      scBody.innerHTML = html;
+    } catch (e) {
+      scBody.innerHTML = `<div class="tca-empty" style="color:#e05252">Error: ${e.message}</div>`;
+    }
+  }
+  document.getElementById('tca-sc-refresh').addEventListener('click', tcaRefreshScorecard);
+
+  // ── Panel 3: Order Latency ──
+  const latBody = document.getElementById('tca-lat-body');
+
+  async function tcaRefreshLatency() {
+    latBody.innerHTML = '<div class="tca-empty"><span class="tca-spinner"></span></div>';
+    const venues = ['DERIBIT','BINANCE','BYBIT','OKX','KRAKEN','LMAX','EBS','360T'];
+    try {
+      const results = await Promise.all(venues.map(v => fetch(`${TCA_BASE}/api/tca/order-latency?venue=${v}&days=7`).then(r => r.json())));
+      const rows = results.filter(r => r.sampleSize > 0);
+      if (rows.length === 0) {
+        latBody.innerHTML = '<div class="tca-empty">No data yet — orders will appear here once trading begins</div>';
+        return;
+      }
+      let html = '<table class="tca-table"><thead><tr><th>Venue</th><th>Samples</th><th>Avg Ack Ms</th><th>Avg Fill Ms</th><th>P99 Ack Ms</th><th>P99 Fill Ms</th></tr></thead><tbody>';
+      for (const r of rows) {
+        const cls = r.p99AckMs < 100 ? 'tca-latency-green' : r.p99AckMs < 500 ? 'tca-latency-amber' : 'tca-latency-red';
+        html += `<tr><td>${r.venue}</td><td>${r.sampleSize}</td><td>${r.avgAckMs}</td><td>${r.avgFillMs}</td><td class="${cls}">${r.p99AckMs}</td><td>${r.p99FillMs}</td></tr>`;
+      }
+      html += '</tbody></table>';
+      latBody.innerHTML = html;
+    } catch (e) {
+      latBody.innerHTML = `<div class="tca-empty" style="color:#e05252">Error: ${e.message}</div>`;
+    }
+  }
+  document.getElementById('tca-lat-refresh').addEventListener('click', tcaRefreshLatency);
+
+  // ── Panel 4: Market Impact ──
+  const miBody = document.getElementById('tca-mi-body');
+  document.getElementById('tca-mi-go').addEventListener('click', tcaRefreshMarketImpact);
+  document.getElementById('tca-mi-orderid').addEventListener('keydown', e => { if (e.key === 'Enter') tcaRefreshMarketImpact(); });
+
+  async function tcaRefreshMarketImpact() {
+    const orderId = document.getElementById('tca-mi-orderid').value.trim();
+    if (!orderId) { miBody.innerHTML = '<div class="tca-empty">Enter an Order ID above</div>'; return; }
+    miBody.innerHTML = '<div class="tca-empty"><span class="tca-spinner"></span></div>';
+    try {
+      const r = await fetch(`${TCA_BASE}/api/tca/market-impact?orderId=${encodeURIComponent(orderId)}`);
+      if (!r.ok) { const e = await r.json(); throw new Error(e.error); }
+      const d = await r.json();
+      if (!d.fills) {
+        miBody.innerHTML = '<div class="tca-empty">No fills found for this order</div>';
+        return;
+      }
+      const driftCls = d.driftBps > 0 ? 'tca-slip-pos' : d.driftBps < 0 ? 'tca-slip-neg' : '';
+      miBody.innerHTML = `<dl class="tca-mi-detail">
+        <dt>Symbol</dt><dd>${d.symbol}</dd>
+        <dt>Side</dt><dd>${d.side}</dd>
+        <dt>First Fill Price</dt><dd>${d.firstFillPrice}</dd>
+        <dt>Last Fill Price</dt><dd>${d.lastFillPrice}</dd>
+        <dt>Price Drift Bps</dt><dd class="${driftCls}">${d.driftBps}</dd>
+        <dt>Execution Duration</dt><dd>${(d.durationMs / 1000).toFixed(3)}s</dd>
+        <dt>Arrival Mid</dt><dd>${d.arrivalMid ?? '—'}</dd>
+        <dt>Fills</dt><dd>${d.fills}</dd>
+      </dl>`;
+    } catch (e) {
+      miBody.innerHTML = `<div class="tca-empty" style="color:#e05252">Error: ${e.message}</div>`;
+    }
+  }
+})();
+
 loadAuthCreds();
 initBlotter();
 buildFilterOptions();

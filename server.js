@@ -364,6 +364,202 @@ async function testBitmex(f, testnet) {
   return `Connected to BitMEX${testnet ? ' (testnet)' : ''} — ${j.username || ''}`;
 }
 
+// ── TCA API endpoints ─────────────────────────────────────────────────────────
+
+const tcaService = require('./src/services/tcaService');
+const { useRealKafka, useRealClickhouse } = require('./src/config/services');
+
+app.get('/api/tca/slippage', async (req, res) => {
+  try {
+    const { clientId, from, to } = req.query;
+    const fromTs = from ? new Date(from).getTime() : Date.now() - 86_400_000;
+    const toTs   = to   ? new Date(to).getTime()   : Date.now();
+    console.log('[GET /api/tca/slippage] clientId=%s from=%s to=%s', clientId || '(empty)', from || '(default -24h)', to || '(default now)');
+    console.log('[GET /api/tca/slippage] Store debug:', tcaService.getStoreDebug());
+    const report = await tcaService.getClientSlippageReport(clientId || '', fromTs, toTs);
+    console.log('[GET /api/tca/slippage] Returning %d rows', report.length);
+    res.json(report);
+  } catch (e) {
+    console.error('[GET /api/tca/slippage] Error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/tca/venue-scorecard', async (req, res) => {
+  try {
+    const { symbol, days } = req.query;
+    const scorecard = await tcaService.getVenueScorecard(symbol || 'BTC-PERP', parseInt(days) || 7);
+    res.json(scorecard);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/tca/order-latency', async (req, res) => {
+  try {
+    const { venue, days } = req.query;
+    const latency = await tcaService.getOrderLatency(venue || 'DERIBIT', parseInt(days) || 7);
+    res.json(latency);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/tca/market-impact', async (req, res) => {
+  try {
+    const { orderId } = req.query;
+    if (!orderId) return res.status(400).json({ error: 'orderId is required' });
+    const impact = await tcaService.getMarketImpact(orderId);
+    if (!impact) return res.status(404).json({ error: 'Order not found' });
+    res.json(impact);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/tca/live-vwap', async (req, res) => {
+  try {
+    const { venue, symbol, windowMs } = req.query;
+    const vwap = await tcaService.getLiveVwap(
+      venue || 'DERIBIT',
+      symbol || 'BTC-PERP',
+      parseInt(windowMs) || 60_000
+    );
+    res.json(vwap);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/tca/config', (req, res) => {
+  res.json({
+    useRealClickhouse,
+    useRealKafka,
+  });
+});
+
+// ── TCA: receive order/fill notifications from the frontend UI ───────────────
+
+const { publish } = require('./src/core/eventBus');
+const { Topics }  = require('./src/schemas/events');
+
+/**
+ * POST /api/tca/notify-order
+ * Called by the frontend when a Deribit order is placed.
+ * Captures arrivalMid at submission time and publishes to orders.events.DERIBIT.
+ */
+app.post('/api/tca/notify-order', async (req, res) => {
+  try {
+    const o = req.body;
+    console.log('[notify-order] Raw body from UI:', JSON.stringify(o, null, 2));
+
+    // Use Deribit's order_id as our orderId so fills can join on it
+    const deribitOrderId = o.order_id || '';
+    const now = Date.now();
+    const order = {
+      orderId:           deribitOrderId,
+      venueOrderId:      deribitOrderId,
+      clientOrderId:     o.clientOrderId || `UI-${now}`,
+      venue:             o.venue || 'DERIBIT',
+      symbol:            o.symbol || o.instrument_name || '',
+      side:              (o.side || o.direction || '').toUpperCase(),
+      quantity:          o.quantity || o.amount || 0,
+      filledQuantity:    o.filled_amount || 0,
+      remainingQuantity: (o.quantity || o.amount || 0) - (o.filled_amount || 0),
+      limitPrice:        o.price || null,
+      stopPrice:         o.stop_price || null,
+      orderType:         (o.order_type || o.type || 'MARKET').toUpperCase(),
+      state:             (o.order_state || 'OPEN').toUpperCase(),
+      // Timing anchors — submittedTs/acknowledgedTs come from the browser
+      createdTs:         o.submittedTs || now,
+      updatedTs:         o.acknowledgedTs || now,
+      submittedTs:       o.submittedTs || now,
+      acknowledgedTs:    o.acknowledgedTs || now,
+      arrivalBid:        o.arrivalBid || 0,
+      arrivalAsk:        o.arrivalAsk || 0,
+      arrivalMid:        o.arrivalMid || 0,
+      arrivalSpreadBps:  o.arrivalSpreadBps || 0,
+      algoType:          o.algoType || 'MANUAL',
+      parentOrderId:     null,
+      metadata:          { source: 'deribit-ui' },
+    };
+
+    console.log('[notify-order] Normalised order:', JSON.stringify({
+      orderId: order.orderId, symbol: order.symbol, side: order.side,
+      quantity: order.quantity, arrivalMid: order.arrivalMid,
+      arrivalBid: order.arrivalBid, arrivalAsk: order.arrivalAsk,
+      state: order.state,
+    }));
+
+    await publish(Topics.ORDERS, order, order.symbol);
+    console.log('[notify-order] Published to bus. orderId=%s symbol=%s', order.orderId, order.symbol);
+
+    // Verify it landed in the store
+    const storeCheck = tcaService.getStoreDebug ? tcaService.getStoreDebug() : null;
+    if (storeCheck) console.log('[notify-order] Store row counts:', storeCheck);
+
+    res.json({ ok: true, orderId: order.orderId });
+  } catch (e) {
+    console.error('[notify-order] Error:', e.message, e.stack);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/tca/notify-fill
+ * Called by the frontend when a Deribit fill (user.trades) arrives via WebSocket.
+ * Publishes to orders.fills.DERIBIT so TCA picks it up.
+ */
+app.post('/api/tca/notify-fill', async (req, res) => {
+  try {
+    const f = req.body;
+    console.log('[notify-fill] Raw body from UI:', JSON.stringify(f, null, 2));
+
+    // Use Deribit's order_id so it joins with the order stored by notify-order
+    const serverNow = Date.now();
+    const fill = {
+      fillId:          f.trade_id || f.fillId || crypto.randomUUID(),
+      orderId:         f.order_id || f.orderId || '',
+      venue:           f.venue || 'DERIBIT',
+      symbol:          f.instrument_name || f.symbol || '',
+      side:            (f.direction || f.side || '').toUpperCase(),
+      fillPrice:       f.price || f.fillPrice || 0,
+      fillSize:        f.amount || f.fillSize || 0,
+      fillTs:          f.timestamp || f.fillTs || serverNow,
+      // Use browser's receivedTs (when WS message arrived) for accurate latency
+      receivedTs:      f.receivedTs || serverNow,
+      commission:      f.fee || f.commission || 0,
+      commissionAsset: f.fee_currency || f.commissionAsset || 'BTC',
+      slippageBps:     0,
+      arrivalMid:      f.arrivalMid || 0,
+    };
+
+    // Compute slippage if arrivalMid is known
+    if (fill.arrivalMid > 0) {
+      const sideSign = fill.side === 'BUY' ? 1 : -1;
+      fill.slippageBps = (fill.fillPrice - fill.arrivalMid) / fill.arrivalMid * 10000 * sideSign;
+    }
+
+    console.log('[notify-fill] Normalised fill:', JSON.stringify({
+      fillId: fill.fillId, orderId: fill.orderId, symbol: fill.symbol,
+      side: fill.side, fillPrice: fill.fillPrice, fillSize: fill.fillSize,
+      arrivalMid: fill.arrivalMid, slippageBps: fill.slippageBps,
+    }));
+
+    await publish(Topics.FILLS, fill, fill.symbol);
+    console.log('[notify-fill] Published to bus. fillId=%s orderId=%s', fill.fillId, fill.orderId);
+
+    // Verify it landed in the store
+    const storeCheck = tcaService.getStoreDebug ? tcaService.getStoreDebug() : null;
+    if (storeCheck) console.log('[notify-fill] Store row counts:', storeCheck);
+
+    res.json({ ok: true, fillId: fill.fillId });
+  } catch (e) {
+    console.error('[notify-fill] Error:', e.message, e.stack);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 if (!ENC_KEY_HEX) {
@@ -377,7 +573,26 @@ if (!ENC_KEY_HEX) {
   console.error('\n⚠️  ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes).\n');
 }
 
+// ── Collybus data pipeline startup ───────────────────────────────────────────
+async function startDataPipeline() {
+  try {
+    const tickStore = require('./src/services/tickStore');
+    const { startDataQuality } = require('./src/core/dataQuality');
+
+    await tickStore.start();
+    await tcaService.start();
+    await startDataQuality();
+
+    const kafkaMode = useRealKafka ? 'real' : 'stub';
+    const chMode    = useRealClickhouse ? 'real' : 'stub';
+    console.log(`Collybus — data pipeline active. Kafka: [${kafkaMode}]. ClickHouse: [${chMode}].`);
+  } catch (e) {
+    console.error('[startup] Data pipeline failed to start:', e.message);
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`\n✓ Server running at http://localhost:${PORT}`);
   console.log(`  Open http://localhost:${PORT} in your browser\n`);
+  startDataPipeline();
 });
