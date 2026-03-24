@@ -96,11 +96,17 @@ const SEED = [
   ['BINANCE', 'BTCUSDT_PERP',  'BTC-PERP',  InstrumentClass.CRYPTO_PERP],
   ['BINANCE', 'ETHUSDT_PERP',  'ETH-PERP',  InstrumentClass.CRYPTO_PERP],
 
-  // Bybit
-  ['BYBIT', 'BTCUSDT',   'BTC-USDT',  InstrumentClass.CRYPTO_SPOT],
-  ['BYBIT', 'ETHUSDT',   'ETH-USDT',  InstrumentClass.CRYPTO_SPOT],
-  ['BYBIT', 'BTCPERP',   'BTC-PERP',  InstrumentClass.CRYPTO_PERP],
-  ['BYBIT', 'ETHPERP',   'ETH-PERP',  InstrumentClass.CRYPTO_PERP],
+  // Bybit — linear perps (symbol = BTCUSDT etc, same as spot but category=linear)
+  ['BYBIT', 'BTCUSDT',   'BTC-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['BYBIT', 'ETHUSDT',   'ETH-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['BYBIT', 'XRPUSDT',   'XRP-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['BYBIT', 'SOLUSDT',   'SOL-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['BYBIT', 'BNBUSDT',   'BNB-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['BYBIT', 'DOGEUSDT',  'DOGE-PERP', InstrumentClass.CRYPTO_PERP],
+  ['BYBIT', 'ADAUSDT',   'ADA-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['BYBIT', 'LINKUSDT',  'LINK-PERP', InstrumentClass.CRYPTO_PERP],
+  ['BYBIT', 'AVAXUSDT',  'AVAX-PERP', InstrumentClass.CRYPTO_PERP],
+  ['BYBIT', 'MATICUSDT', 'MATIC-PERP',InstrumentClass.CRYPTO_PERP],
 
   // OKX
   ['OKX', 'BTC-USDT',      'BTC-USDT',  InstrumentClass.CRYPTO_SPOT],
@@ -109,12 +115,34 @@ const SEED = [
   ['OKX', 'ETH-USDT-SWAP', 'ETH-PERP',  InstrumentClass.CRYPTO_PERP],
   ['OKX', 'SOL-USDT-SWAP', 'SOL-PERP',  InstrumentClass.CRYPTO_PERP],
 
-  // Kraken
+  // BitMEX — inverse perps
+  ['BITMEX', 'XBTUSD',    'BTC-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['BITMEX', 'ETHUSD',    'ETH-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['BITMEX', 'XRPUSD',    'XRP-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['BITMEX', 'SOLUSD',    'SOL-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['BITMEX', 'DOGEUSD',   'DOGE-PERP', InstrumentClass.CRYPTO_PERP],
+  ['BITMEX', 'ADAUSD',    'ADA-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['BITMEX', 'LINKUSD',   'LINK-PERP', InstrumentClass.CRYPTO_PERP],
+  ['BITMEX', 'AVAXUSD',   'AVAX-PERP', InstrumentClass.CRYPTO_PERP],
+  // BitMEX — linear perps
+  ['BITMEX', 'XBTUSDT',   'BTC-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['BITMEX', 'ETHUSDT',   'ETH-PERP',  InstrumentClass.CRYPTO_PERP],
+
+  // Kraken — spot
   ['KRAKEN', 'XBT/USD',   'BTC-USD',   InstrumentClass.CRYPTO_SPOT],
   ['KRAKEN', 'ETH/USD',   'ETH-USD',   InstrumentClass.CRYPTO_SPOT],
   ['KRAKEN', 'XBT/USDT',  'BTC-USDT',  InstrumentClass.CRYPTO_SPOT],
   ['KRAKEN', 'SOL/USD',   'SOL-USD',   InstrumentClass.CRYPTO_SPOT],
+  ['KRAKEN', 'XRP/USD',   'XRP-USD',   InstrumentClass.CRYPTO_SPOT],
+  // Kraken — futures (PI_ = perpetual inverse, PF_ = perpetual fixed/linear)
   ['KRAKEN', 'PI_XBTUSD', 'BTC-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['KRAKEN', 'PI_ETHUSD', 'ETH-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['KRAKEN', 'PF_XBTUSD', 'BTC-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['KRAKEN', 'PF_ETHUSD', 'ETH-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['KRAKEN', 'PF_XRPUSD', 'XRP-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['KRAKEN', 'PF_SOLUSD', 'SOL-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['KRAKEN', 'PF_DOGEUSD','DOGE-PERP',  InstrumentClass.CRYPTO_PERP],
+  ['KRAKEN', 'PF_ADAUSD', 'ADA-PERP',  InstrumentClass.CRYPTO_PERP],
 
   // FX — LMAX / EBS / 360T
   ['LMAX', 'EUR/USD', 'EURUSD', InstrumentClass.FX_SPOT],

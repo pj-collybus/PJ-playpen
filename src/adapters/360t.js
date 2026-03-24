@@ -1,19 +1,8 @@
 /**
  * 360T adapter — FIX 4.4 stub.
  *
- * Simulates 360T (multi-bank FX aggregation) with:
- *   - L1 BBO at 500ms with randomised FX prices
- *   - Order execution with 50-150ms ACK + FILL latency
- *
- * Required FIX message types (production):
- *   D  = New Order Single
- *   8  = Execution Report
- *   W  = Market Data Snapshot/Full Refresh
- *   X  = Market Data Incremental Refresh
- *   F  = Order Cancel Request
- *   0  = Heartbeat
- *   A  = Logon
- *   5  = Logout
+ * Simulates 360T (multi-bank FX aggregation) with wider spreads.
+ * Stale feed detection via BookGuard (no sequence numbers — FIX stub).
  */
 
 'use strict';
@@ -23,15 +12,12 @@ const { v4: uuidv4 }    = require('uuid');
 const { normalise }     = require('../core/symbolRegistry');
 const { publish }       = require('../core/eventBus');
 const { Topics, InstrumentClass, FeedType, OrderState } = require('../schemas/events');
+const { BookGuard }     = require('./bookGuard');
 
 const VENUE = '360T';
 
-const FX_MIDS = {
-  'EUR/USD': 1.0850,
-  'GBP/USD': 1.2640,
-  'USD/JPY': 154.50,
-};
-const FX_SPREAD_BPS = 3; // 360T wider spread — multi-dealer aggregated
+const FX_MIDS = { 'EUR/USD': 1.0850, 'GBP/USD': 1.2640, 'USD/JPY': 154.50 };
+const FX_SPREAD_BPS = 3;
 
 class T360Adapter extends EventEmitter {
   constructor({ publishToBus = true } = {}) {
@@ -40,31 +26,27 @@ class T360Adapter extends EventEmitter {
     this._subscriptions = new Set();
     this._timers        = [];
     this._connected     = false;
+    this._guard         = new BookGuard(VENUE, this, () => {}, { publishToBus });
   }
 
-  async connect() {
-    this._connected = true;
-    this.emit('connected');
-  }
+  async connect() { this._connected = true; this.emit('connected'); }
 
   async subscribe(venueSymbol) {
     this._subscriptions.add(venueSymbol);
     const mid = FX_MIDS[venueSymbol];
     if (!mid) return;
-
     const timer = setInterval(() => this._emitBBO(venueSymbol, mid), 500);
     this._timers.push(timer);
     this._emitBBO(venueSymbol, mid);
   }
 
-  async unsubscribe(venueSymbol) {
-    this._subscriptions.delete(venueSymbol);
-  }
+  async unsubscribe(venueSymbol) { this._subscriptions.delete(venueSymbol); }
 
   disconnect() {
     this._connected = false;
     for (const t of this._timers) clearInterval(t);
     this._timers = [];
+    this._guard.destroy();
     this.emit('disconnected');
   }
 
@@ -74,27 +56,16 @@ class T360Adapter extends EventEmitter {
     const mid          = FX_MIDS[venueSymbol] || 1.0;
     const halfSpread   = mid * FX_SPREAD_BPS / 20_000;
     const fillPrice    = side === 'BUY' ? mid + halfSpread : mid - halfSpread;
-
     const latency = 50 + Math.random() * 100;
     return new Promise((resolve) => {
       setTimeout(() => {
         const now = Date.now();
         const fill = {
-          fillId:          uuidv4(),
-          orderId,
-          venue:           VENUE,
-          symbol,
-          side,
-          fillPrice:       parseFloat(fillPrice.toFixed(5)),
-          fillSize:        quantity,
-          fillTs:          now,
-          receivedTs:      now,
-          commission:      0,
-          commissionAsset: 'USD',
-          slippageBps:     0,
-          arrivalMid:      mid,
+          fillId: uuidv4(), orderId, venue: VENUE, symbol, side,
+          fillPrice: parseFloat(fillPrice.toFixed(5)), fillSize: quantity,
+          fillTs: now, receivedTs: now, commission: 0, commissionAsset: 'USD',
+          slippageBps: 0, arrivalMid: mid,
         };
-
         this.emit('fill', fill);
         if (this.publishToBus) publish(Topics.FILLS, fill, symbol).catch(() => {});
         resolve({ orderId, venueOrderId, state: OrderState.FILLED, fill });
@@ -104,7 +75,9 @@ class T360Adapter extends EventEmitter {
 
   _emitBBO(venueSymbol, baseMid) {
     const receivedTs = Date.now();
-    const jitter     = (Math.random() - 0.5) * 0.0003 * baseMid; // wider jitter
+    this._guard.touch(venueSymbol);
+
+    const jitter     = (Math.random() - 0.5) * 0.0003 * baseMid;
     const mid        = baseMid + jitter;
     const halfSpread = mid * FX_SPREAD_BPS / 20_000;
     const bidPrice   = parseFloat((mid - halfSpread).toFixed(5));
@@ -112,27 +85,25 @@ class T360Adapter extends EventEmitter {
     const symbol     = normalise(VENUE, venueSymbol, InstrumentClass.FX_SPOT);
 
     const event = {
-      venue: VENUE,
-      instrumentClass: InstrumentClass.FX_SPOT,
-      symbol,
-      venueSymbol,
-      exchangeTs:    receivedTs,
-      receivedTs,
-      sequenceId:    null,
-      bidPrice,
-      bidSize:       500_000 + Math.floor(Math.random() * 2_000_000),
-      bidOrderCount: 0,
-      askPrice,
-      askSize:       500_000 + Math.floor(Math.random() * 2_000_000),
-      askOrderCount: 0,
-      midPrice:      parseFloat(mid.toFixed(5)),
-      spreadBps:     FX_SPREAD_BPS,
-      feedType:      FeedType.FIX,
+      venue: VENUE, instrumentClass: InstrumentClass.FX_SPOT, symbol, venueSymbol,
+      exchangeTs: receivedTs, receivedTs, sequenceId: null,
+      bidPrice, bidSize: 500_000 + Math.floor(Math.random() * 2_000_000), bidOrderCount: 0,
+      askPrice, askSize: 500_000 + Math.floor(Math.random() * 2_000_000), askOrderCount: 0,
+      midPrice: parseFloat(mid.toFixed(5)), spreadBps: FX_SPREAD_BPS, feedType: FeedType.FIX,
     };
-
     this.emit('l1', event);
     if (this.publishToBus) publish(Topics.L1_BBO, event, symbol).catch(() => {});
   }
 }
+
+T360Adapter.prototype.submitOrder = async function(order, creds) {
+  const { orderResponse, OrderStatus } = require('./orderInterface');
+  const result = await this.sendOrder({ symbol: order.symbol, venueSymbol: order.symbol, side: order.side, quantity: order.quantity, limitPrice: order.limitPrice });
+  return orderResponse({ venueOrderId: result.venueOrderId, clientOrderId: order.clientOrderId, status: result.fill ? OrderStatus.FILLED : OrderStatus.ACKNOWLEDGED, filledQty: result.fill?.fillSize || 0, avgFillPrice: result.fill?.fillPrice || 0 });
+};
+T360Adapter.prototype.cancelOrder = async function() { return require('./orderInterface').orderResponse({ venueOrderId: null, clientOrderId: null, status: 'ACKNOWLEDGED' }); };
+T360Adapter.prototype.amendOrder = async function() { throw new Error('360T FIX stub does not support amend'); };
+T360Adapter.prototype.getOrderStatus = async function() { throw new Error('360T FIX stub does not support order status query'); };
+T360Adapter.mapSymbol = function(c) { return c; };
 
 module.exports = { T360Adapter };

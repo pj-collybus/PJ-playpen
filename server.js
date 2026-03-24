@@ -1,368 +1,250 @@
 // Requires Node.js >= 18 (uses built-in fetch).
 require('dotenv').config();
 
-const express = require('express');
-const cors    = require('cors');
-const crypto  = require('crypto');
-const fs      = require('fs');
-const path    = require('path');
+const express  = require('express');
+const cors     = require('cors');
+const crypto   = require('crypto');
+const keyStore = require('./src/services/keyStore');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
-const STORE_PATH = path.join(__dirname, 'keys_store.json');
-
-// ── Encryption (AES-256-GCM) ──────────────────────────────────────────────────
-
-const ENC_KEY_HEX = process.env.ENCRYPTION_KEY;
-let _encKey = null;
-
-function getEncKey() {
-  if (_encKey) return _encKey;
-  if (!ENC_KEY_HEX) return null;
-  if (ENC_KEY_HEX.length !== 64) return null;
-  _encKey = Buffer.from(ENC_KEY_HEX, 'hex');
-  return _encKey;
-}
-
-function encrypt(plaintext) {
-  const key = getEncKey();
-  if (!key) throw new Error('ENCRYPTION_KEY not configured');
-  const iv      = crypto.randomBytes(12);
-  const cipher  = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const enc     = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-  const tag     = cipher.getAuthTag();
-  return `${iv.toString('hex')}:${tag.toString('hex')}:${enc.toString('hex')}`;
-}
-
-function decrypt(ciphertext) {
-  const key = getEncKey();
-  if (!key) throw new Error('ENCRYPTION_KEY not configured');
-  const [ivHex, tagHex, encHex] = ciphertext.split(':');
-  const iv      = Buffer.from(ivHex, 'hex');
-  const tag     = Buffer.from(tagHex, 'hex');
-  const enc     = Buffer.from(encHex, 'hex');
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-  decipher.setAuthTag(tag);
-  return decipher.update(enc, undefined, 'utf8') + decipher.final('utf8');
-}
-
-// ── Key store (local JSON file) ───────────────────────────────────────────────
-
-function loadStore() {
-  try {
-    if (fs.existsSync(STORE_PATH)) {
-      return JSON.parse(fs.readFileSync(STORE_PATH, 'utf8'));
-    }
-  } catch (e) {
-    console.error('Failed to read key store:', e.message);
-  }
-  return { keys: [] };
-}
-
-function saveStore(store) {
-  fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2), 'utf8');
-}
-
-// Which field IDs contain secret values for each exchange
-const SECRET_FIELDS = {
-  Deribit:  ['clientSecret'],
-  Binance:  ['secretKey'],
-  OKX:      ['secretKey', 'passphrase'],
-  Bybit:    ['secretKey'],
-  'Gate.io':['secretKey'],
-  KuCoin:   ['secretKey', 'passphrase'],
-  Kraken:   ['privateKey'],
-  BitMEX:   ['apiSecret'],
-};
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 
-// Allow requests from file:// origins (HTML opened directly) and localhost
 app.use(cors({
-  origin: (origin, cb) => cb(null, true),   // allow all origins for local dev
+  origin: (origin, cb) => cb(null, true),
   methods: ['GET','POST','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type'],
 }));
 app.use(express.json());
-app.use(express.static(__dirname));          // serves deribit_testnet.html etc.
+app.use(express.static(__dirname));
 app.get('/', (_, res) => res.redirect('/deribit_testnet.html'));
 
-// ── GET /api/keys/list ────────────────────────────────────────────────────────
+// ── API Keys — all access goes through keyStore ──────────────────────────────
 
 app.get('/api/keys/list', (req, res) => {
-  const store   = loadStore();
-  const secrets = SECRET_FIELDS;
-
-  const safeKeys = store.keys.map(entry => {
-    const safeFields = {};
-    for (const [k, v] of Object.entries(entry.fields || {})) {
-      const isSecret = (secrets[entry.exchange] || []).includes(k);
-      if (isSecret) {
-        safeFields[k] = null;          // never return secret values
-      } else {
-        try { safeFields[k] = decrypt(v); } catch { safeFields[k] = null; }
-      }
-    }
-    return {
-      id:          entry.id,
-      exchange:    entry.exchange,
-      label:       entry.label,
-      permissions: entry.permissions,
-      testnet:     entry.testnet,
-      status:      entry.status,
-      lastTested:  entry.lastTested,
-      fields:      safeFields,
-    };
-  });
-
-  res.json({ keys: safeKeys });
+  res.json({ keys: keyStore.listKeys() });
 });
 
-// ── POST /api/keys/save ───────────────────────────────────────────────────────
-
 app.post('/api/keys/save', (req, res) => {
-  if (!getEncKey()) {
+  if (!keyStore.isReady()) {
     return res.status(503).json({
       error: 'ENCRYPTION_KEY is not configured on the server. ' +
              'Copy .env.example to .env, set ENCRYPTION_KEY, and restart.',
     });
   }
-
-  const { id, exchange, label, fields, permissions, testnet } = req.body;
-  if (!exchange) return res.status(400).json({ error: 'exchange is required' });
-  if (!label)    return res.status(400).json({ error: 'label is required' });
-
-  const store = loadStore();
-  let entry   = id ? store.keys.find(k => k.id === id) : null;
-
-  if (!entry) {
-    entry = {
-      id:          crypto.randomUUID(),
-      exchange,
-      label,
-      fields:      {},
-      permissions: 'read',
-      testnet:     false,
-      status:      'unknown',
-      lastTested:  null,
-    };
-    store.keys.push(entry);
-  }
-
-  entry.label       = label;
-  entry.permissions = permissions || 'read';
-  entry.testnet     = !!testnet;
-  entry.exchange    = exchange;
-  entry.status      = 'unknown';
-
-  for (const [k, v] of Object.entries(fields || {})) {
-    if (v === '' || v == null) continue;   // blank → keep existing encrypted value
-    try {
-      entry.fields[k] = encrypt(v);        // never log v
-    } catch (e) {
-      return res.status(500).json({ error: 'Encryption failed: ' + e.message });
-    }
-  }
-
-  saveStore(store);
-  res.json({ ok: true, id: entry.id });
-});
-
-// ── POST /api/keys/test ───────────────────────────────────────────────────────
-
-app.post('/api/keys/test', async (req, res) => {
-  const { id } = req.body;
-  const store   = loadStore();
-  const entry   = store.keys.find(k => k.id === id);
-  if (!entry) return res.status(404).json({ error: 'Key entry not found' });
-
-  const fields = {};
-  for (const [k, v] of Object.entries(entry.fields || {})) {
-    try { fields[k] = decrypt(v); }
-    catch { return res.status(500).json({ error: 'Decryption failed — is ENCRYPTION_KEY unchanged?' }); }
-  }
-
   try {
-    const message = await testConnection(entry.exchange, fields, entry.testnet);
-    entry.status     = 'ok';
-    entry.lastTested = new Date().toISOString();
-    saveStore(store);
-    res.json({ ok: true, message });
+    const result = keyStore.saveKey(req.body);
+    res.json(result);
   } catch (e) {
-    entry.status     = 'error';
-    entry.lastTested = new Date().toISOString();
-    saveStore(store);
     res.status(400).json({ error: e.message });
   }
 });
 
-// ── DELETE /api/keys/delete ───────────────────────────────────────────────────
-
-app.delete('/api/keys/delete', (req, res) => {
-  const { id } = req.body;
-  const store   = loadStore();
-  const idx     = store.keys.findIndex(k => k.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found' });
-  store.keys.splice(idx, 1);
-  saveStore(store);
-  res.json({ ok: true });
+app.post('/api/keys/test', async (req, res) => {
+  try {
+    const result = await keyStore.testKey(req.body.id);
+    res.json(result);
+  } catch (e) {
+    if (e.message === 'Key entry not found') return res.status(404).json({ error: e.message });
+    res.status(400).json({ error: e.message });
+  }
 });
 
-// ── Exchange test-connection implementations ───────────────────────────────────
-
-async function testConnection(exchange, fields, testnet) {
-  switch (exchange) {
-    case 'Deribit':   return testDeribit(fields, testnet);
-    case 'Binance':   return testBinance(fields, testnet);
-    case 'OKX':       return testOKX(fields, testnet);
-    case 'Bybit':     return testBybit(fields, testnet);
-    case 'Gate.io':   return testGateio(fields);
-    case 'KuCoin':    return testKucoin(fields);
-    case 'Kraken':    return testKraken(fields);
-    case 'BitMEX':    return testBitmex(fields, testnet);
-    default: throw new Error(`Unknown exchange: ${exchange}`);
+// Test connection with plaintext credentials (for browser vault — keys not stored)
+app.post('/api/keys/test-direct', async (req, res) => {
+  try {
+    const { exchange, fields, testnet } = req.body;
+    if (!exchange || !fields) return res.status(400).json({ error: 'exchange and fields required' });
+    const message = await keyStore._testConnectionDirect(exchange, fields, !!testnet);
+    res.json({ ok: true, message });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
   }
+});
+
+app.delete('/api/keys/delete', (req, res) => {
+  try {
+    res.json(keyStore.deleteKey(req.body.id));
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+// ── Instrument proxy — for exchanges that block browser CORS ─────────────────
+
+app.get('/api/instruments/bitmex', async (req, res) => {
+  try {
+    const r = await fetch('https://testnet.bitmex.com/api/v1/instrument/active');
+    const j = await r.json();
+    res.json(j);
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// Helper: fetch JSON from exchange, always return JSON to browser
+async function proxyFetch(url, req, res) {
+  try {
+    const r = await fetch(url);
+    const text = await r.text();
+    try { res.json(JSON.parse(text)); }
+    catch { res.status(502).json({ error: `Non-JSON response from ${url} (HTTP ${r.status})`, body: text.slice(0, 200) }); }
+  } catch (e) { res.status(502).json({ error: e.message }); }
 }
 
-async function testDeribit(f, testnet) {
-  const base = testnet ? 'https://test.deribit.com/api/v2' : 'https://www.deribit.com/api/v2';
-  const url  = `${base}/public/auth?client_id=${encodeURIComponent(f.clientId)}`
-             + `&client_secret=${encodeURIComponent(f.clientSecret)}`
-             + `&grant_type=client_credentials`;
-  const r = await fetch(url);
-  const j = await r.json();
-  if (j.error) throw new Error(j.error.message);
-  return `Connected to Deribit${testnet ? ' (testnet)' : ''}`;
-}
+app.get('/api/instruments/kucoin-futures', (req, res) => proxyFetch('https://api-futures.kucoin.com/api/v1/contracts/active', req, res));
+app.get('/api/instruments/kucoin-spot', (req, res) => proxyFetch('https://api.kucoin.com/api/v1/symbols', req, res));
+app.get('/api/instruments/kraken-futures', (req, res) => proxyFetch('https://futures.kraken.com/derivatives/api/v3/instruments', req, res));
+app.get('/api/instruments/kraken-spot', (req, res) => proxyFetch('https://api.kraken.com/0/public/AssetPairs', req, res));
+app.get('/api/instruments/binance-futures', (req, res) => proxyFetch('https://fapi.binance.com/fapi/v1/exchangeInfo', req, res));
+app.get('/api/instruments/binance-spot', (req, res) => proxyFetch('https://api.binance.com/api/v3/exchangeInfo', req, res));
 
-async function testBinance(f, testnet) {
-  const base = testnet ? 'https://testnet.binance.vision' : 'https://api.binance.com';
-  const ts   = Date.now();
-  const qs   = `timestamp=${ts}`;
-  const sig  = crypto.createHmac('sha256', f.secretKey).update(qs).digest('hex');
-  const r    = await fetch(`${base}/api/v3/account?${qs}&signature=${sig}`, {
-    headers: { 'X-MBX-APIKEY': f.apiKey },
-  });
-  const j = await r.json();
-  if (j.code) throw new Error(j.msg || `Binance error ${j.code}`);
-  return `Connected to Binance${testnet ? ' (testnet)' : ''} — ${j.balances?.length ?? 0} assets`;
-}
+app.get('/api/instruments/bybit', (req, res) => {
+  const cat = req.query.category || 'linear';
+  proxyFetch(`https://api.bybit.com/v5/market/instruments-info?category=${cat}&limit=1000`, req, res);
+});
 
-async function testOKX(f, testnet) {
-  const path = '/api/v5/account/balance';
-  const ts   = new Date().toISOString();
-  const sign = crypto.createHmac('sha256', f.secretKey)
-                     .update(`${ts}GET${path}`).digest('base64');
-  const headers = {
-    'OK-ACCESS-KEY':       f.apiKey,
-    'OK-ACCESS-SIGN':      sign,
-    'OK-ACCESS-TIMESTAMP': ts,
-    'OK-ACCESS-PASSPHRASE':f.passphrase,
-    'Content-Type':        'application/json',
-  };
-  if (testnet) headers['x-simulated-trading'] = '1';
-  const r = await fetch(`https://www.okx.com${path}`, { headers });
-  const j = await r.json();
-  if (j.code !== '0') throw new Error(j.msg || `OKX error ${j.code}`);
-  return `Connected to OKX${testnet ? ' (simulated)' : ''}`;
-}
+app.get('/api/instruments/okx', (req, res) => {
+  const instType = req.query.instType || 'SWAP';
+  proxyFetch(`https://www.okx.com/api/v5/public/instruments?instType=${instType}`, req, res);
+});
 
-async function testBybit(f, testnet) {
-  const base       = testnet ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
-  const ts         = Date.now().toString();
-  const recvWindow = '5000';
-  const qs         = 'accountType=UNIFIED';
-  const toSign     = `${ts}${f.apiKey}${recvWindow}${qs}`;
-  const sig        = crypto.createHmac('sha256', f.secretKey).update(toSign).digest('hex');
-  const r = await fetch(`${base}/v5/account/wallet-balance?${qs}`, {
-    headers: {
-      'X-BAPI-API-KEY':      f.apiKey,
-      'X-BAPI-SIGN':         sig,
-      'X-BAPI-SIGN-METHOD':  'HMAC-SHA256',
-      'X-BAPI-TIMESTAMP':    ts,
-      'X-BAPI-RECV-WINDOW':  recvWindow,
-    },
-  });
-  const j = await r.json();
-  if (j.retCode !== 0) throw new Error(j.retMsg || `Bybit error ${j.retCode}`);
-  return `Connected to Bybit${testnet ? ' (testnet)' : ''}`;
-}
+// ── Instrument spec — automatic spec fetching from exchange APIs ──────────────
 
-async function testGateio(f) {
-  const path     = '/api/v4/spot/accounts';
-  const ts       = Math.floor(Date.now() / 1000).toString();
-  const bodyHash = crypto.createHash('sha512').update('').digest('hex');
-  const toSign   = `GET\n${path}\n\n${bodyHash}\n${ts}`;
-  const sig      = crypto.createHmac('sha512', f.secretKey).update(toSign).digest('hex');
-  const r = await fetch(`https://api.gateio.ws${path}`, {
-    headers: { 'KEY': f.apiKey, 'SIGN': sig, 'Timestamp': ts },
-  });
-  const j = await r.json();
-  if (j.label) throw new Error(j.message || j.label);
-  return `Connected to Gate.io`;
-}
+const instrumentSpecService = require('./src/services/instrumentSpecService');
+instrumentSpecService.clearAll(); // Clear stale cache on startup
+console.log('[startup] Instrument spec cache cleared');
 
-async function testKucoin(f) {
-  const path   = '/api/v1/accounts';
-  const ts     = Date.now().toString();
-  const toSign = `${ts}GET${path}`;
-  const sig    = crypto.createHmac('sha256', f.secretKey).update(toSign).digest('base64');
-  const passEnc = crypto.createHmac('sha256', f.secretKey)
-                        .update(f.passphrase).digest('base64');
-  const r = await fetch(`https://api.kucoin.com${path}`, {
-    headers: {
-      'KC-API-KEY':         f.apiKey,
-      'KC-API-SIGN':        sig,
-      'KC-API-TIMESTAMP':   ts,
-      'KC-API-PASSPHRASE':  passEnc,
-      'KC-API-KEY-VERSION': '2',
-    },
-  });
-  const j = await r.json();
-  if (j.code !== '200000') throw new Error(j.msg || `KuCoin error ${j.code}`);
-  return 'Connected to KuCoin';
-}
+app.get('/api/instrument-spec/clear', (req, res) => {
+  instrumentSpecService.clearAll();
+  console.log('[spec] Cache cleared via API');
+  res.json({ ok: true, message: 'Instrument spec cache cleared' });
+});
 
-async function testKraken(f) {
-  const path  = '/0/private/Balance';
-  const nonce = Date.now().toString();
-  const body  = `nonce=${nonce}`;
-  const hash  = crypto.createHash('sha256').update(nonce + body).digest();
-  const keyBuf = Buffer.from(f.privateKey, 'base64');
-  const sig   = crypto.createHmac('sha512', keyBuf)
-                      .update(Buffer.concat([Buffer.from(path), hash]))
-                      .digest('base64');
-  const r = await fetch(`https://api.kraken.com${path}`, {
-    method: 'POST',
-    headers: {
-      'API-Key':    f.apiKey,
-      'API-Sign':   sig,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body,
-  });
-  const j = await r.json();
-  if (j.error && j.error.length > 0) throw new Error(j.error.join(', '));
-  return 'Connected to Kraken';
-}
+app.get('/api/instrument-spec/:exchange/:symbol', async (req, res) => {
+  try {
+    const spec = await instrumentSpecService.getSpec(
+      req.params.exchange.toUpperCase(),
+      req.params.symbol
+    );
+    if (!spec) return res.status(404).json({ error: `No spec found for ${req.params.exchange}/${req.params.symbol}` });
+    res.json(spec);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-async function testBitmex(f, testnet) {
-  const base    = testnet ? 'https://testnet.bitmex.com' : 'https://www.bitmex.com';
-  const path    = '/api/v1/user';
-  const expires = Math.floor(Date.now() / 1000) + 60;
-  const sig     = crypto.createHmac('sha256', f.apiSecret)
-                        .update(`GET${path}${expires}`).digest('hex');
-  const r = await fetch(`${base}${path}`, {
-    headers: {
-      'api-key':       f.apiKey,
-      'api-signature': sig,
-      'api-expires':   expires.toString(),
-    },
-  });
-  const j = await r.json();
-  if (j.error) throw new Error(j.error.message);
-  return `Connected to BitMEX${testnet ? ' (testnet)' : ''} — ${j.username || ''}`;
-}
+app.get('/api/instrument-spec-cache/stats', (req, res) => {
+  res.json(instrumentSpecService.stats());
+});
+
+// ── Venue colours — single source of truth from venues.js ────────────────────
+
+app.get('/api/config/exchange-colors', (req, res) => {
+  const venues = require('./src/config/venues');
+  const colors = {};
+  for (const [key, cfg] of Object.entries(venues)) {
+    colors[cfg.id || key] = { color: cfg.exchangeColor, bg: cfg.exchangeBg, text: cfg.exchangeText };
+  }
+  res.json(colors);
+});
+
+// ── Kraken Futures auth test (diagnostic endpoint) ──────────────────────────
+
+app.post('/api/test/kraken-futures-auth', async (req, res) => {
+  try {
+    const { apiKey, privateKey, testnet } = req.body;
+    if (!apiKey || !privateKey) return res.status(400).json({ error: 'apiKey and privateKey required' });
+    const crypto = require('crypto');
+    const base = testnet ? 'https://demo-futures.kraken.com' : 'https://futures.kraken.com';
+    const fullPath = '/derivatives/api/v3/accounts';
+    const signPath = '/api/v3/accounts'; // SDK strips '/derivatives' prefix
+    const postData = '';
+    const nonce = Date.now().toString();
+
+    // Clean key: handle base64url encoding
+    const cleanKey = privateKey.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+    const padded = cleanKey + '='.repeat((4 - cleanKey.length % 4) % 4);
+    const keyBuf = Buffer.from(padded, 'base64');
+
+    // Signature per official SDK: SHA256(postData + nonce + signPath) → HMAC-SHA512
+    const hashInput = postData + nonce + signPath;
+    const sha256 = crypto.createHash('sha256').update(hashInput).digest();
+    const sig = crypto.createHmac('sha512', keyBuf).update(sha256).digest('base64');
+
+    const diagnostic = {
+      endpoint: base + fullPath,
+      signPath,
+      nonce,
+      hashInput,
+      keyDecodedLength: keyBuf.length,
+      apiKeyFirst6: apiKey.substring(0, 6),
+      sigFirst10: sig.substring(0, 10),
+    };
+
+    const r = await fetch(`${base}${fullPath}`, {
+      method: 'GET',
+      headers: { 'APIKey': apiKey.trim(), 'Authent': sig, 'Nonce': nonce },
+    });
+    const rawText = await r.text();
+    let parsed;
+    try { parsed = JSON.parse(rawText); } catch { parsed = null; }
+
+    res.json({
+      diagnostic,
+      httpStatus: r.status,
+      rawResponse: parsed || rawText.slice(0, 500),
+      success: parsed?.result === 'success' || (!parsed?.error && r.ok),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Exchange logo proxy (cached 24h in memory) ──────────────────────────────
+
+const _logoCache = new Map(); // exchange → { buffer, contentType, fetchedAt }
+const LOGO_CACHE_TTL = 24 * 60 * 60 * 1000;
+
+app.get('/api/exchange-logo/:exchange', async (req, res) => {
+  const exchange = req.params.exchange.toUpperCase();
+  const cached = _logoCache.get(exchange);
+  if (cached && Date.now() - cached.fetchedAt < LOGO_CACHE_TTL) {
+    res.set('Content-Type', cached.contentType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    return res.send(cached.buffer);
+  }
+  try {
+    const venues = require('./src/config/venues');
+    // Case-insensitive lookup: try uppercase, then find by comparing keys
+    let cfg = venues[exchange];
+    if (!cfg) {
+      const key = Object.keys(venues).find(k => k.toUpperCase() === exchange);
+      if (key) cfg = venues[key];
+    }
+    if (!cfg?.logoUrl) return res.status(404).json({ error: 'No logo for ' + exchange });
+    // Handle data: URLs — decode and return directly without fetching
+    if (cfg.logoUrl.startsWith('data:')) {
+      const match = cfg.logoUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) return res.status(400).json({ error: 'Invalid data URL' });
+      const buffer = Buffer.from(match[2], 'base64');
+      _logoCache.set(exchange, { buffer, contentType: match[1], fetchedAt: Date.now() });
+      res.set('Content-Type', match[1]);
+      res.set('Cache-Control', 'public, max-age=86400');
+      return res.send(buffer);
+    }
+    const r = await fetch(cfg.logoUrl, { redirect: 'follow' });
+    if (!r.ok) return res.status(502).json({ error: 'Logo fetch failed: ' + r.status });
+    const contentType = r.headers.get('content-type') || '';
+    if (!contentType.startsWith('image/')) return res.status(404).json({ error: 'Not an image: ' + contentType });
+    const buffer = Buffer.from(await r.arrayBuffer());
+    _logoCache.set(exchange, { buffer, contentType, fetchedAt: Date.now() });
+    res.set('Content-Type', contentType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(buffer);
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
 
 // ── TCA API endpoints ─────────────────────────────────────────────────────────
 
@@ -436,6 +318,305 @@ app.get('/api/tca/config', (req, res) => {
     useRealClickhouse,
     useRealKafka,
   });
+});
+
+// ── Risk check endpoint — UI calls this before sending orders to exchanges ───
+
+const riskService = require('./src/services/riskService');
+
+app.post('/api/risk/check', (req, res) => {
+  try {
+    const o = req.body;
+    const order = {
+      symbol:     o.symbol || o.instrument_name || '',
+      venue:      o.venue || 'DERIBIT',
+      side:       (o.side || o.direction || '').toUpperCase(),
+      quantity:   o.quantity || o.amount || 0,
+      limitPrice: o.price || o.limitPrice || null,
+      orderType:  (o.order_type || o.type || 'MARKET').toUpperCase(),
+      arrivalMid: o.arrivalMid || 0,
+      accountId:  o.accountId || 'default',
+      metadata:   o.metadata || {},
+    };
+    const result = riskService.check(order);
+    res.json(result);
+  } catch (e) {
+    console.error('[risk/check] Error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/risk/headroom', (req, res) => {
+  try {
+    const { symbol, accountId } = req.query;
+    const limits = require('./src/config/riskLimits');
+    const d = limits.default;
+    const s = limits.symbols?.[symbol] || {};
+    const a = limits.accounts?.[accountId] || {};
+    const cfg = { ...d, ...s, ...a };
+
+    const state = riskService.getState();
+    const currentPos = state.positions[symbol] || 0;
+    const posHeadroom = cfg.maxPositionSize - Math.abs(currentPos);
+
+    let totalNotional = 0;
+    for (const n of Object.values(state.openNotional)) totalNotional += n;
+    const notionalHeadroom = cfg.maxTotalNotional - totalNotional;
+
+    const unit = symbol ? symbol.split('-')[0] : '';
+    res.json({
+      positionHeadroom: Math.max(0, posHeadroom),
+      positionUnit:     unit,
+      maxPositionSize:  cfg.maxPositionSize,
+      currentPosition:  currentPos,
+      notionalHeadroom: Math.max(0, notionalHeadroom),
+      maxTotalNotional: cfg.maxTotalNotional,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Blotter API — unified cross-exchange data ────────────────────────────────
+
+const blotterService = require('./src/services/blotterService');
+
+app.get('/api/blotter', (req, res) => {
+  const { venue } = req.query;
+  res.json(blotterService.getSnapshot(venue || undefined));
+});
+
+// Trigger private channel auth for all exchanges with credentials
+app.post('/api/auth/subscribe-private', async (req, res) => {
+  try {
+    const { credentials } = req.body;
+    console.log('[auth] subscribe-private called for:', credentials ? Object.keys(credentials) : 'none');
+    // Log credential shape per exchange (never log actual key values)
+    if (credentials) {
+      for (const [ex, c] of Object.entries(credentials)) {
+        const f = c?.fields || {};
+        console.log(`[auth] ${ex} creds shape: testnet=${c?.testnet}, hasApiKey=${!!f.apiKey}, hasSecretKey=${!!f.secretKey}, hasApiSecret=${!!f.apiSecret}, fieldKeys=${Object.keys(f).join(',')}`);
+      }
+    }
+    if (!credentials) return res.status(400).json({ error: 'credentials required' });
+    // Wait for public WS connections to establish (Deribit needs its public WS open first)
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    const registry = require('./src/adapters/adapterRegistry');
+    const results = await registry.authenticateAll(credentials);
+    res.json({ ok: true, exchanges: results });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Generic order submission — routes through orderService → adapter ─────────
+
+const orderService = require('./src/services/orderService');
+
+app.post('/api/order/submit', async (req, res) => {
+  try {
+    const o = req.body;
+    const { credentials, ...loggable } = o;
+    console.log('[order/submit] Received:', JSON.stringify(loggable));
+    const order = await orderService.submit({
+      venue:       o.venue || o.exchange || 'DERIBIT',
+      symbol:      o.symbol || o.instrument_name || '',
+      side:        (o.side || o.direction || '').toUpperCase(),
+      quantity:    parseFloat(o.quantity || o.amount) || 0,
+      limitPrice:  parseFloat(o.limitPrice || o.price) || null,
+      orderType:   o.orderType || o.type || 'LIMIT',
+      timeInForce: o.timeInForce || 'IOC',
+      algoType:    o.algoType || 'MANUAL',
+      accountLabel: o.accountLabel || undefined,
+      credentials: o.credentials || undefined,  // from browser vault
+      metadata:    { source: 'ui', ...(o.metadata || {}) },
+    });
+    console.log('[order/submit] Order state:', order.state, 'id:', order.orderId, 'rejectReason:', order.rejectReason || '(none)');
+    if (order.state === 'REJECTED') {
+      const reason = order.rejectReason || order.metadata?.rejectReason || 'Rejected';
+      const resp = { ok: false, error: reason, orderId: order.orderId, state: order.state };
+      if (process.env.DEBUG_ORDERS === 'true') console.log('[DEBUG] Order submit response to UI:', JSON.stringify(resp));
+      return res.json(resp);
+    }
+    const resp = { ok: true, orderId: order.orderId, venueOrderId: order.venueOrderId, state: order.state };
+    if (process.env.DEBUG_ORDERS === 'true') console.log('[DEBUG] Order submit response to UI:', JSON.stringify(resp));
+    res.json(resp);
+  } catch (e) {
+    console.error('[order/submit] Error:', e.message, e.stack);
+    res.status(500).json({ ok: false, error: e.message || 'Internal server error' });
+  }
+});
+
+// ── Historical trade/order fetching per exchange ─────────────────────────────
+
+const _histFetchCache = new Map();
+
+async function fetchExchangeHistory(type, exchange, startTime, endTime, creds) {
+  const exch = exchange.toUpperCase();
+  const isTradesReq = type === 'trades';
+
+  if (exch === 'DERIBIT') {
+    const base = creds?.testnet ? 'https://test.deribit.com' : 'https://www.deribit.com';
+    const authR = await fetch(`${base}/api/v2/public/auth?client_id=${encodeURIComponent(creds.fields.clientId)}&client_secret=${encodeURIComponent(creds.fields.clientSecret)}&grant_type=client_credentials`);
+    const authJ = await authR.json();
+    if (authJ.error) throw new Error(authJ.error.message);
+    const token = authJ.result.access_token;
+    if (isTradesReq) {
+      const results = [];
+      for (const cur of ['BTC','ETH','USDC']) {
+        const r = await fetch(`${base}/api/v2/private/get_user_trades_by_currency?currency=${cur}&start_timestamp=${startTime}&end_timestamp=${endTime}&count=100&sorting=desc`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const j = await r.json();
+        if (j.result?.trades) results.push(...j.result.trades.map(t => ({
+          venue: 'DERIBIT', tradeId: t.trade_id, orderId: t.order_id, symbol: t.instrument_name,
+          side: t.direction?.toUpperCase(), size: t.amount, price: t.price,
+          fee: t.fee, timestamp: t.timestamp,
+        })));
+      }
+      return results;
+    } else {
+      const results = [];
+      for (const cur of ['BTC','ETH','USDC']) {
+        const r = await fetch(`${base}/api/v2/private/get_order_history_by_currency?currency=${cur}&count=100`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const j = await r.json();
+        if (Array.isArray(j.result)) results.push(...j.result.filter(o => {
+          const ts = o.last_update_timestamp || o.creation_timestamp || 0;
+          return ts >= startTime && ts <= endTime;
+        }).map(o => ({
+          venue: 'DERIBIT', orderId: o.order_id, symbol: o.instrument_name,
+          side: o.direction?.toUpperCase(), orderType: o.order_type,
+          quantity: o.amount, filled: o.filled_amount, price: o.price,
+          state: o.order_state?.toUpperCase(), timestamp: o.last_update_timestamp || o.creation_timestamp,
+        })));
+      }
+      return results;
+    }
+  }
+
+  if (exch === 'BITMEX') {
+    const base = creds?.testnet ? 'https://testnet.bitmex.com' : 'https://www.bitmex.com';
+    const startISO = new Date(startTime).toISOString();
+    const endISO = new Date(endTime).toISOString();
+    const { hmacSha256Hex } = require('./src/adapters/orderInterface');
+    const expires = String(Math.floor(Date.now() / 1000) + 60);
+    if (isTradesReq) {
+      const path = `/api/v1/execution?startTime=${encodeURIComponent(startISO)}&endTime=${encodeURIComponent(endISO)}&count=500`;
+      const sig = hmacSha256Hex(creds.fields.apiSecret, 'GET' + path + expires);
+      const r = await fetch(`${base}${path}`, { headers: { 'api-key': creds.fields.apiKey, 'api-signature': sig, 'api-expires': expires } });
+      const j = await r.json();
+      return (Array.isArray(j) ? j : []).filter(e => e.execType === 'Trade').map(t => ({
+        venue: 'BITMEX', tradeId: t.execID, orderId: t.orderID, symbol: t.symbol,
+        side: t.side?.toUpperCase(), size: t.lastQty, price: t.lastPx,
+        fee: t.commission, timestamp: new Date(t.timestamp).getTime(),
+      }));
+    } else {
+      const path = `/api/v1/order?startTime=${encodeURIComponent(startISO)}&endTime=${encodeURIComponent(endISO)}&count=500`;
+      const sig = hmacSha256Hex(creds.fields.apiSecret, 'GET' + path + expires);
+      const r = await fetch(`${base}${path}`, { headers: { 'api-key': creds.fields.apiKey, 'api-signature': sig, 'api-expires': expires } });
+      const j = await r.json();
+      return (Array.isArray(j) ? j : []).map(o => ({
+        venue: 'BITMEX', orderId: o.orderID, symbol: o.symbol, side: o.side?.toUpperCase(),
+        orderType: o.ordType?.toUpperCase(), quantity: o.orderQty, filled: o.cumQty,
+        price: o.price, state: ({ New:'OPEN', Filled:'FILLED', Canceled:'CANCELLED' }[o.ordStatus]) || o.ordStatus,
+        timestamp: new Date(o.timestamp).getTime(),
+      }));
+    }
+  }
+
+  if (exch === 'BYBIT') {
+    const { hmacSha256Hex } = require('./src/adapters/orderInterface');
+    const base = creds?.testnet ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
+    const ts = String(Date.now()), recv = '5000';
+    if (isTradesReq) {
+      const qs = `category=linear&startTime=${startTime}&endTime=${endTime}&limit=50`;
+      const sig = hmacSha256Hex(creds.fields.secretKey, ts + creds.fields.apiKey + recv + qs);
+      const r = await fetch(`${base}/v5/execution/list?${qs}`, { headers: { 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-METHOD': 'HMAC-SHA256', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv } });
+      const j = await r.json();
+      return (j.result?.list || []).map(t => ({
+        venue: 'BYBIT', tradeId: t.execId, orderId: t.orderId, symbol: t.symbol,
+        side: t.side?.toUpperCase(), size: parseFloat(t.execQty) || 0, price: parseFloat(t.execPrice) || 0,
+        fee: parseFloat(t.execFee) || 0, timestamp: parseInt(t.execTime) || 0,
+      }));
+    } else {
+      const qs = `category=linear&limit=50`;
+      const sig = hmacSha256Hex(creds.fields.secretKey, ts + creds.fields.apiKey + recv + qs);
+      const r = await fetch(`${base}/v5/order/history?${qs}`, { headers: { 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-METHOD': 'HMAC-SHA256', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv } });
+      const j = await r.json();
+      return (j.result?.list || []).filter(o => {
+        const ts = parseInt(o.updatedTime) || 0;
+        return ts >= startTime && ts <= endTime;
+      }).map(o => ({
+        venue: 'BYBIT', orderId: o.orderId, symbol: o.symbol, side: o.side?.toUpperCase(),
+        orderType: o.orderType?.toUpperCase(), quantity: parseFloat(o.qty) || 0,
+        filled: parseFloat(o.cumExecQty) || 0, price: parseFloat(o.price) || 0,
+        state: ({ New:'OPEN', Filled:'FILLED', Cancelled:'CANCELLED', Rejected:'REJECTED' }[o.orderStatus]) || o.orderStatus,
+        timestamp: parseInt(o.updatedTime) || 0,
+      }));
+    }
+  }
+
+  return []; // unsupported exchange
+}
+
+app.get('/api/history/trades', async (req, res) => {
+  try {
+    const { startTime, endTime } = req.query;
+    const start = parseInt(startTime) || 0;
+    const end = parseInt(endTime) || Date.now();
+    const cacheKey = `trades::${start}::${end}`;
+    const cached = _histFetchCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < 300000) return res.json({ trades: cached.data });
+
+    const registry = require('./src/adapters/adapterRegistry');
+    const allCreds = registry.getStoredCredentials ? registry.getStoredCredentials() : {};
+    const results = [];
+    const errors = [];
+
+    for (const [exch, creds] of Object.entries(allCreds)) {
+      try {
+        const trades = await fetchExchangeHistory('trades', exch, start, end, creds);
+        results.push(...trades);
+      } catch (e) {
+        errors.push({ exchange: exch, error: e.message });
+        console.error(`[history] ${exch} trades fetch failed:`, e.message);
+      }
+    }
+
+    results.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    _histFetchCache.set(cacheKey, { data: results, fetchedAt: Date.now() });
+    res.json({ trades: results, errors });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/history/orders', async (req, res) => {
+  try {
+    const { startTime, endTime } = req.query;
+    const start = parseInt(startTime) || 0;
+    const end = parseInt(endTime) || Date.now();
+    const cacheKey = `orders::${start}::${end}`;
+    const cached = _histFetchCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < 300000) return res.json({ orders: cached.data });
+
+    const registry = require('./src/adapters/adapterRegistry');
+    const allCreds = registry.getStoredCredentials ? registry.getStoredCredentials() : {};
+    const results = [];
+    const errors = [];
+
+    for (const [exch, creds] of Object.entries(allCreds)) {
+      try {
+        const orders = await fetchExchangeHistory('orders', exch, start, end, creds);
+        results.push(...orders);
+      } catch (e) {
+        errors.push({ exchange: exch, error: e.message });
+        console.error(`[history] ${exch} orders fetch failed:`, e.message);
+      }
+    }
+
+    results.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    _histFetchCache.set(cacheKey, { data: results, fetchedAt: Date.now() });
+    res.json({ orders: results, errors });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── TCA: receive order/fill notifications from the frontend UI ───────────────
@@ -560,17 +741,295 @@ app.post('/api/tca/notify-fill', async (req, res) => {
   }
 });
 
+// ── Algo execution engine (worker thread) ────────────────────────────────────
+
+const { Worker } = require('worker_threads');
+const path       = require('path');
+
+let _algoWorker    = null;
+let _algoCallbacks = new Map(); // requestId → { resolve, reject, timer }
+let _algoStrategies = new Map(); // strategyId → latest status
+let _algoConfigs    = [];        // strategy plugin configs from worker
+
+function spawnAlgoWorker() {
+  const workerPath = path.join(__dirname, 'src', 'algo', 'engine.js');
+  const worker = new Worker(workerPath);
+
+  worker.on('message', (msg) => {
+    switch (msg.type) {
+      case 'STRATEGY_STARTED':
+        _algoStrategies.set(msg.strategyId, { state: 'RUNNING', ...msg });
+        console.log(`[algo] Strategy ${msg.strategyId} (${msg.strategyType}) started`);
+        _resolveCallback(msg.strategyId, msg);
+        break;
+
+      case 'STRATEGY_STOPPED':
+        if (_algoStrategies.has(msg.strategyId)) _algoStrategies.get(msg.strategyId).state = 'STOPPED';
+        console.log(`[algo] Strategy ${msg.strategyId} stopped`);
+        _resolveCallback(msg.strategyId, msg);
+        break;
+
+      case 'STRATEGY_ERROR':
+        if (_algoStrategies.has(msg.strategyId)) _algoStrategies.get(msg.strategyId).state = 'ERROR';
+        console.error(`[algo] Strategy ${msg.strategyId} error: ${msg.error}`);
+        _resolveCallback(msg.strategyId, msg);
+        break;
+
+      case 'STATUS_UPDATE':
+        if (msg.strategies) {
+          for (const [sid, s] of Object.entries(msg.strategies)) {
+            _algoStrategies.set(sid, s);
+          }
+        }
+        if (msg.strategyId) {
+          if (_algoStrategies.has(msg.strategyId)) _algoStrategies.get(msg.strategyId).state = msg.state;
+        }
+        _resolveCallback('_status', msg);
+        break;
+
+      case 'ALGO_PROGRESS':
+        if (_algoStrategies.has(msg.strategyId)) Object.assign(_algoStrategies.get(msg.strategyId), msg);
+        publish('system.algo_progress', msg, msg.strategyId).catch(() => {});
+        break;
+
+      case 'ORDER_INTENT':
+        _handleOrderIntent(msg);
+        break;
+
+      case 'CANCEL_INTENT':
+        // TODO: wire to orderService.cancel() when child order tracking is implemented
+        break;
+
+      case 'STRATEGY_CONFIGS':
+        _algoConfigs = msg.configs || [];
+        console.log(`[algo] Received ${_algoConfigs.length} strategy configs from worker`);
+        _resolveCallback('_configs', msg);
+        break;
+    }
+  });
+
+  worker.on('error', (err) => {
+    console.error('CRITICAL: Algo engine worker error:', err.message);
+  });
+
+  worker.on('exit', (code) => {
+    console.error(`CRITICAL: Algo engine worker exited with code ${code} — restarting in 2s`);
+    _algoWorker = null;
+    setTimeout(() => { _algoWorker = spawnAlgoWorker(); }, 2000);
+  });
+
+  _algoWorker = worker;
+  return worker;
+}
+
+async function _handleOrderIntent(intent) {
+  // Run through risk service first
+  const riskResult = riskService.check({
+    symbol:     intent.symbol,
+    venue:      intent.venue || 'DERIBIT',
+    side:       intent.side,
+    quantity:   intent.quantity,
+    limitPrice: intent.limitPrice,
+    orderType:  intent.orderType || 'LIMIT',
+    arrivalMid: 0, // will be filled by orderService
+    metadata:   { source: 'algo', strategyId: intent.strategyId, algoType: intent.algoType },
+  });
+
+  if (riskResult.rejected) {
+    console.warn(`[algo] ORDER_INTENT rejected by risk: ${riskResult.reason} — ${riskResult.detail}`);
+    // Notify worker of rejection as an error
+    if (_algoWorker) {
+      _algoWorker.postMessage({
+        type: 'FILL_DATA',
+        payload: { childId: intent.intentId, fillSize: 0, fillPrice: 0, rejected: true, reason: riskResult.reason },
+      });
+    }
+    return;
+  }
+
+  // Submit through orderService
+  try {
+    const orderService = require('./src/services/orderService');
+    const order = await orderService.submit({
+      symbol:      intent.symbol,
+      venueSymbol: intent.symbol, // adapter will resolve
+      venue:       intent.venue || 'DERIBIT',
+      side:        intent.side,
+      quantity:    intent.quantity,
+      limitPrice:  intent.limitPrice,
+      orderType:   intent.orderType || 'LIMIT',
+      algoType:    intent.algoType || 'ALGO',
+      parentOrderId: intent.strategyId,
+      metadata:    { source: 'algo', strategyId: intent.strategyId, intentId: intent.intentId },
+    });
+    console.log(`[algo] ORDER_INTENT ${intent.intentId} submitted as order ${order.orderId}`);
+  } catch (err) {
+    console.error(`[algo] ORDER_INTENT ${intent.intentId} failed:`, err.message);
+  }
+}
+
+function _resolveCallback(key, data) {
+  const cb = _algoCallbacks.get(key);
+  if (cb) {
+    clearTimeout(cb.timer);
+    _algoCallbacks.delete(key);
+    cb.resolve(data);
+  }
+}
+
+function _sendToWorker(msg) {
+  if (!_algoWorker) throw new Error('Algo engine not running');
+  _algoWorker.postMessage(msg);
+}
+
+function _sendAndWait(msg, key, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { _algoCallbacks.delete(key); reject(new Error('Algo engine timeout')); }, timeoutMs);
+    _algoCallbacks.set(key, { resolve, reject, timer });
+    _sendToWorker(msg);
+  });
+}
+
+// Forward market data and trades to the worker
+const { subscribe: busSubscribe } = require('./src/core/eventBus');
+async function _wireAlgoDataFeeds() {
+  await busSubscribe('market.l1.bbo', 'algo-engine-l1', async (event) => {
+    if (_algoWorker) _algoWorker.postMessage({ type: 'MARKET_DATA', payload: event });
+  });
+  await busSubscribe('market.trades', 'algo-engine-trades', async (event) => {
+    if (_algoWorker) _algoWorker.postMessage({ type: 'TRADE_DATA', payload: event });
+  });
+  await busSubscribe('orders.fills', 'algo-engine-fills', async (event) => {
+    if (_algoWorker) _algoWorker.postMessage({ type: 'FILL_DATA', payload: event });
+  });
+}
+
+// ── Algo API endpoints ───────────────────────────────────────────────────────
+
+app.post('/api/algo/start', async (req, res) => {
+  try {
+    const { strategyType, params } = req.body;
+    if (!strategyType) return res.status(400).json({ error: 'strategyType required' });
+    if (!params?.symbol || !params?.side || !params?.totalSize) {
+      return res.status(400).json({ error: 'params.symbol, params.side, params.totalSize required' });
+    }
+    const strategyId = `algo-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    const result = await _sendAndWait(
+      { type: 'START_STRATEGY', payload: { strategyId, strategyType, params } },
+      strategyId,
+    );
+    res.json({ ok: true, strategyId, ...result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/algo/stop/:strategyId', async (req, res) => {
+  try {
+    const result = await _sendAndWait(
+      { type: 'STOP_STRATEGY', strategyId: req.params.strategyId },
+      req.params.strategyId,
+    );
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/algo/pause/:strategyId', (req, res) => {
+  try {
+    _sendToWorker({ type: 'PAUSE_STRATEGY', strategyId: req.params.strategyId });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/algo/resume/:strategyId', (req, res) => {
+  try {
+    _sendToWorker({ type: 'RESUME_STRATEGY', strategyId: req.params.strategyId });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/algo/status', async (req, res) => {
+  try {
+    if (_algoWorker) {
+      const result = await _sendAndWait({ type: 'GET_STATUS' }, '_status');
+      res.json({ strategies: result.strategies || {} });
+    } else {
+      res.json({ strategies: Object.fromEntries(_algoStrategies), workerStatus: 'DOWN' });
+    }
+  } catch (e) {
+    res.json({ strategies: Object.fromEntries(_algoStrategies), workerStatus: 'TIMEOUT' });
+  }
+});
+
+app.get('/api/algo/strategies', (req, res) => {
+  // Read configs directly from strategy files — no dependency on worker
+  try {
+    const fs = require('fs');
+    const stratDir = path.join(__dirname, 'src', 'algo', 'strategies');
+    const files = fs.readdirSync(stratDir).filter(f => f.endsWith('.js'));
+    const configs = [];
+    for (const file of files) {
+      try {
+        const mod = require(path.join(stratDir, file));
+        if (mod.config && mod.config.name && mod.config.params) {
+          configs.push(mod.config);
+        }
+      } catch (e) {
+        console.error(`[algo/strategies] Failed to load ${file}:`, e.message);
+      }
+    }
+    res.json({ strategies: configs });
+  } catch (e) {
+    console.error('[algo/strategies] Directory scan failed:', e.message);
+    res.json({ strategies: _algoConfigs }); // fallback to worker-provided configs
+  }
+});
+
+app.get('/api/algo/estimate', (req, res) => {
+  try {
+    const { type } = req.query;
+    if (!type) return res.json({ estimate: '' });
+    const fs = require('fs');
+    const stratPath = path.join(__dirname, 'src', 'algo', 'strategies');
+    const files = fs.readdirSync(stratPath).filter(f => f.endsWith('.js'));
+    for (const file of files) {
+      const mod = require(path.join(stratPath, file));
+      if (mod.config?.name?.toUpperCase() === type.toUpperCase() && mod.estimateDuration) {
+        const params = {};
+        for (const [k, v] of Object.entries(req.query)) { if (k !== 'type') params[k] = parseFloat(v) || v; }
+        return res.json({ estimate: mod.estimateDuration(params) });
+      }
+    }
+    res.json({ estimate: '' });
+  } catch (e) { res.json({ estimate: '' }); }
+});
+
+// ── Health endpoint ───────────────────────────────────────────────────────────
+
+app.get('/api/health', (req, res) => {
+  try {
+    const registry = require('./src/adapters/adapterRegistry');
+    res.json(registry.getHealth());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
-if (!ENC_KEY_HEX) {
-  console.error('\n⚠️  ENCRYPTION_KEY environment variable is not set.');
+if (!keyStore.isReady()) {
+  console.error('\n⚠️  ENCRYPTION_KEY environment variable is not set or invalid.');
   console.error('   API key storage will be disabled until it is configured.');
   console.error('   1. Generate a key:  node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
   console.error('   2. Copy .env.example to .env');
   console.error('   3. Set ENCRYPTION_KEY=<the generated value>');
   console.error('   4. Restart the server.\n');
-} else if (ENC_KEY_HEX.length !== 64) {
-  console.error('\n⚠️  ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes).\n');
 }
 
 // ── Collybus data pipeline startup ───────────────────────────────────────────
@@ -581,15 +1040,27 @@ async function startDataPipeline() {
 
     await tickStore.start();
     await tcaService.start();
+    await blotterService.start();
     await startDataQuality();
 
     const kafkaMode = useRealKafka ? 'real' : 'stub';
     const chMode    = useRealClickhouse ? 'real' : 'stub';
     console.log(`Collybus — data pipeline active. Kafka: [${kafkaMode}]. ClickHouse: [${chMode}].`);
+
+    // Start algo engine worker
+    spawnAlgoWorker();
+    await _wireAlgoDataFeeds();
+    console.log('[startup] Algo engine worker spawned');
   } catch (e) {
     console.error('[startup] Data pipeline failed to start:', e.message);
   }
 }
+
+// Catch-all error handler — always return JSON, never HTML
+app.use((err, req, res, _next) => {
+  console.error('[express] Unhandled error:', err.message, err.stack);
+  res.status(500).json({ ok: false, error: err.message || 'Internal server error' });
+});
 
 app.listen(PORT, () => {
   console.log(`\n✓ Server running at http://localhost:${PORT}`);

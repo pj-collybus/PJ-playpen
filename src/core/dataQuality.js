@@ -7,12 +7,9 @@
  *   3. Missing arrivalMid: order event with null/undefined arrivalMid → CRITICAL (reject)
  *   4. Price spike: mid moves > 5% in < 1 second on same symbol → WARNING
  *   5. Duplicate fills: same fillId seen twice → WARNING (reject)
+ *   6. Feed status: if any symbol stays STALE for > 30 seconds → CRITICAL
  *
  * Never throws — logs and continues.
- *
- * Usage:
- *   const { startDataQuality } = require('./dataQuality');
- *   await startDataQuality();
  */
 
 'use strict';
@@ -28,19 +25,20 @@ const STALE_CONSECUTIVE_MAX = 30;
 
 /** Price spike: Map<symbol, { midPrice, ts }> */
 const _lastMids = new Map();
-const SPIKE_THRESHOLD_PCT = 0.05; // 5%
-const SPIKE_WINDOW_MS     = 1000; // 1 second
+const SPIKE_THRESHOLD_PCT = 0.05;
+const SPIKE_WINDOW_MS     = 1000;
 
 /** Duplicate fills: Set<fillId> */
 const _seenFillIds = new Set();
 const MAX_FILL_ID_CACHE = 50_000;
 
-let _started = false;
+/** Feed status tracking: Map<`${venue}::${symbol}`, { status, staleAt }> */
+const _feedStatus = new Map();
+const FEED_STALE_CRITICAL_MS = 30_000; // 30 seconds
 
-/**
- * Wire up all data quality subscriptions on the event bus.
- * Idempotent — safe to call multiple times.
- */
+let _started = false;
+let _feedStatusTimer = null;
+
 async function startDataQuality() {
   if (_started) return;
   _started = true;
@@ -53,7 +51,7 @@ async function startDataQuality() {
         console.error(`CRITICAL: crossed book on ${event.venue} ${event.symbol} — bid=${event.bidPrice} ask=${event.askPrice}`);
       }
 
-      // 2. Stale feed
+      // 2. Stale feed (latency-based)
       const key = `${event.venue}::${event.symbol}`;
       const latency = event.receivedTs - event.exchangeTs;
       if (latency > STALE_THRESHOLD_MS) {
@@ -91,7 +89,6 @@ async function startDataQuality() {
       // 3. Missing arrivalMid
       if (event.arrivalMid == null || event.arrivalMid === undefined) {
         console.error(`CRITICAL: missing arrivalMid on order ${event.orderId} — symbol=${event.symbol} venue=${event.venue}`);
-        // Signal to not insert (downstream consumers should check this field)
         event._dqRejected = true;
       }
     } catch (err) {
@@ -107,16 +104,12 @@ async function startDataQuality() {
         if (_seenFillIds.has(event.fillId)) {
           console.warn(`WARNING: duplicate fill ${event.fillId} — orderId=${event.orderId} venue=${event.venue}`);
           event._dqDuplicate = true;
-          return; // Reject — do not process further
+          return;
         }
         _seenFillIds.add(event.fillId);
-
-        // Prevent unbounded memory growth
         if (_seenFillIds.size > MAX_FILL_ID_CACHE) {
           const iter = _seenFillIds.values();
-          for (let i = 0; i < MAX_FILL_ID_CACHE / 2; i++) {
-            _seenFillIds.delete(iter.next().value);
-          }
+          for (let i = 0; i < MAX_FILL_ID_CACHE / 2; i++) _seenFillIds.delete(iter.next().value);
         }
       }
     } catch (err) {
@@ -124,7 +117,41 @@ async function startDataQuality() {
     }
   });
 
-  console.log('[dataQuality] Data quality middleware active — monitoring L1, orders, fills');
+  // ── Feed status checks (from BookGuard in adapters) ────────────────────────
+  await subscribe('feed.status', 'dataQuality-feedStatus', async (event) => {
+    try {
+      const key = `${event.venue}::${event.symbol}`;
+      if (event.status === 'STALE') {
+        if (!_feedStatus.has(key) || _feedStatus.get(key).status !== 'STALE') {
+          _feedStatus.set(key, { status: 'STALE', staleAt: Date.now() });
+          console.warn(`WARNING: feed STALE on ${event.venue} ${event.symbol}`);
+        }
+      } else if (event.status === 'LIVE') {
+        const prev = _feedStatus.get(key);
+        if (prev && prev.status === 'STALE') {
+          const duration = Date.now() - prev.staleAt;
+          console.log(`INFO: feed recovered on ${event.venue} ${event.symbol} after ${duration}ms`);
+        }
+        _feedStatus.set(key, { status: 'LIVE', staleAt: null });
+      }
+    } catch (err) {
+      console.error('[dataQuality] feed status check error:', err.message);
+    }
+  });
+
+  // ── Periodic check: any feed STALE > 30s → CRITICAL ───────────────────────
+  _feedStatusTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [key, state] of _feedStatus) {
+      if (state.status === 'STALE' && state.staleAt && (now - state.staleAt) > FEED_STALE_CRITICAL_MS) {
+        console.error(`CRITICAL: feed on ${key} has been STALE for ${Math.round((now - state.staleAt) / 1000)}s`);
+        // Update staleAt so we don't spam every second — log again at next 30s interval
+        state.staleAt = now;
+      }
+    }
+  }, 10_000);
+
+  console.log('[dataQuality] Data quality middleware active — monitoring L1, orders, fills, feed_status');
 }
 
 module.exports = { startDataQuality };

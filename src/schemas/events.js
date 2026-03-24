@@ -175,6 +175,31 @@ const OrderEventType = Object.freeze({
   REPLACED:        'REPLACED',
 });
 
+/**
+ * @typedef {Object} POSITION
+ * Position state from a venue.
+ * @property {string}  venue
+ * @property {string}  symbol
+ * @property {'LONG'|'SHORT'|'FLAT'} side
+ * @property {number}  size          - Absolute position size in base currency units
+ * @property {string}  sizeUnit      - Base currency e.g. 'BTC', 'ETH', 'SOL'
+ * @property {number}  avgEntryPrice
+ * @property {number}  unrealisedPnl
+ * @property {number}  liquidationPrice
+ * @property {number}  timestamp
+ */
+
+/**
+ * @typedef {Object} BALANCE
+ * Account balance from a venue.
+ * @property {string}  venue
+ * @property {string}  currency
+ * @property {number}  available
+ * @property {number}  total
+ * @property {number}  unrealisedPnl
+ * @property {number}  timestamp
+ */
+
 /** Kafka topic names */
 const Topics = Object.freeze({
   L1_BBO:      'market.l1.bbo',
@@ -183,6 +208,8 @@ const Topics = Object.freeze({
   ORDERS:      'orders.state',
   FILLS:       'orders.fills',
   ORDER_EVENTS:'orders.events',
+  POSITIONS:   'account.positions',
+  BALANCES:    'account.balances',
 });
 
 module.exports = { InstrumentClass, FeedType, OrderState, OrderEventType, Topics };

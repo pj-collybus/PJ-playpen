@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Deribit Depth</title>
+<title>Collybus</title>
+<link rel="icon" href="data:,">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230d0d0f'/><text x='16' y='22' text-anchor='middle' font-size='18' font-family='system-ui' font-weight='700' fill='%236666cc'>C</text></svg>">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-system, monospace; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -205,6 +207,48 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 .tca-mi-detail dt { color: #555; font-weight: 600; }
 .tca-mi-detail dd { color: #ccc; }
 
+/* ── Algo order modal ── */
+.algo-side-toggle { display: flex; }
+.algo-side-toggle button { flex: 1; padding: 5px; font-size: 11px; font-weight: 700; border: 1px solid #1a1a22; cursor: pointer; font-family: inherit; background: #0a0a10; color: #555; transition: all .15s; }
+.algo-side-toggle button:first-child { border-radius: 4px 0 0 4px; }
+.algo-side-toggle button:last-child  { border-radius: 0 4px 4px 0; }
+.algo-side-toggle .buy-active  { background: #0a1a10; border-color: #22cc66; color: #22cc66; }
+.algo-side-toggle .sell-active { background: #1a0a0a; border-color: #cc3333; color: #cc3333; }
+.algo-review { background: #0c0c18; border: 1px solid #1a1a2a; border-radius: 6px; padding: 8px 12px; font-size: 11px; color: #888; display: none; }
+.algo-review strong { color: #ccc; }
+.algo-launch-btn { padding: 8px; background: #10102a; border: 1px solid #4444aa; border-radius: 5px; color: #99f; cursor: pointer; font-size: 11px; font-weight: 700; font-family: inherit; width: 100%; }
+.algo-launch-btn:hover { background: #1a1a3a; color: #ccf; }
+.algo-launch-btn:disabled { opacity: .4; cursor: default; }
+/* Algo progress bar (blotter + monitor) */
+.algo-progress-bar { width: 60px; height: 6px; background: #1a1a22; border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; }
+.algo-progress-fill { height: 100%; background: #4466cc; border-radius: 3px; transition: width .3s; }
+.algo-status-RUNNING { color: #22cc66; }
+.algo-status-PAUSED  { color: #cc9900; }
+.algo-status-ERROR   { color: #cc3333; }
+.algo-status-STOPPED { color: #555; }
+.algo-stop-btn { background: none; border: 1px solid #442222; border-radius: 3px; color: #cc3333; cursor: pointer; font-size: 10px; padding: 2px 6px; font-family: inherit; }
+.algo-stop-btn:hover { background: #220000; border-color: #cc3333; }
+.algo-mon-btn { background: none; border: 1px solid #222244; border-radius: 3px; color: #6666cc; cursor: pointer; font-size: 10px; padding: 2px 6px; font-family: inherit; }
+.algo-mon-btn:hover { color: #99f; border-color: #4444aa; }
+/* Floating monitor panel */
+.algo-monitor { position: fixed; z-index: 8500; width: 280px; background: #0a0a10; border: 1px solid #1a1a22; border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.6); display: flex; flex-direction: column; overflow: hidden; }
+.algo-monitor.status-RUNNING { border-left: 3px solid #22cc66; }
+.algo-monitor.status-PAUSED  { border-left: 3px solid #cc9900; }
+.algo-monitor.status-ERROR   { border-left: 3px solid #cc3333; }
+.algo-monitor-hdr { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: #0c0c14; cursor: grab; user-select: none; flex-shrink: 0; }
+.algo-monitor-hdr:active { cursor: grabbing; }
+.algo-monitor-title { font-size: 10px; font-weight: 700; color: #999; }
+.algo-monitor-btns { display: flex; gap: 4px; }
+.algo-monitor-btns button { background: none; border: none; color: #555; cursor: pointer; font-size: 11px; padding: 0 3px; font-family: inherit; }
+.algo-monitor-btns button:hover { color: #ccc; }
+.algo-monitor-body { padding: 8px 10px; font-size: 11px; }
+.algo-monitor-body dt { color: #555; font-weight: 600; }
+.algo-monitor-body dd { color: #ccc; margin-bottom: 4px; }
+.algo-monitor.minimised .algo-monitor-body { display: none; }
+/* Toast */
+.algo-toast { position: fixed; bottom: 18px; right: 18px; z-index: 9500; max-width: 380px; background: #2a2000; border: 1px solid #3a3000; border-radius: 6px; padding: 10px 16px; color: #d4a017; font-size: 11px; animation: toast-in .3s ease; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
 /* ── Blotter ── */
 @keyframes bl-flash { 0%,100%{background:transparent} 50%{background:#16162a} }
 @keyframes btn-flash-ok { 0%{background:#004433;border-color:#00aa66} 100%{background:transparent;border-color:inherit} }
@@ -229,6 +273,12 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 .bl-table th:hover { color: #888; }
 .bl-table th.sort-asc::after  { content: ' ↑'; color: #6666cc; }
 .bl-table th.sort-desc::after { content: ' ↓'; color: #6666cc; }
+.bl-period-bar { display: flex; gap: 4px; padding: 3px 8px; background: #08080e; border-bottom: 1px solid #1a1a22; }
+.bl-period-pill { font-size: 9px; padding: 2px 8px; border-radius: 8px; border: 1px solid #1a1a22; background: transparent; color: #555; cursor: pointer; white-space: nowrap; }
+.bl-period-pill:hover { color: #888; border-color: #333; }
+.bl-period-pill.active { background: #1a1a28; color: #8888cc; border-color: #333; }
+.bl-loading { text-align: center; padding: 20px; color: #444; font-size: 11px; }
+.bl-hist-err { font-size: 9px; color: #664444; padding: 2px 8px; }
 .bl-table td { padding: 4px 10px; color: #666; border-bottom: 1px solid #0d0d12; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .bl-table tr:hover td { background: #0f0f18; }
 .bl-table tr.bl-flash td { animation: bl-flash .6s ease; }
@@ -237,6 +287,7 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 .bl-st-open   { color: #6688ff; }
 .bl-st-filled { color: #00c896; }
 .bl-st-cancelled { color: #333; }
+.bl-st-rejected  { color: #e05252; cursor: help; }
 .bl-cancel-btn { background: none; border: 1px solid #2a2a2a; border-radius: 3px; color: #444; cursor: pointer; font-size: 10px; padding: 1px 5px; font-family: inherit; }
 .bl-cancel-btn:hover { border-color: #e05252; color: #e05252; }
 .bl-empty { padding: 24px; text-align: center; color: #333; font-size: 11px; }
@@ -282,6 +333,15 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 .tile-dot.connecting { background: #cc9900; animation: td-blink .85s step-end infinite; }
 .tile-dot.err { background: #cc3333; }
 @keyframes td-blink { 50% { opacity: 0; } }
+/* ── Health indicator dot (server-side feed + breaker status) ── */
+.health-dot { width: 6px; height: 6px; border-radius: 50%; background: #252530; flex-shrink: 0; transition: background .3s; }
+.health-dot.ok   { background: #22cc66; }
+.health-dot.warn { background: #cc9900; }
+.health-dot.bad  { background: #cc3333; }
+/* Vault lock indicator */
+.vault-lock-btn { background: none; border: 1px solid #1e1e28; border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 12px; font-family: inherit; color: #555; display: flex; align-items: center; gap: 4px; }
+.vault-lock-btn.unlocked { border-color: #1a3a1a; color: #22cc66; }
+.vault-lock-btn.locked   { border-color: #3a1a1a; color: #cc3333; }
 .tile-reconnect-btn { background: #0d1a2a; border: 1px solid #2244aa; border-radius: 4px; padding: 2px 8px; color: #7799cc; font-size: 8px; font-family: inherit; cursor: pointer; }
 
 /* ── Resize handle on right edge ── */
@@ -702,6 +762,7 @@ tr:hover td { background: #111118; }
 }
 .order-tif-btn.active { background: #101020; border-color: #3a3a60; color: #8888cc; }
 .order-tif-btn:not(.active):hover { border-color: #2a2a3a; color: #777; }
+.order-tif-btn:disabled, .order-tif-btn.disabled { opacity: .3; cursor: not-allowed; pointer-events: none; }
 .order-checks { display: flex; gap: 14px; }
 .order-check { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
 .order-check input { accent-color: #4444aa; cursor: pointer; }
@@ -899,10 +960,17 @@ canvas.clickable { cursor: crosshair; }
     <span class="status-text" id="status">Connecting…</span>
   </div>
   <div class="topbar-right">
+    <button class="vault-lock-btn locked" id="vault-lock-btn" title="API vault locked — click to unlock">&#128274;</button>
     <button class="add-panel-btn" id="add-panel-btn">＋ Add Panel</button>
     <button class="tca-btn" id="tca-btn">TCA</button>
     <button class="specs-btn" id="specs-btn">Contract Specs</button>
   </div>
+</div>
+<div id="vault-banner" style="display:none;background:#0c0c18;border-bottom:1px solid #1a1a22;padding:6px 18px;font-size:11px;color:#888;display:flex;align-items:center;gap:8px;flex-shrink:0">
+  <span>Enter vault password to enable trading</span>
+  <input id="vault-banner-pw" type="password" placeholder="Password" style="font-size:11px;padding:4px 8px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;width:140px">
+  <button id="vault-banner-go" style="font-size:10px;padding:4px 10px;background:#10102a;border:1px solid #4444aa;border-radius:4px;color:#99f;cursor:pointer;font-family:inherit">Unlock</button>
+  <span id="vault-banner-msg" style="font-size:9px;color:#e05252"></span>
 </div>
 
 <div class="layout-tabs-bar" id="layout-tabs-bar">
@@ -921,6 +989,7 @@ canvas.clickable { cursor: crosshair; }
       Connect Deribit API keys to see live data —
       <a id="bl-noauth-link">Open API Keys</a>
     </div>
+    <div id="bl-period-container"></div>
     <div class="bl-table-wrap" id="bl-table-wrap"></div>
   </div>
 </div>
@@ -990,6 +1059,37 @@ canvas.clickable { cursor: crosshair; }
 
   </div>
 </div>
+
+<!-- ── Algos Dashboard view ── -->
+<!-- ── Algo order modal ── -->
+<div class="order-overlay" id="algo-modal-overlay" style="display:none">
+  <div class="order-box" id="algo-modal-box" style="width:340px">
+    <div class="order-header" id="algo-modal-drag">
+      <span class="order-title" id="algo-modal-title">Algo Order</span>
+      <button class="order-close-btn" id="algo-modal-close">×</button>
+    </div>
+    <div class="order-type-tabs" id="algo-type-tabs"></div>
+    <div class="order-body" style="padding:10px 14px;display:flex;flex-direction:column;gap:8px;">
+      <div style="display:flex;gap:8px">
+        <label style="flex:1;font-size:10px;color:#555">Symbol<input id="algo-f-symbol" type="text" readonly style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
+        <label style="flex:1;font-size:10px;color:#555">Total Size<input id="algo-f-size" type="number" min="0" step="any" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
+      </div>
+      <div id="algo-qty-presets" style="display:flex;gap:4px;flex-wrap:wrap"></div>
+      <div class="algo-side-toggle">
+        <button id="algo-f-buy" class="buy-active">BUY</button>
+        <button id="algo-f-sell">SELL</button>
+      </div>
+      <div id="algo-dynamic-params" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;"></div>
+      <div id="algo-estimate" style="font-size:10px;color:#555"></div>
+      <div id="algo-review" class="algo-review"></div>
+      <div id="algo-modal-msg" style="font-size:10px;text-align:center;min-height:14px"></div>
+      <button class="algo-launch-btn" id="algo-launch-btn">Launch</button>
+      <div id="algo-risk-ref" style="font-size:9px;color:#333;text-align:center"></div>
+    </div>
+  </div>
+</div>
+<!-- Container for floating monitor panels -->
+<div id="algo-monitors"></div>
 
 <!-- ── Contract Specs overlay ── -->
 <div class="specs-overlay" id="specs-overlay" style="display:none">
@@ -1130,6 +1230,9 @@ canvas.clickable { cursor: crosshair; }
 </div>
 
 <script>
+// Server base URL — must be first so all fetch calls can use it
+const TCA_BASE = (location.protocol === 'file:') ? 'http://localhost:3000' : '';
+
 // ── Contract Specs overlay ─────────────────────────────────────────────────────
 document.getElementById('specs-btn').addEventListener('click', () => {
   const ov = document.getElementById('specs-overlay');
@@ -1164,6 +1267,7 @@ const BL_TABS = [
   { id:'opt-trades',    label:'Options Trades' },
   { id:'opt-orders',    label:'Options Orders' },
   { id:'opt-positions', label:'Options Positions' },
+  { id:'algos',         label:'Algos' },
   { id:'alerts',        label:'Alerts' },
   { id:'notifs',        label:'Notifications' },
   { id:'balances',      label:'Cash Balances' },
@@ -1175,6 +1279,7 @@ const blotterData = {
   'opt-trades':    [],
   'opt-orders':    {},
   'opt-positions': {},
+  algos:           {},   // strategyId → strategy status
   alerts:          [],
   notifs:          [],
   balances:        { BTC:{}, ETH:{}, USDC:{} },
@@ -1184,6 +1289,11 @@ BL_TABS.forEach(t => blotterBadge[t.id] = 0);
 const blotterSort = {};
 BL_TABS.forEach(t => blotterSort[t.id] = { col:null, dir:'desc' });
 let blotterTab      = 'trades';
+let blotterPeriod   = 'today'; // 'today' | 'yesterday' | '7d'
+const PERIOD_TABS = ['trades','orders','opt-trades','opt-orders'];
+const _histCache = new Map(); // `${tab}::${period}` → { data, fetchedAt }
+const HIST_CACHE_TTL = 5 * 60 * 1000; // 5 min
+let _histLoading = false;
 let blotterAuthed   = false;
 let blotterExpanded = false;
 let blotterSavedH   = parseInt(localStorage.getItem('blotter_h')) || 260;
@@ -1203,10 +1313,36 @@ const pDec = p => {
   if (p >= 10000) return 0; if (p >= 100) return 1; if (p >= 1) return 2;
   if (p >= 0.01) return 4; return 6;
 };
-const base = instr => instr.replace(/_USDC/,'').replace(/_USDT/,'').split('-')[0];
-
-// qty always in base currency (BTC, SOL, etc.)
-const qtyLabel = instr => base(instr);
+// Derive decimal places from tick size: 0.0001 → 4, 0.01 → 2, 0.5 → 1, 1 → 0
+const tickDecimals = ts => (ts && ts > 0) ? Math.max(0, -Math.floor(Math.log10(ts))) : 2;
+// Format price using tick size; falls back to pDec if no tick size
+const formatPrice = (price, tickSize) => {
+  if (price == null) return '—';
+  const d = tickSize ? tickDecimals(tickSize) : pDec(price);
+  return Number(price).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+};
+// Extract base currency — single function for all exchanges
+function getBaseCurrency(exchange, instrument) {
+  const exch = (exchange || '').toUpperCase();
+  const instr = (instrument || '').toUpperCase();
+  if (exch === 'DERIBIT') return instr.replace(/_USDC/,'').replace(/_USDT/,'').split('-')[0];
+  if (instr.startsWith('PF_') || instr.startsWith('PI_') || instr.startsWith('FI_')) {
+    const stripped = instr.replace(/^(PF_|PI_|FI_)/, '').replace(/USD[T]?$/, '');
+    return stripped === 'XBT' ? 'BTC' : stripped;
+  }
+  if (instr.endsWith('USDT')) return instr.replace(/USDT$/, '');
+  if (instr.endsWith('USDC')) return instr.replace(/USDC$/, '');
+  if (instr.endsWith('USD')) {
+    const b = instr.replace(/USD$/, '');
+    return b === 'XBT' ? 'BTC' : b;
+  }
+  const m = instr.match(/^([A-Z]+)/);
+  return m ? m[1].substring(0, 5) : instr;
+}
+// Legacy compat: base() used in many places, now delegates to getBaseCurrency
+const base = instr => getBaseCurrency('DERIBIT', instr);
+// qty label uses the panel's exchange for correct parsing
+const qtyLabel = (instr, exchange) => getBaseCurrency(exchange || 'DERIBIT', instr);
 
 // Look up a Deribit instrument from the loaded API instruments array.
 // Returns the API object (has .quote_currency, .contract_size, .settlement_currency)
@@ -1538,8 +1674,35 @@ function updateOrderButtonsForExchange(s) {
   if (rfq) rfq.style.display = s.exchange === 'Deribit' ? '' : 'none';
 }
 
+/** Show/update QUANTO contract size hint below qty input */
+function updateQuantoHint(s) {
+  const el = document.getElementById(`quanto-hint-${s.id}`);
+  if (!el) return;
+  const spec = s._spec;
+  if (!spec || spec.contractType !== 'QUANTO') {
+    el.style.display = 'none';
+    s._xrpPerContract = null;
+    return;
+  }
+  // Compute base units per contract: (multiplier/1e8) × btcPrice / underlyingPrice
+  const mid = s.ticker?.best_bid_price && s.ticker?.best_ask_price
+    ? (s.ticker.best_bid_price + s.ticker.best_ask_price) / 2 : 0;
+  if (!mid) { el.style.display = 'none'; return; }
+  // Use BTC price from spec cache or fetch — for browser, estimate from XBTUSD panel if available
+  const btcPanel = panels.find(p => p.instrument === 'XBTUSD' && p.exchange === 'BitMEX');
+  const btcMid = btcPanel?.ticker?.best_bid_price && btcPanel?.ticker?.best_ask_price
+    ? (btcPanel.ticker.best_bid_price + btcPanel.ticker.best_ask_price) / 2 : 97000;
+  const mult = spec.multiplier || 1;
+  const basePerContract = (mult / 1e8) * btcMid / mid;
+  s._xrpPerContract = basePerContract;
+  const baseCcy = getBaseCurrency(s.exchange, s.instrument);
+  el.textContent = `Min: ~${basePerContract.toFixed(2)} ${baseCcy} (1 ct)`;
+  el.style.display = '';
+}
+
 const PANEL_EXCHANGES = ['Deribit','Binance','Bybit','OKX','Gate.io','KuCoin','Kraken','BitMEX'];
 
+// Exchange colours — fallback values, overridden by venues.js via API on load
 const EXCH_META = {
   'Deribit':  { color: '#e03040', bg: '#2a080e', text: 'D'  },
   'Binance':  { color: '#f0b90b', bg: '#2a2008', text: 'B'  },
@@ -1549,7 +1712,27 @@ const EXCH_META = {
   'KuCoin':   { color: '#24ae8f', bg: '#081e18', text: 'K'  },
   'Kraken':   { color: '#8d5ff0', bg: '#100820', text: 'Kr' },
   'BitMEX':   { color: '#4a90d9', bg: '#081420', text: 'BX' },
+  'LMAX':     { color: '#cc8844', bg: '#1e1408', text: 'LX' },
+  'EBS':      { color: '#5588cc', bg: '#081420', text: 'EB' },
+  '360T':     { color: '#66aa66', bg: '#0e1e0e', text: '3T' },
+  // Uppercase aliases for event bus data (adapters publish venue in uppercase)
+  'DERIBIT':  { color: '#e03040', bg: '#2a080e', text: 'D'  },
+  'BINANCE':  { color: '#f0b90b', bg: '#2a2008', text: 'B'  },
+  'BYBIT':    { color: '#f7a600', bg: '#2a1e08', text: 'By' },
+  'KRAKEN':   { color: '#8d5ff0', bg: '#100820', text: 'Kr' },
+  'BITMEX':   { color: '#4a90d9', bg: '#081420', text: 'BX' },
+  'GATE.IO':  { color: '#2196f3', bg: '#081c2e', text: 'G'  },
+  'KUCOIN':   { color: '#24ae8f', bg: '#081e18', text: 'K'  },
 };
+// Sync from venues.js (single source of truth) — maps uppercase IDs to mixed-case keys
+fetch(TCA_BASE + '/api/config/exchange-colors').then(r => r.json()).then(colors => {
+  for (const [id, c] of Object.entries(colors)) {
+    // Map uppercase venue IDs to the display names used in EXCH_META
+    const nameMap = { DERIBIT:'Deribit', BINANCE:'Binance', BYBIT:'Bybit', OKX:'OKX', KRAKEN:'Kraken', BITMEX:'BitMEX', 'GATE.IO':'Gate.io', KUCOIN:'KuCoin', LMAX:'LMAX', EBS:'EBS', '360T':'360T' };
+    const name = nameMap[id] || id;
+    if (c.color) EXCH_META[name] = { color: c.color, bg: c.bg, text: c.text };
+  }
+}).catch(() => {}); // fail silently — fallback values already set
 
 function updateExchButton(s) {
   const btn = document.getElementById(`ocol-exch-${s.id}`);
@@ -1688,6 +1871,12 @@ function activateOrderType(s, otype) {
   });
   persistLayouts();
   if (otype === 'rfq') { openRFQModal(s); return; }
+  if (otype === 'algo') {
+    const b = s.ticker.best_bid_price, a = s.ticker.best_ask_price;
+    const mid = (b && a) ? (b + a) / 2 : (b || a || null);
+    if (window._openAlgoModal) window._openAlgoModal(s.instrument, 'buy', mid, s.qty || null, s.exchange);
+    return;
+  }
   const tab = ORDER_TYPE_TAB[otype] || 'limit';
   const b = s.ticker.best_bid_price, a = s.ticker.best_ask_price;
   const mid = (b && a) ? (b + a) / 2 : (b || a || null);
@@ -1801,7 +1990,7 @@ async function ipFetchDeribit() {
 }
 
 async function ipFetchBinance() {
-  const r = await fetch('https://fapi.binance.com/fapi/v1/exchangeInfo');
+  const r = await fetch(TCA_BASE + '/api/instruments/binance-futures');
   const j = await r.json();
   const perp = [], future = [], spot = [];
   for (const s of (j.symbols || [])) {
@@ -1816,7 +2005,7 @@ async function ipFetchBinance() {
     }
   }
   // Spot from REST
-  const rs = await fetch('https://api.binance.com/api/v3/exchangeInfo');
+  const rs = await fetch(TCA_BASE + '/api/instruments/binance-spot');
   const js = await rs.json();
   for (const s of (js.symbols || [])) {
     if (s.status !== 'TRADING') continue;
@@ -1830,7 +2019,7 @@ async function ipFetchBinance() {
 
 async function ipFetchBybit() {
   async function fetchBybitCat(cat) {
-    const r = await fetch(`https://api.bybit.com/v5/market/instruments-info?category=${cat}&limit=1000`);
+    const r = await fetch(TCA_BASE + `/api/instruments/bybit?category=${cat}`);
     const j = await r.json();
     return (j.result?.list || []);
   }
@@ -1861,7 +2050,7 @@ async function ipFetchBybit() {
 
 async function ipFetchOKX() {
   async function fetchOKXInst(instType) {
-    const r = await fetch(`https://www.okx.com/api/v5/public/instruments?instType=${instType}`);
+    const r = await fetch(TCA_BASE + `/api/instruments/okx?instType=${instType}`);
     const j = await r.json();
     return j.data || [];
   }
@@ -1889,7 +2078,7 @@ async function ipFetchOKX() {
 }
 
 async function ipFetchKuCoin() {
-  const r = await fetch('https://api-futures.kucoin.com/api/v1/contracts/active');
+  const r = await fetch(TCA_BASE + '/api/instruments/kucoin-futures');
   const j = await r.json();
   const perp = [], future = [], spot = [];
   for (const s of (j.data || [])) {
@@ -1908,7 +2097,7 @@ async function ipFetchKuCoin() {
     }
   }
   // KuCoin spot
-  const rs = await fetch('https://api.kucoin.com/api/v1/symbols');
+  const rs = await fetch(TCA_BASE + '/api/instruments/kucoin-spot');
   const js = await rs.json();
   for (const s of (js.data || [])) {
     if (!s.enableTrading) continue;
@@ -1921,7 +2110,7 @@ async function ipFetchKuCoin() {
 }
 
 async function ipFetchKraken() {
-  const r = await fetch('https://futures.kraken.com/derivatives/api/v3/instruments');
+  const r = await fetch(TCA_BASE + '/api/instruments/kraken-futures');
   const j = await r.json();
   const perp = [], future = [], spot = [];
   for (const s of (j.instruments || [])) {
@@ -1936,7 +2125,7 @@ async function ipFetchKraken() {
     }
   }
   // Kraken spot
-  const rs = await fetch('https://api.kraken.com/0/public/AssetPairs');
+  const rs = await fetch(TCA_BASE + '/api/instruments/kraken-spot');
   const js = await rs.json();
   for (const [sym, info] of Object.entries(js.result || {})) {
     if (info.status !== 'online') continue;
@@ -1949,7 +2138,7 @@ async function ipFetchKraken() {
 }
 
 async function ipFetchBitMEX() {
-  const r = await fetch('https://www.bitmex.com/api/v1/instrument/active');
+  const r = await fetch(TCA_BASE + '/api/instruments/bitmex');
   const j = await r.json();
   const perp = [], future = [], spot = [];
   for (const s of (Array.isArray(j) ? j : [])) {
@@ -2038,7 +2227,7 @@ function panelSnapshot(s) {
   return { instrument: s.instrument, exchange: s.exchange, instrType: s.instrType,
     x: s.x, y: s.y, width: el ? el.offsetWidth : 480, gran: s.gran, qty: s.qty,
     locked: s.locked, activeOrderType: s.activeOrderType, tileName: s.tileName,
-    ocHidden: s.ocHidden, testnet: s.testnet };
+    ocHidden: s.ocHidden, testnet: s.testnet, priceTick: s.priceTick || null };
 }
 
 function saveCurrentLayout() {
@@ -2063,20 +2252,39 @@ function destroyAllPanels() {
 function restoreLayoutPanels(layout) {
   if (layout.panels.length > 0) {
     for (const p of layout.panels) {
-      const s = createPanel(p.instrument);
+      try {
+      const isNonDeribit = p.exchange && p.exchange !== 'Deribit';
+      // Always skipSubscribe — subscribe only after instrument + exchange are fully set
+      const s = createPanel('BTC-PERPETUAL', { skipSubscribe: true });
+      if (p.instrument && p.instrument !== 'BTC-PERPETUAL') {
+        s.instrument = p.instrument;
+        s.ticker = {}; s.bids = []; s.asks = [];
+        const selBtn = document.getElementById(`sel-${s.id}`);
+        if (selBtn) selBtn.textContent = p.instrument;
+      }
       if (p.testnet != null) s.testnet = p.testnet;
       if (p.exchange) {
         s.exchange = p.exchange;
         updateExchButton(s);
         updateOrderButtonsForExchange(s);
-        if (p.exchange !== 'Deribit' && s.instrument) {
-          // Cancel the Deribit channels createPanel set up, reconnect to correct exchange
-          const chs = [s.bookCh, s.tickCh].filter(Boolean);
-          if (chs.length && ws?.readyState === WebSocket.OPEN)
-            ws.send(JSON.stringify({ jsonrpc:'2.0', id:idCounter++, method:'public/unsubscribe', params:{ channels:chs } }));
-          s.bookCh = s.tickCh = null;
-          connectPanelExch(s);
+        // Update labels and subscribe — all panels start unsubscribed (skipSubscribe: true)
+        const bc = getBaseCurrency(s.exchange, s.instrument);
+        document.getElementById(`sbase-${s.id}`).textContent = bc;
+        document.getElementById(`bbase-${s.id}`).textContent = bc;
+        document.getElementById(`qunit-${s.id}`).textContent = bc;
+        if (isNonDeribit) {
+          fetchInstrumentSpec(s.exchange, s.instrument).then(spec => {
+            if (spec) { s._spec = spec; if (spec.tickSize) s.priceTick = spec.tickSize; updateQuantoHint(s); }
+          });
+        } else if (p.instrument && !instruments.some(i => i.instrument_name === p.instrument)) {
+          // Deribit instrument expired or not found — reset
+          s.instrument = 'BTC-PERPETUAL';
+          const selBtn = document.getElementById(`sel-${s.id}`);
+          if (selBtn) selBtn.textContent = 'BTC-PERPETUAL';
+          console.warn(`[restore] Instrument ${p.instrument} not found on Deribit — reset to BTC-PERPETUAL`);
         }
+        console.log('[tile restore] subscribing:', s.exchange, s.instrument);
+        subscribePanel(s);
       }
       if (p.instrType)  s.instrType  = p.instrType;
       if (p.locked)     { s.locked = true; applyLockVisuals(s); }
@@ -2102,6 +2310,15 @@ function restoreLayoutPanels(layout) {
         s.qty = p.qty;
         const inp = document.getElementById(`qty-${s.id}`);
         if (inp) inp.value = p.qty;
+      }
+      if (p.priceTick) s.priceTick = p.priceTick;
+      console.log('[tile restore] instrument:', s.instrument, 'exchange:', s.exchange, 'priceTick:', s.priceTick);
+      // Re-fetch tick size if missing or looks wrong for the instrument
+      if (s.exchange !== 'Deribit' && (!s.priceTick || s.priceTick > 0.01)) {
+        fetchTickSize(s.exchange, s.instrument).then(ts => { if (ts) { s.priceTick = ts; persistLayouts(); } });
+      }
+      } catch (e) {
+        console.error('[tile restore] Failed to restore panel:', p.instrument, p.exchange, e.message);
       }
     }
   } else {
@@ -2252,7 +2469,7 @@ const GRAN_OPTS = [
   { val:'5',label:'5' },{ val:'10',label:'10' },{ val:'50',label:'50' },{ val:'100',label:'100' },
 ];
 
-function createPanel(defInstr = 'BTC-PERPETUAL') {
+function createPanel(defInstr = 'BTC-PERPETUAL', { skipSubscribe = false } = {}) {
   const pos = nextPanelPos();
   const id = nextId++;
   const s = {
@@ -2263,7 +2480,9 @@ function createPanel(defInstr = 'BTC-PERPETUAL') {
     locked: false, activeOrderType: 'lmt', tileName: '', ocHidden: false,
     testnet: true, exchWs: null, exchWsRetries: 0, exchWsBackoff: null,
     connStatus: 'disconnected', bxBook: null, okxPingTimer: null,
+    priceTick: null,
   };
+  s.priceTick = priceStep(defInstr, 'Deribit');
   panels.push(s);
 
   const granBtns = GRAN_OPTS.map(g =>
@@ -2278,6 +2497,7 @@ function createPanel(defInstr = 'BTC-PERPETUAL') {
   div.innerHTML = `
     <div class="panel-header">
       <span class="tile-dot" id="tile-dot-${id}" title="Disconnected"></span>
+      <span class="health-dot" id="health-dot-${id}"></span>
       <button class="panel-close" title="Remove">×</button>
     </div>
     <div class="panel-body">
@@ -2294,12 +2514,12 @@ function createPanel(defInstr = 'BTC-PERPETUAL') {
           <span class="centre-chg" id="chg-${id}">—</span>
         </div>
         <div class="trade-row">
-          <button class="trade-btn sell-btn" id="trade-sell-${id}" title="Sell at VWAP (limit FOK)">
+          <button class="trade-btn sell-btn" id="trade-sell-${id}" title="Sell at VWAP">
             <span class="btn-label">Sell <span id="sbase-${id}">${base(defInstr)}</span></span>
             <span class="btn-price" id="sbid-${id}">—</span>
           </button>
           <div class="spread-mid" id="spread-${id}">—</div>
-          <button class="trade-btn buy-btn" id="trade-buy-${id}" title="Buy at VWAP (limit FOK)">
+          <button class="trade-btn buy-btn" id="trade-buy-${id}" title="Buy at VWAP">
             <span class="btn-label">Buy <span id="bbase-${id}">${base(defInstr)}</span></span>
             <span class="btn-price" id="bask-${id}">—</span>
           </button>
@@ -2307,10 +2527,11 @@ function createPanel(defInstr = 'BTC-PERPETUAL') {
         <div class="qty-row">
           <input class="qty-input" id="qty-${id}" type="number" placeholder="Qty…" min="0" step="any">
           <div style="display:flex;flex-direction:column;gap:1px;text-align:right">
-            <span class="qty-unit" id="qunit-${id}">${qtyLabel(defInstr)}</span>
+            <span class="qty-unit" id="qunit-${id}">${qtyLabel(defInstr, 'Deribit')}</span>
             <span id="ctlabel-${id}" style="font-size:8px;color:#2a2a3a;white-space:nowrap">— ct</span>
           </div>
         </div>
+        <div id="quanto-hint-${id}" style="display:none;font-size:8px;color:#444;padding:1px 4px;white-space:nowrap"></div>
       </div>
       <div class="chart-col" id="ac-${id}"><canvas id="acanv-${id}"></canvas></div>
       <div class="order-col" id="oc-${id}">
@@ -2406,7 +2627,7 @@ function createPanel(defInstr = 'BTC-PERPETUAL') {
   document.getElementById(`ocol-lock-${id}`).addEventListener('click', () => toggleTileLock(s));
   document.getElementById(`ocol-cfg-${id}`).addEventListener('click', e => openTileSettings(s, e.currentTarget));
 
-  subscribePanel(s);
+  if (!skipSubscribe) subscribePanel(s);
   setTimeout(updateAreaSize, 100);
   return s;
 }
@@ -2426,11 +2647,21 @@ function removePanel(id) {
 function changeInstrument(s, instr) {
   unsubscribePanel(s);
   s.instrument = instr; s.bids = []; s.asks = []; s.ticker = {};
+  s.priceTick = priceStep(instr, s.exchange);
+  // Fetch full instrument spec — sets tickSize, lotSize, contractType on panel
+  fetchInstrumentSpec(s.exchange, instr).then(spec => {
+    if (spec) {
+      s._spec = spec;
+      if (spec.tickSize) { s.priceTick = spec.tickSize; persistLayouts(); }
+      updateQuantoHint(s);
+    }
+  });
   const selBtn = document.getElementById(`sel-${s.id}`);
   if (selBtn) selBtn.textContent = instr;
-  document.getElementById(`sbase-${s.id}`).textContent = base(instr);
-  document.getElementById(`bbase-${s.id}`).textContent = base(instr);
-  document.getElementById(`qunit-${s.id}`).textContent = qtyLabel(instr);
+  const baseCcy = getBaseCurrency(s.exchange, instr);
+  document.getElementById(`sbase-${s.id}`).textContent = baseCcy;
+  document.getElementById(`bbase-${s.id}`).textContent = baseCcy;
+  document.getElementById(`qunit-${s.id}`).textContent = baseCcy;
   const fundEl = document.getElementById(`fund-${s.id}`);
   if (fundEl) fundEl.style.display = s.instrType === 'spot' ? 'none' : '';
   renderPanel(s); subscribePanel(s);
@@ -2515,8 +2746,15 @@ function disconnectPanelExch(s) {
   if (s.exchWs) {
     const ews = s.exchWs;
     s.exchWs = null;
-    ews.onopen = ews.onmessage = ews.onerror = ews.onclose = null;
-    try { if (ews.readyState <= 1) ews.close(); } catch {}
+    if (ews.readyState === WebSocket.CONNECTING) {
+      // Socket still handshaking — let it open then close immediately
+      ews.onmessage = ews.onerror = null;
+      ews.onopen  = () => { try { ews.close(); } catch {} };
+      ews.onclose = null;
+    } else {
+      ews.onopen = ews.onmessage = ews.onerror = ews.onclose = null;
+      try { if (ews.readyState === WebSocket.OPEN) ews.close(); } catch {}
+    }
   }
   s.bxBook = null;
   setPanelStatus(s, 'disconnected');
@@ -2565,6 +2803,7 @@ window.manualReconnect = function(panelId) {
 // ── Shared delta helper (normalised [price, size] pairs) ──────────────────────
 
 function applyExchDelta(lvls, deltas, dir) {
+  if (!Array.isArray(lvls)) return;
   for (const [price, size] of deltas) {
     const i = lvls.findIndex(l => l[0] === price);
     if (size === 0) { if (i !== -1) lvls.splice(i, 1); }
@@ -2711,6 +2950,8 @@ function normaliseBitmexEx(s, msg) {
     renderPanel(s);
   } else if (msg.table === 'instrument') {
     const d = msg.data?.[0]; if (!d) return;
+    // Guard: only update tile with data for its own instrument
+    if (d.symbol && d.symbol !== s.instrument) return;
     if (d.bidPrice  != null) s.ticker.best_bid_price = d.bidPrice;
     if (d.askPrice  != null) s.ticker.best_ask_price = d.askPrice;
     if (d.highPrice != null) s.ticker.stats = { ...(s.ticker.stats||{}), high: d.highPrice, low: d.lowPrice||0 };
@@ -2993,7 +3234,7 @@ function setDot(s) {
 // ── Centre UI ─────────────────────────────────────────────────────────────────
 function updateCentre(s) {
   try {
-    const d = pDec(s.ticker.best_bid_price ?? s.bids[0]?.[0]);
+    const d = s.priceTick ? tickDecimals(s.priceTick) : pDec(s.ticker.best_bid_price ?? s.bids[0]?.[0]);
     // spread
     const bid = s.ticker.best_bid_price, ask = s.ticker.best_ask_price;
     if (bid != null && ask != null)
@@ -3017,9 +3258,11 @@ function updateCentre(s) {
       cel.className = 'centre-chg '+(chg>=0?'chg-pos':'chg-neg');
     }
     // base labels
-    document.getElementById(`sbase-${s.id}`).textContent = base(s.instrument);
-    document.getElementById(`bbase-${s.id}`).textContent = base(s.instrument);
+    const bc = getBaseCurrency(s.exchange, s.instrument);
+    document.getElementById(`sbase-${s.id}`).textContent = bc;
+    document.getElementById(`bbase-${s.id}`).textContent = bc;
     updateVWAP(s);
+    if (s._spec?.contractType === 'QUANTO') updateQuantoHint(s);
   } catch(e) { console.error('updateCentre:', e); }
 }
 
@@ -3030,7 +3273,7 @@ function updateVWAP(s) {
   const bid = s.ticker.best_bid_price ?? s.bids[0]?.[0];
   const ask = s.ticker.best_ask_price ?? s.asks[0]?.[0];
   const mid = (bid != null && ask != null) ? (bid + ask) / 2 : (bid ?? ask);
-  const d   = pDec(bid ?? ask);
+  const d   = s.priceTick ? tickDecimals(s.priceTick) : pDec(bid ?? ask);
   const inv = isInverse(s.instrument);
 
   const sbid   = document.getElementById(`sbid-${s.id}`);
@@ -3074,13 +3317,13 @@ function resizeAndRender(s) {
 }
 function renderPanel(s) {
   try {
-    s.bidMeta = drawSide(document.getElementById(`bcanv-${s.id}`), s.bids, 'bid') || null;
-    s.askMeta = drawSide(document.getElementById(`acanv-${s.id}`), s.asks, 'ask') || null;
+    s.bidMeta = drawSide(document.getElementById(`bcanv-${s.id}`), s.bids, 'bid', s.priceTick) || null;
+    s.askMeta = drawSide(document.getElementById(`acanv-${s.id}`), s.asks, 'ask', s.priceTick) || null;
     updateVWAP(s);
   } catch(e) { console.error('renderPanel:', e); }
 }
 
-function drawSide(canvas, rawLevels, side) {
+function drawSide(canvas, rawLevels, side, priceTick) {
   const W=canvas.width, H=canvas.height;
   if (W<4||H<4) return;
   const ctx=canvas.getContext('2d');
@@ -3118,7 +3361,7 @@ function drawSide(canvas, rawLevels, side) {
   ctx.beginPath(); ctx.moveTo(steps[0][0],steps[0][1]);
   for (const[x,y]of steps) ctx.lineTo(x,y);
   ctx.strokeStyle=color; ctx.lineWidth=1.5; ctx.lineJoin='round'; ctx.stroke();
-  const d=pDec(pMin);
+  const d=priceTick ? tickDecimals(priceTick) : pDec(pMin);
   ctx.font='8px monospace'; ctx.fillStyle='#3a3a52'; ctx.textAlign='center';
   const MIN_SPACING=34; let lastX=-Infinity;
   for (const{x,p}of stepPrices) {
@@ -3615,15 +3858,47 @@ function getPanelQty(s) {
   if (b === 'ETH') return 0.01;
   return 1;
 }
-// Tick size for price stepping (from API spec or CONTRACT_SPECS)
-function priceStep(instr) {
+// ── Instrument spec service (frontend) ─────────────────────────────────────
+// Fetches full instrument spec from server (which fetches from exchange API).
+// Caches in memory. Replaces all per-exchange tick size fetching.
+const _specCache = new Map();
+const SPEC_TTL = 60 * 60 * 1000; // 1 hour
+
+async function fetchInstrumentSpec(exchange, symbol) {
+  const key = `${exchange}::${symbol}`;
+  const cached = _specCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < SPEC_TTL) return cached.spec;
+  try {
+    const r = await fetch(`${TCA_BASE}/api/instrument-spec/${encodeURIComponent(exchange)}/${encodeURIComponent(symbol)}`);
+    if (!r.ok) return cached?.spec || null;
+    const spec = await r.json();
+    _specCache.set(key, { spec, fetchedAt: Date.now() });
+    console.log(`[spec] ${exchange} ${symbol}:`, { tickSize: spec.tickSize, lotSize: spec.lotSize, contractType: spec.contractType, baseCurrency: spec.baseCurrency });
+    return spec;
+  } catch { return cached?.spec || null; }
+}
+
+// Legacy compat wrapper — returns just the tick size
+async function fetchTickSize(exchange, instr) {
+  const spec = await fetchInstrumentSpec(exchange, instr);
+  return spec?.tickSize || null;
+}
+
+function priceStep(instr, exchange) {
+  // Deribit API instruments cache
   const spec = instrSpec(instr);
   if (spec?.tick_size) return spec.tick_size;
-  const cs = CONTRACT_SPECS.find(r => r.instrument === instr && r.exchange === 'Deribit');
-  return cs?.tickSize ?? 1;
+  // CONTRACT_SPECS table — search specific exchange first, then any
+  if (exchange) {
+    const cs = CONTRACT_SPECS.find(r => r.instrument === instr && r.exchange === exchange);
+    if (cs?.tickSize) return cs.tickSize;
+  }
+  const cs = CONTRACT_SPECS.find(r => r.instrument === instr);
+  return cs?.tickSize ?? null;
 }
-// Qty step: one sensible increment in base units
-function qtyStep(instr) {
+// Qty step: uses lotSize from spec if available, otherwise sensible default
+function qtyStep(instr, panel) {
+  if (panel?._spec?.lotSize) return panel._spec.lotSize;
   const b = base(instr);
   if (b === 'BTC') return 0.001;
   if (b === 'ETH') return 0.01;
@@ -3756,8 +4031,8 @@ function wireSteppers(body, instr) {
 // ── Render modal body ─────────────────────────────────────────────────────────
 function renderOrderBody() {
   const body   = document.getElementById('order-body');
-  const { tab, side, price, qty, instrument } = orderState;
-  const ba  = base(instrument);
+  const { tab, side, price, qty, instrument, exchange } = orderState;
+  const ba  = getBaseCurrency(exchange, instrument);
   const ccy = instrument.includes('_USDC') ? 'USDC' : 'USD';
   const pv  = price != null ? price : '';
   const qv  = qty   != null ? qty   : '';
@@ -3781,7 +4056,7 @@ function renderOrderBody() {
         <div class="order-tif">
           <button class="order-tif-btn active" data-tif="good_til_cancelled">GTC</button>
           <button class="order-tif-btn" data-tif="immediate_or_cancel">IOC</button>
-          <button class="order-tif-btn" data-tif="fill_or_kill">FOK</button>
+          <button class="order-tif-btn${!isFokSupported(orderState.exchange) ? ' disabled' : ''}" data-tif="fill_or_kill" ${!isFokSupported(orderState.exchange) ? 'disabled title="FOK not supported on ' + orderState.exchange + '"' : ''}>FOK</button>
         </div>
       </div>
       <div class="order-checks">
@@ -3852,71 +4127,109 @@ async function placeOrder() {
   const msgEl = document.getElementById('order-msg');
   msgEl.textContent = ''; btn.disabled = true;
   try {
-    if (orderState.exchange && orderState.exchange !== 'Deribit')
-      throw new Error(`Order placement for ${orderState.exchange} is not yet supported — use ${orderState.exchange}'s own interface.`);
     if (orderState.tab === 'ifdone' || orderState.tab === 'oco')
       throw new Error('Order type not supported yet');
 
-    const token  = await ensureAuth();
     const { instrument, side, tab } = orderState;
     const inv    = isInverse(instrument);
     const cs     = getContractSize(instrument);
-    const method = side === 'buy' ? 'private/buy' : 'private/sell';
-    let params   = { instrument_name: instrument };
 
+    // Collect order params from the form
+    let _price = null, _qty = null, _tif = 'good_til_cancelled', _orderType = 'limit';
     if (tab === 'limit') {
-      const price = parseFloat(document.getElementById('om-price').value);
-      const qty   = parseFloat(document.getElementById('om-qty').value);
-      const tif   = document.querySelector('#order-body .order-tif-btn.active')?.dataset.tif || 'good_til_cancelled';
-      if (!price || !qty) throw new Error('Price and quantity required');
-      const amount = inv ? Math.round(qty * price / cs) * cs : qty;
-      params = { ...params, type:'limit', price, amount, time_in_force:tif };
-      if (document.getElementById('om-postonly')?.checked)   params.post_only   = true;
-      if (document.getElementById('om-reduceonly')?.checked) params.reduce_only = true;
-
+      _price = parseFloat(document.getElementById('om-price').value);
+      _qty   = parseFloat(document.getElementById('om-qty').value);
+      _tif   = document.querySelector('#order-body .order-tif-btn.active')?.dataset.tif || 'good_til_cancelled';
+      if (!_price || !_qty) throw new Error('Price and quantity required');
     } else if (tab === 'stop') {
-      const trigger  = parseFloat(document.getElementById('om-stop-trigger').value);
-      const qty      = parseFloat(document.getElementById('om-stop-qty').value);
-      const stopType = document.querySelector('input[name="stop-type"]:checked')?.value || 'market';
-      if (!trigger || !qty) throw new Error('Trigger price and quantity required');
-      const amount = inv ? Math.round(qty * trigger / cs) * cs : qty;
-      if (stopType === 'market') {
-        params = { ...params, type:'stop_market', stop_price:trigger, amount, trigger:'last_price' };
-      } else {
-        const lp = parseFloat(document.getElementById('om-stop-lp').value);
-        if (!lp) throw new Error('Limit price required for stop-limit');
-        params = { ...params, type:'stop_limit', stop_price:trigger, price:lp, amount, trigger:'last_price' };
-      }
-      if (document.getElementById('om-stop-reduce')?.checked) params.reduce_only = true;
+      _price = parseFloat(document.getElementById('om-stop-trigger').value);
+      _qty   = parseFloat(document.getElementById('om-stop-qty').value);
+      _orderType = 'stop';
+      if (!_price || !_qty) throw new Error('Trigger price and quantity required');
     }
 
-    const url  = `https://test.deribit.com/api/v2/${method}`;
-    const qstr = Object.entries(params).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
-    const _submittedTs = Date.now();
-    const r    = await fetch(`${url}?${qstr}`, { headers: { 'Authorization': `Bearer ${token}` } });
-    const _acknowledgedTs = Date.now();
-    const j    = await r.json();
-    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
-    const oid = j.result?.order?.order_id || '?';
-    msgEl.textContent = `✓ Order placed · ${oid}`;
-    msgEl.className = 'order-msg ok';
-    setTimeout(closeOrderModal, 1600);
-
-    // Notify TCA pipeline (fire-and-forget)
-    const ord = j.result?.order;
-    if (ord) {
-      fetch(TCA_BASE + '/api/tca/notify-order', {
+    // ── Pre-trade risk check ──
+    const _riskBody = {
+      instrument_name: instrument, direction: side, amount: _qty,
+      price: _price || null, type: _orderType,
+      arrivalMid: orderState.arrivalMid, venue: orderState.exchange || 'Deribit',
+    };
+    if (orderState.exchange === 'Deribit') {
+      // Deribit: pre-flight risk check (Deribit goes direct, not through orderService)
+      try {
+        const _rc = await fetch(TCA_BASE + '/api/risk/check', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(_riskBody),
+        });
+        const _rr = await _rc.json();
+        if (_rr.rejected) {
+          if (window._showRiskToast) window._showRiskToast(_rr.reason, _rr.detail);
+          throw new Error(`[Risk] ${_rr.reason}: ${_rr.detail}`);
+        }
+      } catch (riskErr) {
+        if (riskErr.message.startsWith('[Risk]')) throw riskErr;
+      }
+      // Deribit: direct browser REST with browser vault credentials
+      const token  = await ensureAuth();
+      const method = side === 'buy' ? 'private/buy' : 'private/sell';
+      let dParams  = { instrument_name: instrument };
+      if (tab === 'limit') {
+        const amount = inv ? Math.round(_qty * _price / cs) * cs : _qty;
+        dParams = { ...dParams, type:'limit', price: _price, amount, time_in_force: _tif };
+        if (document.getElementById('om-postonly')?.checked)   dParams.post_only   = true;
+        if (document.getElementById('om-reduceonly')?.checked) dParams.reduce_only = true;
+      } else if (tab === 'stop') {
+        const stopType = document.querySelector('input[name="stop-type"]:checked')?.value || 'market';
+        const amount = inv ? Math.round(_qty * _price / cs) * cs : _qty;
+        if (stopType === 'market') {
+          dParams = { ...dParams, type:'stop_market', stop_price: _price, amount, trigger:'last_price' };
+        } else {
+          const lp = parseFloat(document.getElementById('om-stop-lp').value);
+          if (!lp) throw new Error('Limit price required for stop-limit');
+          dParams = { ...dParams, type:'stop_limit', stop_price: _price, price: lp, amount, trigger:'last_price' };
+        }
+        if (document.getElementById('om-stop-reduce')?.checked) dParams.reduce_only = true;
+      }
+      const url  = `https://test.deribit.com/api/v2/${method}`;
+      const qstr = Object.entries(dParams).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+      const _submittedTs = Date.now();
+      const r = await fetch(`${url}?${qstr}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const _acknowledgedTs = Date.now();
+      const j = await r.json();
+      if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+      const oid = j.result?.order?.order_id || '?';
+      msgEl.textContent = `✓ Order placed · ${oid}`;
+      msgEl.className = 'order-msg ok';
+      setTimeout(closeOrderModal, 1600);
+      const ord = j.result?.order;
+      if (ord) {
+        fetch(TCA_BASE + '/api/tca/notify-order', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_id: ord.order_id, instrument_name: ord.instrument_name, direction: ord.direction, amount: ord.amount, price: ord.price, order_type: ord.order_type, order_state: ord.order_state, filled_amount: ord.filled_amount, arrivalBid: orderState.arrivalBid, arrivalAsk: orderState.arrivalAsk, arrivalMid: orderState.arrivalMid, arrivalSpreadBps: orderState.arrivalSpreadBps, submittedTs: _submittedTs, acknowledgedTs: _acknowledgedTs }),
+        }).catch(() => {});
+      }
+    } else {
+      // All other exchanges: route through server → orderService → adapter
+      const _creds = getVaultCredentials(orderState.exchange);
+      if (!_creds) throw new Error(isVaultUnlocked() ? `No ${orderState.exchange} API keys — add in API Keys tab` : 'Vault locked — click the padlock to unlock');
+      const r = await fetch(TCA_BASE + '/api/order/submit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          order_id: ord.order_id, instrument_name: ord.instrument_name,
-          direction: ord.direction, amount: ord.amount, price: ord.price,
-          order_type: ord.order_type, order_state: ord.order_state,
-          filled_amount: ord.filled_amount,
-          arrivalBid: orderState.arrivalBid, arrivalAsk: orderState.arrivalAsk,
-          arrivalMid: orderState.arrivalMid, arrivalSpreadBps: orderState.arrivalSpreadBps,
-          submittedTs: _submittedTs, acknowledgedTs: _acknowledgedTs,
-        }),
-      }).catch(() => {});
+        body: JSON.stringify({ venue: orderState.exchange, symbol: instrument, side: side.toUpperCase(), quantity: _qty, limitPrice: _price, orderType: _orderType.toUpperCase(), timeInForce: _tif === 'good_til_cancelled' ? 'GTC' : _tif === 'immediate_or_cancel' ? 'IOC' : 'IOC', credentials: _creds }),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        blotterData.orders[j.orderId || Date.now()] = {
+          order_id: j.orderId, instrument_name: instrument, direction: side,
+          order_type: _orderType, amount: _qty, filled_amount: 0, price: _price,
+          order_state: 'rejected', creation_timestamp: Date.now(), last_update_timestamp: Date.now(),
+          _rejectReason: j.error,
+        };
+        if (blotterTab === 'orders') renderBlotterTable();
+        else { blotterBadge.orders++; blotterUpdateBadge('orders'); }
+        throw new Error(j.error || 'Order submission failed');
+      }
+      msgEl.textContent = `✓ Order placed · ${j.orderId || '?'}`;
+      msgEl.className = 'order-msg ok';
+      setTimeout(closeOrderModal, 1600);
     }
 
   } catch(e) {
@@ -4491,7 +4804,7 @@ const AK_EXCHANGES = {
   Bybit:    { fields: [{id:'apiKey',     label:'API Key'},     {id:'secretKey',    label:'Secret Key',    secret:true}], note: 'Testnet: stream-testnet.bybit.com · api-testnet.bybit.com' },
   'Gate.io':{ fields: [{id:'apiKey',     label:'API Key'},     {id:'secretKey',    label:'Secret Key',    secret:true}], noTestnet:true },
   KuCoin:   { fields: [{id:'apiKey',     label:'API Key'},     {id:'secretKey',    label:'Secret Key',    secret:true}, {id:'passphrase', label:'Passphrase', secret:true}], noTestnet:true },
-  Kraken:   { fields: [{id:'apiKey',     label:'API Key'},     {id:'privateKey',   label:'Private Key',   secret:true}], note: 'Testnet connects to Kraken Futures demo environment: demo-futures.kraken.com' },
+  Kraken:   { fields: [{id:'apiKey',     label:'API Key'},     {id:'privateKey',   label:'Private Key (base64)',   secret:true}, {id:'keyType', label:'Key Type', type:'select', options:['futures','spot'], default:'futures'}], note: 'Futures Demo: demo-futures.kraken.com · Spot has no testnet.' },
   BitMEX:   { fields: [{id:'apiKey',     label:'API Key'},     {id:'apiSecret',    label:'API Secret',    secret:true}], note: 'Testnet: testnet.bitmex.com' },
 };
 const AK_ORDER = ['Deribit','Binance','OKX','Bybit','Gate.io','KuCoin','Kraken','BitMEX'];
@@ -4540,6 +4853,8 @@ async function akPersist() {
     return { ...e, fields: encFields };
   }));
   akWriteRaw({ ...raw, keys: encEntries });
+  // Rebuild session credentials after any save
+  if (isVaultUnlocked()) buildSessionCredentials();
 }
 async function akDecryptEntries(raw) {
   const out = [];
@@ -4641,7 +4956,9 @@ function akRenderVaultUnlock() {
       await akDecryptStr(key, raw.check);   // throws if wrong password
       akVaultKey = key;
       akEntries  = await akDecryptEntries(raw);
+      buildSessionCredentials();
       akRenderExBar(); akRenderBody();
+      updateVaultIndicator();
       // Retry blotter auth with newly-unlocked credentials
       if (ws?.readyState === WebSocket.OPEN) blotterWsAuth();
     } catch { document.getElementById('ak-vault-msg').textContent='Wrong password.'; document.getElementById('ak-vault-msg').className='ak-result err'; }
@@ -4650,6 +4967,7 @@ function akRenderVaultUnlock() {
     if (!confirm('Delete vault and ALL stored API keys? This cannot be undone.')) return;
     localStorage.removeItem(AK_VAULT_LSKEY);
     akVaultKey=null; akEntries=[]; akExchange=null; akEntryId=null;
+    clearSessionCredentials(); updateVaultIndicator();
     akRenderVaultSetup();
   });
 }
@@ -4657,6 +4975,16 @@ function akRenderVaultUnlock() {
 // ── Exchange bar & body ───────────────────────────────────────────────────────
 
 function akStatusDotClass(s) { return s==='ok'?'ak-sdot-green':s==='error'?'ak-sdot-red':'ak-sdot-grey'; }
+
+function akUpdateEntryDots() {
+  document.querySelectorAll('.ak-entry-item').forEach(el => {
+    const id = el.dataset.id;
+    const entry = akEntries.find(e => e.id === id);
+    if (!entry) return;
+    const dot = el.querySelector('.ak-sdot');
+    if (dot) dot.className = 'ak-sdot ' + akStatusDotClass(entry.status);
+  });
+}
 
 function akExchangeStatus(exchange) {
   const ee = akEntries.filter(k => k.exchange===exchange);
@@ -4683,6 +5011,7 @@ function akRenderExBar() {
   }));
   document.getElementById('ak-lock-btn').addEventListener('click', () => {
     akVaultKey=null; akEntries=[]; akExchange=null; akEntryId=null;
+    clearSessionCredentials(); updateVaultIndicator();
     akRenderVaultUnlock();
   });
 }
@@ -4727,7 +5056,15 @@ function akFormHTML(cfg, entry) {
         value="${entry?escHtml(entry.label):''}" placeholder="e.g. Main Account" autocomplete="off">
     </div>
     ${cfg.fields.map(f => {
-      const val = entry?.fields?.[f.id]||'';
+      const val = entry?.fields?.[f.id]||f.default||'';
+      if (f.type === 'select') {
+        return `<div class="ak-form-group">
+          <label class="ak-flabel">${f.label}</label>
+          <select class="ak-input" id="ak-f-${f.id}" style="padding:6px 8px">
+            ${(f.options||[]).map(o => `<option value="${o}"${val===o?' selected':''}>${o.charAt(0).toUpperCase()+o.slice(1)}</option>`).join('')}
+          </select>
+        </div>`;
+      }
       const eye = f.secret ? `<button class="ak-eye-btn" data-tgt="ak-f-${f.id}" type="button">👁</button>` : '';
       return `<div class="ak-form-group">
         <label class="ak-flabel">${f.label}</label>
@@ -4827,12 +5164,12 @@ async function akTest() {
     entry.status='ok'; entry.lastTested=new Date().toISOString();
     await akPersist();
     result.textContent=`✓ ${msg}`; result.className='ak-result ok';
-    akRenderExBar();
+    akRenderExBar(); akUpdateEntryDots();
   } catch(e) {
     entry.status='error'; entry.lastTested=new Date().toISOString();
     await akPersist();
     result.textContent=`✗ ${e.message}`; result.className='ak-result err';
-    akRenderExBar();
+    akRenderExBar(); akUpdateEntryDots();
   }
 }
 
@@ -4868,17 +5205,16 @@ async function akTestExchange(exchange, fields, testnet) {
       if (j.retCode!==0) throw new Error(j.retMsg||`Error ${j.retCode}`);
       return `Connected to Bybit${testnet?' (testnet)':''}`;
     }
-    case 'BitMEX': {
-      const base    = testnet ? 'https://testnet.bitmex.com' : 'https://www.bitmex.com';
-      const expires = Math.floor(Date.now()/1000)+60;
-      const sig     = await akHmacHex(fields.apiSecret, `GET/api/v1/user${expires}`);
-      const r       = await fetch(`${base}/api/v1/user`, { headers:{'api-key':fields.apiKey,'api-signature':sig,'api-expires':String(expires)} });
-      const j       = await r.json();
-      if (j.error) throw new Error(j.error.message);
-      return `Connected to BitMEX${testnet?' (testnet)':''} — ${j.username||''}`;
+    default: {
+      // Route through server to avoid CORS — covers BitMEX, OKX, Gate.io, KuCoin, Kraken
+      const r = await fetch(TCA_BASE + '/api/keys/test-direct', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exchange, fields, testnet }),
+      });
+      const j = await r.json();
+      if (j.error) throw new Error(j.error);
+      return j.message;
     }
-    default:
-      throw new Error(`${exchange}: direct browser testing blocked by exchange CORS policy. Keys are saved securely.`);
   }
 }
 
@@ -4893,66 +5229,227 @@ function wsSend(method, params = {}) {
   });
 }
 
-// ── FOK VWAP instant order execution ──────────────────────────────────────────
+// ── Standard order error display ──────────────────────────────────────────────
+// ── Session credential cache ─────────────────────────────────────────────────
+// Decrypted once on vault unlock, held in memory for the session.
+// Keyed by exchange name uppercase: { DERIBIT: {fields,testnet,...}, BITMEX: {...} }
+let sessionCredentials = null;
+
+function isVaultUnlocked() {
+  return sessionCredentials !== null;
+}
+
+function getVaultCredentials(exchange) {
+  if (!sessionCredentials) return null;
+  return sessionCredentials[exchange?.toUpperCase()] || sessionCredentials[exchange] || null;
+}
+
+// Called once on vault unlock — populates sessionCredentials from akEntries
+function buildSessionCredentials() {
+  sessionCredentials = {};
+  for (const e of akEntries) {
+    if (e.fields) {
+      sessionCredentials[e.exchange.toUpperCase()] = { fields: e.fields, testnet: e.testnet, exchange: e.exchange, label: e.label };
+    }
+  }
+}
+
+// Called on vault lock/reset — clears session
+function clearSessionCredentials() {
+  sessionCredentials = null;
+}
+
+function updateVaultIndicator() {
+  const btn = document.getElementById('vault-lock-btn');
+  if (!btn) return;
+  const unlocked = isVaultUnlocked();
+  btn.className = 'vault-lock-btn ' + (unlocked ? 'unlocked' : 'locked');
+  btn.innerHTML = unlocked ? '&#128275;' : '&#128274;';
+  btn.title = unlocked ? 'API vault unlocked — ready to trade' : 'API vault locked — click to unlock';
+  // Hide/show banner
+  const banner = document.getElementById('vault-banner');
+  if (banner) banner.style.display = unlocked ? 'none' : (akReadRaw() ? 'flex' : 'none');
+}
+
+// Shared unlock logic — used by padlock dropdown and banner
+async function doVaultUnlock(pw, onSuccess, onError) {
+  try {
+    const raw = akReadRaw();
+    if (!raw) { onError('No vault — save keys in API Keys tab first'); return; }
+    const key = await akDeriveKey(pw, raw.salt);
+    await akDecryptStr(key, raw.check);
+    akVaultKey = key;
+    akEntries = await akDecryptEntries(raw);
+    buildSessionCredentials();
+    updateVaultIndicator();
+    if (ws?.readyState === WebSocket.OPEN) blotterWsAuth();
+    // Trigger private channel subscriptions for all exchanges with credentials
+    if (sessionCredentials) {
+      console.log('[vault] Calling subscribe-private for exchanges:', Object.keys(sessionCredentials));
+      fetch(TCA_BASE + '/api/auth/subscribe-private', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentials: sessionCredentials }),
+      }).then(r => r.json()).then(j => {
+        console.log('[vault] subscribe-private result:', JSON.stringify(j));
+        // Fetch today's trades and orders from all exchanges (background, no spinner)
+        const startOfDay = new Date().setHours(0,0,0,0);
+        fetchAndMergeHistory('trades', startOfDay, Date.now());
+        fetchAndMergeHistory('orders', startOfDay, Date.now());
+      }).catch(e => console.error('[vault] subscribe-private failed:', e.message));
+    }
+    onSuccess();
+  } catch { onError('Wrong password'); }
+}
+
+function openVaultUnlockDropdown() {
+  let dd = document.getElementById('vault-unlock-dropdown');
+  if (dd) { dd.remove(); return; }
+  const lockBtn = document.getElementById('vault-lock-btn');
+  const rect = lockBtn.getBoundingClientRect();
+  dd = document.createElement('div');
+  dd.id = 'vault-unlock-dropdown';
+  dd.style.cssText = `position:fixed;top:${rect.bottom+4}px;left:${rect.left}px;z-index:9100;background:#0a0a10;border:1px solid #1e1e28;border-radius:6px;padding:10px;width:220px;box-shadow:0 8px 24px rgba(0,0,0,.6)`;
+  dd.innerHTML = `<div style="font-size:10px;color:#666;margin-bottom:6px">Unlock API vault</div>
+    <input id="vault-dd-pw" type="password" placeholder="Vault password" style="width:100%;font-size:11px;padding:5px 8px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-bottom:6px">
+    <button id="vault-dd-go" style="width:100%;padding:5px;background:#10102a;border:1px solid #4444aa;border-radius:4px;color:#99f;cursor:pointer;font-size:11px;font-family:inherit">Unlock</button>
+    <div id="vault-dd-msg" style="font-size:9px;color:#e05252;text-align:center;margin-top:4px;min-height:12px"></div>`;
+  document.body.appendChild(dd);
+  const inp = document.getElementById('vault-dd-pw');
+  inp.focus();
+  const go = () => doVaultUnlock(inp.value, () => dd.remove(), (msg) => { document.getElementById('vault-dd-msg').textContent = msg; inp.value = ''; inp.focus(); });
+  document.getElementById('vault-dd-go').addEventListener('click', go);
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  setTimeout(() => {
+    const close = (e) => { if (!dd.contains(e.target) && e.target !== lockBtn) { dd.remove(); document.removeEventListener('mousedown', close); } };
+    document.addEventListener('mousedown', close);
+  }, 50);
+}
+
+function showOrderError(tileId, reason) {
+  console.debug('[DEBUG] showOrderError called:', tileId, reason);
+  const el = document.getElementById(`vwap-err-${tileId}`);
+  if (!el) return;
+  el.textContent = reason;
+  clearTimeout(el._clearTimer);
+  el._clearTimer = setTimeout(() => { el.textContent = ''; }, 8000);
+}
+
+// ── Exchange-aware TIF helpers ────────────────────────────────────────────────
+// VWAP button always uses IOC (supported on all exchanges).
+// IOC field name varies per exchange.
+function getVwapTIF(exchange) {
+  switch (exchange) {
+    case 'Deribit':  return 'fill_or_kill';          // Deribit supports FOK on limits — use it for VWAP
+    case 'BitMEX':   return 'ImmediateOrCancel';
+    case 'OKX':      return 'ioc';
+    default:         return 'IOC'; // Binance, Bybit, Kraken
+  }
+}
+// FOK on limit orders: Deribit only. Manual modal uses this for the FOK button gate.
+function isFokSupported(exchange) { return exchange === 'Deribit'; }
+
+// ── VWAP instant order execution ─────────────────────────────────────────────
 async function executeFokOrder(s, side) {
   const btn   = document.getElementById(side === 'sell' ? `trade-sell-${s.id}` : `trade-buy-${s.id}`);
   const errEl = document.getElementById(`vwap-err-${s.id}`);
   errEl.textContent = '';
   btn.disabled = true;
   try {
-    if (s.exchange !== 'Deribit') throw new Error(`FOK not supported for ${s.exchange}`);
+    // Non-Deribit: credentials come from the session cache
+    if (s.exchange !== 'Deribit' && !getVaultCredentials(s.exchange)) {
+      throw new Error(isVaultUnlocked() ? `No ${s.exchange} API keys — add in API Keys tab` : 'Vault locked — click the padlock to unlock');
+    }
+
     const priceEl = document.getElementById(side === 'sell' ? `sbid-${s.id}` : `bask-${s.id}`);
     const price   = parseFloat((priceEl?.textContent || '').replace(/[$,]/g, ''));
     const qty     = getPanelQty(s);
     if (!price || isNaN(price)) throw new Error('No VWAP — set qty first');
     if (!qty)                   throw new Error('Set a quantity');
 
-    const token  = await ensureAuth();
-    const inv    = isInverse(s.instrument);
-    const cs     = getContractSize(s.instrument);
-    const method = side === 'buy' ? 'private/buy' : 'private/sell';
-    const amount = inv ? Math.round(qty * price / cs) * cs : qty;
-    const params = { instrument_name: s.instrument, type:'limit', price, amount, time_in_force:'fill_or_kill' };
-    const qstr   = Object.entries(params).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
-    const _fokSubmittedTs = Date.now();
-    const r      = await fetch(`https://test.deribit.com/api/v2/${method}?${qstr}`, { headers:{ 'Authorization':`Bearer ${token}` } });
-    const _fokAcknowledgedTs = Date.now();
-    const j      = await r.json();
-    if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+    // QUANTO minimum contract check
+    if (s._spec?.contractType === 'QUANTO' && s._xrpPerContract) {
+      if (qty < s._xrpPerContract * 0.5) {
+        const baseCcy = getBaseCurrency(s.exchange, s.instrument);
+        throw new Error(`Qty too small — min ~${s._xrpPerContract.toFixed(2)} ${baseCcy} (1 contract)`);
+      }
+    }
 
-    btn.classList.add('btn-ok');
-    setTimeout(() => btn.classList.remove('btn-ok'), 800);
+    const fokMid = (s.ticker?.best_bid_price && s.ticker?.best_ask_price)
+      ? (s.ticker.best_bid_price + s.ticker.best_ask_price) / 2 : price;
 
-    // Capture TCA arrival anchors from live ticker
-    const fokBid = s.ticker?.best_bid_price || 0;
-    const fokAsk = s.ticker?.best_ask_price || 0;
-    const fokMid = (fokBid && fokAsk) ? (fokBid + fokAsk) / 2 : (fokBid || fokAsk || price || 0);
-    const fokSpread = fokMid > 0 ? (fokAsk - fokBid) / fokMid * 10000 : 0;
+    if (s.exchange === 'Deribit') {
+      // Deribit: pre-flight risk check (Deribit goes direct to exchange, not through orderService)
+      try {
+        const _frc = await fetch(TCA_BASE + '/api/risk/check', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instrument_name: s.instrument, direction: side, amount: qty, price, type: 'limit', arrivalMid: fokMid, venue: s.exchange }),
+        });
+        const _frr = await _frc.json();
+        if (_frr.rejected) {
+          if (window._showRiskToast) window._showRiskToast(_frr.reason, _frr.detail);
+          throw new Error(`[Risk] ${_frr.reason}: ${_frr.detail}`);
+        }
+      } catch (riskErr) { if (riskErr.message.startsWith('[Risk]')) throw riskErr; }
+      // Deribit: direct browser REST (uses browser vault credentials)
+      const token  = await ensureAuth();
+      const inv    = isInverse(s.instrument);
+      const cs     = getContractSize(s.instrument);
+      const method = side === 'buy' ? 'private/buy' : 'private/sell';
+      const amount = inv ? Math.round(qty * price / cs) * cs : qty;
+      const tif    = getVwapTIF(s.exchange);
+      const params = { instrument_name: s.instrument, type:'limit', price, amount, time_in_force: tif };
+      const qstr   = Object.entries(params).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+      const _subTs = Date.now();
+      const r      = await fetch(`https://test.deribit.com/api/v2/${method}?${qstr}`, { headers:{ 'Authorization':`Bearer ${token}` } });
+      const _ackTs = Date.now();
+      const j      = await r.json();
+      if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
 
-    if (j.result?.order) {
-      const o   = j.result.order;
-      const tab = isOptionInstr(o.instrument_name) ? 'opt-orders' : 'orders';
-      blotterData[tab][o.order_id] = o;
-      if (blotterTab === tab) renderBlotterTable();
-      else { blotterBadge[tab]++; blotterUpdateBadge(tab); }
+      btn.classList.add('btn-ok');
+      setTimeout(() => btn.classList.remove('btn-ok'), 800);
 
-      // Notify TCA pipeline (fire-and-forget)
-      fetch(TCA_BASE + '/api/tca/notify-order', {
+      if (j.result?.order) {
+        const o   = j.result.order;
+        const tab = isOptionInstr(o.instrument_name) ? 'opt-orders' : 'orders';
+        blotterData[tab][o.order_id] = o;
+        if (blotterTab === tab) renderBlotterTable();
+        else { blotterBadge[tab]++; blotterUpdateBadge(tab); }
+        // TCA notify
+        const fokBid = s.ticker?.best_bid_price || 0, fokAsk = s.ticker?.best_ask_price || 0;
+        const fokSpread = fokMid > 0 ? (fokAsk - fokBid) / fokMid * 10000 : 0;
+        fetch(TCA_BASE + '/api/tca/notify-order', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_id: o.order_id, instrument_name: o.instrument_name, direction: o.direction, amount: o.amount, price: o.price, order_type: o.order_type, order_state: o.order_state, filled_amount: o.filled_amount, arrivalBid: fokBid, arrivalAsk: fokAsk, arrivalMid: fokMid, arrivalSpreadBps: fokSpread, submittedTs: _subTs, acknowledgedTs: _ackTs }),
+        }).catch(() => {});
+      }
+    } else {
+      // All other exchanges: route through server → orderService → adapter
+      const _vwapCreds = getVaultCredentials(s.exchange);
+
+      console.log('[vwap] order submit payload:', { venue: s.exchange, symbol: s.instrument, side: side.toUpperCase(), qty, price });
+      const r = await fetch(TCA_BASE + '/api/order/submit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          order_id: o.order_id, instrument_name: o.instrument_name,
-          direction: o.direction, amount: o.amount, price: o.price,
-          order_type: o.order_type, order_state: o.order_state,
-          filled_amount: o.filled_amount,
-          arrivalBid: fokBid, arrivalAsk: fokAsk,
-          arrivalMid: fokMid, arrivalSpreadBps: fokSpread,
-          submittedTs: _fokSubmittedTs, acknowledgedTs: _fokAcknowledgedTs,
-        }),
-      }).catch(() => {});
+        body: JSON.stringify({ venue: s.exchange, symbol: s.instrument, side: side.toUpperCase(), quantity: qty, limitPrice: price, orderType: 'LIMIT', timeInForce: 'IOC', credentials: _vwapCreds }),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        // Add rejected order to blotter for visibility
+        blotterData.orders[j.orderId || Date.now()] = {
+          order_id: j.orderId, instrument_name: s.instrument, direction: side,
+          order_type: 'limit', amount: qty, filled_amount: 0, price,
+          order_state: 'rejected', creation_timestamp: Date.now(), last_update_timestamp: Date.now(),
+          _rejectReason: j.error,
+        };
+        if (blotterTab === 'orders') renderBlotterTable();
+        else { blotterBadge.orders++; blotterUpdateBadge('orders'); }
+        throw new Error(j.error || 'Order submission failed');
+      }
+
+      btn.classList.add('btn-ok');
+      setTimeout(() => btn.classList.remove('btn-ok'), 800);
     }
   } catch(e) {
-    errEl.textContent = e.message;
-    setTimeout(() => { errEl.textContent = ''; }, 7000);
+
+    showOrderError(s.id, e.message);
   } finally {
     btn.disabled = false;
   }
@@ -5037,14 +5534,29 @@ async function blotterWsAuth() {
         if (!j.error && j.result) { blotterData.balances[cur] = j.result; }
       } catch {}
     }
-    for (const [kind, cur] of [['future','BTC'],['future','ETH'],['option','BTC'],['option','ETH']]) {
+    for (const [kind, cur] of [['future','BTC'],['future','ETH'],['future','USDC'],['option','BTC'],['option','ETH'],['option','USDC']]) {
       try {
         const r = await fetch(`https://test.deribit.com/api/v2/private/get_positions?currency=${cur}&kind=${kind}`, { headers:{'Authorization':`Bearer ${token}`} });
         const j = await r.json();
         if (!j.error && Array.isArray(j.result)) {
           j.result.forEach(p => {
+            const baseCcy = getBaseCurrency('DERIBIT', p.instrument_name);
+            // Deribit size_currency is a NUMBER = size in base currency units
+            const displaySize = (typeof p.size_currency === 'number' && p.size_currency !== 0)
+              ? p.size_currency : (p.size || 0);
+            console.log('[deribit] initial position:', {
+              instrument: p.instrument_name, apiSize: p.size, sizeCurrencyField: p.size_currency,
+              displaySize, direction: p.direction, baseCcy, kind: p.kind,
+            });
             const tab = isOptionInstr(p.instrument_name) ? 'opt-positions' : 'positions';
-            if (p.size !== 0) blotterData[tab][p.instrument_name] = p;
+            const key = `DERIBIT::${p.instrument_name}`;
+            if (displaySize !== 0) blotterData[tab][key] = {
+              ...p,
+              size: displaySize,
+              _exchange: 'Deribit',
+              _sizeUnit: baseCcy,
+              _updatedTs: p.creation_timestamp || Date.now(),
+            };
           });
         }
       } catch {}
@@ -5106,20 +5618,63 @@ function blotterHandleOrders(arr) {
 }
 
 function blotterHandleChanges(data) {
-  // Only extract positions from this channel (trades/orders come from dedicated channels)
-  if (!Array.isArray(data.positions)) return;
   let changed = false;
-  for (const p of data.positions) {
-    const tab = isOptionInstr(p.instrument_name) ? 'opt-positions' : 'positions';
-    if (p.size === 0) { delete blotterData[tab][p.instrument_name]; }
-    else              { blotterData[tab][p.instrument_name] = p; }
-    changed = true;
+
+  // Positions from user.changes
+  if (Array.isArray(data.positions)) {
+    for (const p of data.positions) {
+      const baseCcy = getBaseCurrency('DERIBIT', p.instrument_name);
+      // Deribit size_currency is a NUMBER = size in base currency units
+      const displaySize = (typeof p.size_currency === 'number' && p.size_currency !== 0)
+        ? p.size_currency : (p.size || 0);
+      console.log('[deribit] position update:', {
+        instrument: p.instrument_name, apiSize: p.size, sizeCurrencyField: p.size_currency,
+        displaySize, direction: p.direction, baseCcy, kind: p.kind,
+      });
+      const tab = isOptionInstr(p.instrument_name) ? 'opt-positions' : 'positions';
+      const key = `DERIBIT::${p.instrument_name}`;
+      if (displaySize === 0 || p.direction === 'zero') {
+        delete blotterData[tab][key];
+      } else {
+        blotterData[tab][key] = {
+          ...p,
+          size: displaySize,
+          _exchange: 'Deribit',
+          _sizeUnit: baseCcy,
+          _updatedTs: Date.now(),
+        };
+      }
+      changed = true;
+    }
   }
-  if (!changed) return;
+
+  // Trades from user.changes
+  if (Array.isArray(data.trades)) {
+    for (const t of data.trades) {
+      const tab = isOptionInstr(t.instrument_name) ? 'opt-trades' : 'trades';
+      const exists = blotterData[tab].some(x => x.trade_id === t.trade_id);
+      if (!exists) {
+        blotterData[tab].unshift({ ...t, _exchange: 'Deribit' });
+        if (blotterData[tab].length > 500) blotterData[tab].pop();
+        if (blotterTab !== tab) { blotterBadge[tab]++; blotterUpdateBadge(tab); }
+      }
+    }
+  }
+
+  // Orders from user.changes
+  if (Array.isArray(data.orders)) {
+    for (const o of data.orders) {
+      const tab = isOptionInstr(o.instrument_name) ? 'opt-orders' : 'orders';
+      blotterData[tab][o.order_id] = { ...o, _exchange: 'Deribit' };
+      if (blotterTab !== tab) { blotterBadge[tab]++; blotterUpdateBadge(tab); }
+    }
+  }
+
+  if (!changed && !data.trades?.length && !data.orders?.length) return;
   blotterBadge.positions        = Object.keys(blotterData.positions).length;
   blotterBadge['opt-positions'] = Object.keys(blotterData['opt-positions']).length;
   blotterUpdateBadge('positions'); blotterUpdateBadge('opt-positions');
-  if (blotterTab === 'positions' || blotterTab === 'opt-positions') renderBlotterTable();
+  if (['positions','opt-positions','trades','opt-trades','orders','opt-orders'].includes(blotterTab)) renderBlotterTable();
 }
 
 function blotterHandlePortfolio(ch, data) {
@@ -5139,35 +5694,239 @@ function blotterFlashRow(id) {
 }
 
 // ── Blotter rendering ─────────────────────────────────────────────────────────
-const BL_FMT = (v, d=2) => v == null ? '—' : Number(v).toFixed(d);
-const BL_TS  = ts => ts ? new Date(ts).toLocaleTimeString() : '—';
+function formatNum(v, d=2) {
+  if (v == null) return '—';
+  const n = Number(v);
+  if (isNaN(n)) return '—';
+  const parts = n.toFixed(d).split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return parts.join('.');
+}
+const BL_FMT = (v, d=2) => formatNum(v, d);
+function BL_TS(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  const now = new Date();
+  const hh = String(d.getHours()).padStart(2,'0');
+  const mm = String(d.getMinutes()).padStart(2,'0');
+  const ss = String(d.getSeconds()).padStart(2,'0');
+  if (d.toDateString() === now.toDateString()) return `${hh}:${mm}:${ss}`;
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mo = String(d.getMonth()+1).padStart(2,'0');
+  return `${dd}/${mo} ${hh}:${mm}`;
+}
 
 function renderBlotterTable() {
   const wrap = document.getElementById('bl-table-wrap');
   if (!wrap) return;
-  switch (blotterTab) {
-    case 'trades':        wrap.innerHTML = blotterTradesHTML(blotterData.trades, 'trades'); break;
-    case 'opt-trades':    wrap.innerHTML = blotterTradesHTML(blotterData['opt-trades'], 'opt-trades'); break;
-    case 'orders':        wrap.innerHTML = blotterOrdersHTML(blotterData.orders, 'orders'); break;
-    case 'opt-orders':    wrap.innerHTML = blotterOrdersHTML(blotterData['opt-orders'], 'opt-orders'); break;
-    case 'positions':     wrap.innerHTML = blotterPositionsHTML(blotterData.positions, false); break;
-    case 'opt-positions': wrap.innerHTML = blotterPositionsHTML(blotterData['opt-positions'], true); break;
-    case 'balances':      wrap.innerHTML = blotterBalancesHTML(); break;
-    case 'alerts':        wrap.innerHTML = blotterListHTML(blotterData.alerts, 'No alerts this session'); break;
-    case 'notifs':        wrap.innerHTML = blotterListHTML(blotterData.notifs, 'No notifications this session'); break;
+  const hasPeriods = PERIOD_TABS.includes(blotterTab);
+  // Period pill bar — rendered in separate container above the scrolling table
+  const periodContainer = document.getElementById('bl-period-container');
+  if (periodContainer) {
+    if (hasPeriods) {
+      periodContainer.innerHTML = `<div class="bl-period-bar">` +
+        [['today','Today'],['yesterday','Yesterday'],['7d','Last 7 days']].map(([k,l]) =>
+          `<button class="bl-period-pill${blotterPeriod===k?' active':''}" data-period="${k}">${l}</button>`
+        ).join('') + `</div>`;
+      periodContainer.querySelectorAll('.bl-period-pill').forEach(btn => {
+        btn.addEventListener('click', () => {
+          blotterPeriod = btn.dataset.period;
+          if (blotterPeriod === 'today') {
+            console.log('[blotter] Period: today → live data, trades:', blotterData.trades.length, 'orders:', Object.keys(blotterData.orders).length);
+          } else {
+            console.log('[blotter] Period:', blotterPeriod, '→ REST fetch');
+          }
+          renderBlotterTable();
+        });
+      });
+    } else {
+      periodContainer.innerHTML = '';
+    }
   }
+
+  let tableHTML = '';
+  if (hasPeriods && blotterPeriod !== 'today') {
+    // Historical period — use cached data or show loading
+    const cacheKey = `${blotterTab}::${blotterPeriod}`;
+    const cached = _histCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < HIST_CACHE_TTL) {
+      if (blotterTab === 'trades' || blotterTab === 'opt-trades') {
+        tableHTML = blotterTradesHTML(cached.data, blotterTab);
+      } else {
+        tableHTML = blotterOrdersHTML(cached.data, blotterTab);
+      }
+    } else if (_histLoading) {
+      tableHTML = '<div class="bl-loading">Loading history...</div>';
+    } else {
+      tableHTML = '<div class="bl-loading">Loading history...</div>';
+      _fetchHistory(blotterTab, blotterPeriod);
+    }
+  } else {
+    // Today (live data) or non-period tabs
+    switch (blotterTab) {
+      case 'trades':        tableHTML = blotterTradesHTML(blotterData.trades, 'trades'); break;
+      case 'opt-trades':    tableHTML = blotterTradesHTML(blotterData['opt-trades'], 'opt-trades'); break;
+      case 'orders':        tableHTML = blotterOrdersHTML(blotterData.orders, 'orders'); break;
+      case 'opt-orders':    tableHTML = blotterOrdersHTML(blotterData['opt-orders'], 'opt-orders'); break;
+      case 'positions':     tableHTML = blotterPositionsHTML(blotterData.positions, false); break;
+      case 'opt-positions': tableHTML = blotterPositionsHTML(blotterData['opt-positions'], true); break;
+      case 'balances':      tableHTML = blotterBalancesHTML(); break;
+      case 'algos':         tableHTML = blotterAlgosHTML(); break;
+      case 'alerts':        tableHTML = blotterListHTML(blotterData.alerts, 'No alerts this session'); break;
+      case 'notifs':        tableHTML = blotterListHTML(blotterData.notifs, 'No notifications this session'); break;
+    }
+  }
+  wrap.innerHTML = tableHTML;
   blotterWireActions();
   blotterWireSortHeaders();
 }
 
+const NUMERIC_COLS = new Set(['amount','price','fee','size','average_price','mark_price','floating_profit_loss','realized_profit_loss','estimated_liquidation_price','initial_margin','delta','gamma','filled_amount','remaining']);
 function blotterSortRows(rows, tabId) {
   const { col, dir } = blotterSort[tabId];
   if (!col) return rows;
+  const isNumeric = NUMERIC_COLS.has(col) || col.includes('timestamp') || col.includes('price') || col.includes('Ts') || col === '_updatedTs';
   return [...rows].sort((a, b) => {
     let av = a[col] ?? '', bv = b[col] ?? '';
-    if (typeof av === 'string') return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
-    return dir === 'asc' ? av - bv : bv - av;
+    if (isNumeric) {
+      av = Number(av) || 0; bv = Number(bv) || 0;
+      return dir === 'asc' ? av - bv : bv - av;
+    }
+    av = String(av); bv = String(bv);
+    return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
   });
+}
+
+// ── Fetch and merge today's history on vault unlock (background, no spinner) ──
+async function fetchAndMergeHistory(type, startTime, endTime) {
+  try {
+    const r = await fetch(`${TCA_BASE}/api/history/${type}?startTime=${startTime}&endTime=${endTime}`);
+    if (!r.ok) return;
+    const data = await r.json();
+
+    if (type === 'trades') {
+      const items = data.trades || data || [];
+      let added = 0;
+      for (const t of items) {
+        const key = t.tradeId || t.fillId || t.trade_id;
+        if (!key) continue;
+        const tab = isOptionInstr(t.symbol || t.instrument_name || '') ? 'opt-trades' : 'trades';
+        if (blotterData[tab].some(x => x.trade_id === key)) continue; // dedup
+        blotterData[tab].unshift({
+          _exchange: t.venue || t._exchange || 'Unknown',
+          trade_id: key, order_id: t.orderId || t.order_id || '',
+          instrument_name: t.symbol || t.instrument_name || '',
+          direction: (t.side || t.direction || '').toLowerCase(),
+          amount: t.size || t.amount || 0,
+          price: t.price || t.fillPrice || 0,
+          fee: t.fee || t.commission || 0,
+          timestamp: t.timestamp || t.fillTs || 0,
+        });
+        added++;
+      }
+      // Trim and sort
+      blotterData.trades.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      if (blotterData.trades.length > 500) blotterData.trades.length = 500;
+      blotterData['opt-trades'].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      if (blotterData['opt-trades'].length > 500) blotterData['opt-trades'].length = 500;
+      console.log(`[history] Merged ${added} today trades (total: ${blotterData.trades.length})`);
+    }
+
+    if (type === 'orders') {
+      const items = data.orders || data || [];
+      let added = 0;
+      for (const o of items) {
+        const key = o.orderId || o.order_id;
+        if (!key) continue;
+        const tab = isOptionInstr(o.symbol || o.instrument_name || '') ? 'opt-orders' : 'orders';
+        if (blotterData[tab][key]) continue; // dedup — orders keyed by orderId
+        blotterData[tab][key] = {
+          _exchange: o.venue || o._exchange || 'Unknown',
+          order_id: key, instrument_name: o.symbol || o.instrument_name || '',
+          direction: (o.side || o.direction || '').toLowerCase(),
+          order_type: (o.orderType || o.order_type || '').toUpperCase(),
+          amount: o.quantity || o.amount || 0,
+          filled_amount: o.filled || o.filled_amount || 0,
+          price: o.price || o.limitPrice || 0,
+          order_state: (o.state || o.order_state || '').toLowerCase(),
+          creation_timestamp: o.timestamp || o.creation_timestamp || 0,
+          last_update_timestamp: o.timestamp || o.last_update_timestamp || 0,
+        };
+        added++;
+      }
+      console.log(`[history] Merged ${added} today orders (total: ${Object.keys(blotterData.orders).length})`);
+    }
+
+    // Re-render if blotter is showing the affected tab
+    if (blotterExpanded && blotterPeriod === 'today') renderBlotterTable();
+  } catch (e) {
+    console.error('[history] fetchAndMerge failed:', e.message);
+  }
+}
+
+// ── History fetching for Yesterday / Last 7 days ────────────────────────────
+function _histPeriodRange(period) {
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (period === 'yesterday') return { start: todayMidnight - 86400000, end: todayMidnight };
+  if (period === '7d')        return { start: todayMidnight - 7 * 86400000, end: Date.now() };
+  return { start: todayMidnight, end: Date.now() };
+}
+
+async function _fetchHistory(tab, period) {
+  const cacheKey = `${tab}::${period}`;
+  _histLoading = true;
+  renderBlotterTable(); // show loading
+  try {
+    const { start, end } = _histPeriodRange(period);
+    const isTradeTab = tab === 'trades' || tab === 'opt-trades';
+    const type = isTradeTab ? 'trades' : 'orders';
+    const r = await fetch(`${TCA_BASE}/api/history/${type}?startTime=${start}&endTime=${end}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    // Normalise into blotter format
+    let rows;
+    if (isTradeTab) {
+      rows = (data.trades || data || []).map(t => ({
+        _exchange: t.venue || t._exchange || 'Unknown',
+        trade_id: t.tradeId || t.trade_id || '',
+        order_id: t.orderId || t.order_id || '',
+        instrument_name: t.symbol || t.instrument_name || '',
+        direction: (t.side || t.direction || '').toLowerCase(),
+        amount: t.size || t.amount || 0,
+        price: t.price || t.fillPrice || 0,
+        fee: t.fee || t.commission || 0,
+        timestamp: t.timestamp || t.fillTs || 0,
+      }));
+      // Filter options vs futures if needed
+      if (tab === 'opt-trades') rows = rows.filter(r => isOptionInstr(r.instrument_name));
+      else rows = rows.filter(r => !isOptionInstr(r.instrument_name));
+    } else {
+      const arr = Array.isArray(data) ? data : data.orders || Object.values(data || {});
+      rows = arr.map(o => ({
+        _exchange: o.venue || o._exchange || 'Unknown',
+        order_id: o.orderId || o.order_id || '',
+        instrument_name: o.symbol || o.instrument_name || '',
+        direction: (o.side || o.direction || '').toLowerCase(),
+        order_type: (o.orderType || o.order_type || '').toUpperCase(),
+        amount: o.quantity || o.amount || 0,
+        filled_amount: o.filled || o.filled_amount || 0,
+        price: o.price || o.limitPrice || 0,
+        order_state: (o.state || o.order_state || '').toLowerCase(),
+        creation_timestamp: o.timestamp || o.creation_timestamp || 0,
+        last_update_timestamp: o.timestamp || o.last_update_timestamp || 0,
+      }));
+      if (tab === 'opt-orders') rows = rows.filter(r => isOptionInstr(r.instrument_name));
+      else rows = rows.filter(r => !isOptionInstr(r.instrument_name));
+    }
+    rows.sort((a, b) => (b.timestamp || b.creation_timestamp || 0) - (a.timestamp || a.creation_timestamp || 0));
+    _histCache.set(cacheKey, { data: isTradeTab ? rows : rows, fetchedAt: Date.now() });
+  } catch (e) {
+    console.error('[history] Fetch failed:', e.message);
+    _histCache.set(cacheKey, { data: [], fetchedAt: Date.now(), error: e.message });
+  }
+  _histLoading = false;
+  renderBlotterTable();
 }
 
 function blotterTH(col, label, tabId) {
@@ -5176,12 +5935,23 @@ function blotterTH(col, label, tabId) {
   return `<th class="${cls}" data-col="${col}" data-tab="${tabId}">${label}</th>`;
 }
 
+function exchPill(exchange) {
+  const name = exchange || 'Deribit';
+  const m = EXCH_META[name]
+    || EXCH_META[name.charAt(0).toUpperCase() + name.slice(1).toLowerCase()]
+    || EXCH_META[name.toUpperCase()]
+    || { color: '#666', bg: '#1a1a1a', text: (name.length <= 3 ? name : name.slice(0, 2)).toUpperCase() };
+  const logoSrc = `${TCA_BASE}/api/exchange-logo/${encodeURIComponent(name)}`;
+  return `<span style="display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border-radius:3px;font-size:8px;font-weight:700;color:${m.color};background:${m.bg};border:1px solid ${m.color}33"><img src="${logoSrc}" width="12" height="12" style="border-radius:2px" onerror="this.style.display='none'">${m.text}</span>`;
+}
+
 function blotterTradesHTML(rows, tabId) {
-  if (!rows.length) return '<div class="bl-empty">No fills this session</div>';
+  if (!rows.length) return '<div class="bl-empty">No fills yet — place a trade or select Yesterday / Last 7 days</div>';
   const sorted = blotterSort[tabId].col
     ? blotterSortRows(rows, tabId)
     : rows;   // already newest-first
   const head = [
+    '<th>Exch</th>',
     blotterTH('timestamp','Time',tabId), blotterTH('instrument_name','Instrument',tabId),
     blotterTH('direction','Side',tabId), blotterTH('amount','Amount',tabId),
     blotterTH('price','Price',tabId),    blotterTH('fee','Fee',tabId),
@@ -5191,11 +5961,12 @@ function blotterTradesHTML(rows, tabId) {
   const body = sorted.map(t => {
     const sc = t.direction === 'buy' ? 'bl-green' : 'bl-red';
     return `<tr id="bl-row-${t.trade_id}">
+      <td>${exchPill(t._exchange || 'Deribit')}</td>
       <td>${BL_TS(t.timestamp)}</td>
       <td>${t.instrument_name||'—'}</td>
       <td class="${sc}">${(t.direction||'').toUpperCase()}</td>
-      <td>${t.amount??'—'}</td><td>${t.price??'—'}</td>
-      <td>${t.fee != null ? Number(t.fee).toFixed(6) : '—'}</td>
+      <td>${formatNum(t.amount, 4)}</td><td>${formatNum(t.price, 2)}</td>
+      <td>${formatNum(t.fee, 6)}</td>
       <td style="font-size:9px;color:#444">${t.order_id||'—'}</td>
       <td style="font-size:9px;color:#444">${t.trade_id||'—'}</td>
       <td>${t.liquidation ? '<span class="bl-red">LIQ</span>' : '—'}</td>
@@ -5206,10 +5977,11 @@ function blotterTradesHTML(rows, tabId) {
 }
 
 function blotterOrdersHTML(ordersMap, tabId) {
-  let rows = Object.values(ordersMap);
+  let rows = Array.isArray(ordersMap) ? ordersMap : Object.values(ordersMap);
   rows = blotterSort[tabId].col ? blotterSortRows(rows, tabId) : rows.sort((a,b) => (b.last_update_timestamp||0)-(a.last_update_timestamp||0));
   if (!rows.length) return '<div class="bl-empty">No orders this session</div>';
   const head = [
+    '<th>Exch</th>',
     blotterTH('creation_timestamp','Time',tabId), blotterTH('instrument_name','Instrument',tabId),
     blotterTH('order_type','Type',tabId),         blotterTH('direction','Side',tabId),
     blotterTH('amount','Amount',tabId),            blotterTH('filled_amount','Filled',tabId),
@@ -5219,17 +5991,20 @@ function blotterOrdersHTML(ordersMap, tabId) {
   ].join('');
   const body = rows.map(o => {
     const sc   = o.direction === 'buy' ? 'bl-green' : 'bl-red';
-    const stc  = o.order_state === 'open' ? 'bl-st-open' : o.order_state === 'filled' ? 'bl-st-filled' : 'bl-st-cancelled';
+    const isRejected = o.order_state === 'rejected' || o.order_state === 'cancelled';
+    const stc  = o.order_state === 'open' ? 'bl-st-open' : o.order_state === 'filled' ? 'bl-st-filled' : o.order_state === 'rejected' ? 'bl-st-rejected' : 'bl-st-cancelled';
     const rem  = (o.amount||0) - (o.filled_amount||0);
     const canc = o.order_state === 'open' ? `<button class="bl-cancel-btn" data-oid="${o.order_id}">✕</button>` : '';
+    const rejectTip = o._rejectReason ? ` title="${escHtml(o._rejectReason)}"` : '';
     return `<tr id="bl-row-${o.order_id}">
-      <td>${BL_TS(o.creation_timestamp)}</td>
+      <td>${exchPill(o._exchange || 'Deribit')}</td>
+      <td>${BL_TS(o.last_update_timestamp || o.creation_timestamp)}</td>
       <td>${o.instrument_name||'—'}</td>
       <td>${o.order_type||'—'}</td>
       <td class="${sc}">${(o.direction||'').toUpperCase()}</td>
-      <td>${o.amount??'—'}</td><td>${o.filled_amount??'—'}</td><td>${rem}</td>
-      <td>${o.price??'—'}</td>
-      <td class="${stc}">${o.order_state||'—'}</td>
+      <td>${formatNum(o.amount, 4)}</td><td>${formatNum(o.filled_amount, 4)}</td><td>${formatNum(rem, 4)}</td>
+      <td>${formatNum(o.price, 2)}</td>
+      <td class="${stc}"${rejectTip}>${o.order_state||'—'}</td>
       <td style="font-size:9px;color:#444">${o.order_id||'—'}</td>
       <td>${canc}</td>
     </tr>`;
@@ -5244,6 +6019,8 @@ function blotterPositionsHTML(posMap, showGreeks) {
   if (!rows.length) return '<div class="bl-empty">No open positions</div>';
   const greekCols = showGreeks ? [blotterTH('delta','Delta',tabId), blotterTH('gamma','Gamma',tabId)] : [];
   const head = [
+    '<th>Exch</th>',
+    blotterTH('_updatedTs','Time',tabId),
     blotterTH('instrument_name','Instrument',tabId), blotterTH('direction','Side',tabId),
     blotterTH('size','Size',tabId),                  blotterTH('average_price','Entry',tabId),
     blotterTH('mark_price','Mark',tabId),             blotterTH('floating_profit_loss','uPnL',tabId),
@@ -5251,13 +6028,19 @@ function blotterPositionsHTML(posMap, showGreeks) {
     blotterTH('initial_margin','Margin',tabId),       ...greekCols,
   ].join('');
   const body = rows.map(p => {
-    const sc  = p.direction === 'buy' ? 'bl-green' : 'bl-red';
+    const rawSide = (p.direction||'').toUpperCase();
+    const isLong = rawSide === 'BUY' || rawSide === 'LONG';
+    const sideLabel = isLong ? 'LONG' : rawSide === 'FLAT' ? 'FLAT' : 'SHORT';
+    const sc  = isLong ? 'bl-green' : 'bl-red';
     const upc = (p.floating_profit_loss||0) >= 0 ? 'bl-green' : 'bl-red';
     const rpc = (p.realized_profit_loss||0) >= 0 ? 'bl-green' : 'bl-red';
+    const posTs = p._updatedTs || p.creation_timestamp || p.timestamp || null;
     let cells = `
+      <td>${exchPill(p._exchange || 'Deribit')}</td>
+      <td>${BL_TS(posTs)}</td>
       <td>${p.instrument_name||'—'}</td>
-      <td class="${sc}">${(p.direction||'').toUpperCase()}</td>
-      <td>${p.size??'—'}</td>
+      <td class="${sc}">${sideLabel}</td>
+      <td>${formatNum(p.size, 4)} ${p._sizeUnit || getBaseCurrency(p._exchange || 'Deribit', p.instrument_name)}</td>
       <td>${BL_FMT(p.average_price)}</td>
       <td>${BL_FMT(p.mark_price)}</td>
       <td class="${upc}">${BL_FMT(p.floating_profit_loss,6)}</td>
@@ -5271,17 +6054,33 @@ function blotterPositionsHTML(posMap, showGreeks) {
 }
 
 function blotterBalancesHTML() {
-  const head = `<th>Currency</th><th>Available</th><th>Total Balance</th><th>Reserved Margin</th><th>Unrealised PnL</th><th>Equity</th>`;
-  const body = ['BTC','ETH','USDC'].map(cur => {
-    const b   = blotterData.balances[cur] || {};
-    const upc = (b.futures_session_upl||0) >= 0 ? 'bl-green' : 'bl-red';
+  const head = `<th>Exch</th><th>Currency</th><th>Available</th><th>Total Balance</th><th>Reserved Margin</th><th>Unrealised PnL</th><th>Equity</th>`;
+  // Collect rows: Deribit balances (legacy format) + multi-exchange balances from bus
+  const rows = [];
+  // Deribit legacy balances
+  for (const cur of ['BTC','ETH','USDC']) {
+    const b = blotterData.balances[cur];
+    if (b && (b.balance || b.available_funds)) {
+      rows.push({ _exchange: 'Deribit', currency: cur, available: b.available_funds, total: b.balance, margin: b.initial_margin, uPnl: b.futures_session_upl, equity: b.margin_balance });
+    }
+  }
+  // Multi-exchange balances from bus (stored as `${venue}::${currency}` keys by blotterService)
+  if (blotterData._multiBalances) {
+    for (const b of blotterData._multiBalances) {
+      rows.push({ _exchange: b.venue, currency: b.currency, available: b.available, total: b.total, margin: 0, uPnl: b.unrealisedPnl, equity: b.total });
+    }
+  }
+  if (!rows.length) return '<div class="bl-empty">No balance data</div>';
+  const body = rows.map(r => {
+    const upc = (r.uPnl||0) >= 0 ? 'bl-green' : 'bl-red';
     return `<tr>
-      <td>${cur}</td>
-      <td>${BL_FMT(b.available_funds,6)}</td>
-      <td>${BL_FMT(b.balance,6)}</td>
-      <td>${BL_FMT(b.initial_margin,6)}</td>
-      <td class="${upc}">${BL_FMT(b.futures_session_upl,6)}</td>
-      <td>${BL_FMT(b.margin_balance,6)}</td>
+      <td>${exchPill(r._exchange || 'Deribit')}</td>
+      <td>${r.currency||'—'}</td>
+      <td>${BL_FMT(r.available,6)}</td>
+      <td>${BL_FMT(r.total,6)}</td>
+      <td>${BL_FMT(r.margin,6)}</td>
+      <td class="${upc}">${BL_FMT(r.uPnl,6)}</td>
+      <td>${BL_FMT(r.equity,6)}</td>
     </tr>`;
   }).join('');
   return `<table class="bl-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
@@ -5317,8 +6116,13 @@ function blotterWireSortHeaders() {
     th.addEventListener('click', () => {
       const { col, tab } = th.dataset;
       const s = blotterSort[tab];
-      if (s.col === col) s.dir = s.dir === 'asc' ? 'desc' : 'asc';
-      else               { s.col = col; s.dir = 'desc'; }
+      if (s.col === col) {
+        // 3-click cycle: desc → asc → clear
+        if (s.dir === 'desc') s.dir = 'asc';
+        else { s.col = null; s.dir = 'desc'; } // clear
+      } else {
+        s.col = col; s.dir = 'desc';
+      }
       renderBlotterTable();
     });
   });
@@ -5360,6 +6164,8 @@ function initBlotter() {
     btn.addEventListener('click', () => {
       if (!blotterExpanded) expandBlotter();
       blotterTab = btn.dataset.bl;
+      // Reset period to Today when switching to a period tab
+      if (PERIOD_TABS.includes(blotterTab)) blotterPeriod = 'today';
       tabBar.querySelectorAll('.bl-tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       blotterBadge[blotterTab] = 0;
@@ -5405,12 +6211,138 @@ function initBlotter() {
   });
 
   renderBlotterTable();
+
+  // ── Multi-exchange blotter poller ──────────────────────────────────────────
+  // Fetches aggregated data from blotterService (server-side) every 3 seconds
+  // and merges non-Deribit exchange data into the blotter.
+  async function pollMultiExchangeBlotter() {
+    try {
+      const r = await fetch(TCA_BASE + '/api/blotter');
+      if (!r.ok) return;
+      const data = await r.json();
+
+      // Merge trades from non-Deribit exchanges (dedup + update by tradeId)
+      if (data.trades?.length) {
+        for (const t of data.trades) {
+          if (t.venue === 'DERIBIT') continue; // Deribit handled by WS
+          const key = t.tradeId || t.fillId;
+          const existIdx = blotterData.trades.findIndex(x => x.trade_id === key);
+          if (existIdx >= 0) {
+            // Update existing entry (server has authoritative converted size)
+            blotterData.trades[existIdx].amount = t.size;
+            blotterData.trades[existIdx].price = t.price;
+            continue;
+          }
+          blotterData.trades.unshift({
+            _exchange: t.venue, trade_id: key, order_id: t.orderId,
+            instrument_name: t.symbol, direction: t.side?.toLowerCase(),
+            amount: t.size, price: t.price, fee: t.fee, timestamp: t.timestamp,
+          });
+          if (blotterData.trades.length > 500) blotterData.trades.pop();
+          if (blotterTab !== 'trades') { blotterBadge.trades++; blotterUpdateBadge('trades'); }
+        }
+      }
+
+      // Merge orders from non-Deribit exchanges (update existing, add new)
+      if (data.orders?.length) {
+        for (const o of data.orders) {
+          if (o.venue === 'DERIBIT') continue;
+          const existing = blotterData.orders[o.orderId];
+          // Always update — server blotter is authoritative for non-Deribit
+          blotterData.orders[o.orderId] = {
+            ...(existing || {}),
+            _exchange: o.venue, order_id: o.orderId, instrument_name: o.symbol,
+            direction: o.side?.toLowerCase(), order_type: (o.orderType || '').toUpperCase(),
+            amount: o.quantity, filled_amount: o.filled, price: o.price,
+            order_state: o.state?.toLowerCase(), _rejectReason: o.rejectReason,
+            creation_timestamp: existing?.creation_timestamp || o.timestamp,
+            last_update_timestamp: o.timestamp,
+          };
+        }
+      }
+
+      // Merge positions from non-Deribit exchanges (Deribit handled by browser WS)
+      if (data.positions?.length) {
+        for (const p of data.positions) {
+          if (p.venue === 'DERIBIT') continue; // browser WS is authoritative for Deribit
+          const key = `${p.venue}::${p.symbol}`;
+          if (p.size === 0 || p.side === 'FLAT') {
+            delete blotterData.positions[key];
+          } else {
+            blotterData.positions[key] = {
+              _exchange: p.venue, instrument_name: p.symbol,
+              direction: p.side === 'LONG' ? 'buy' : p.side === 'SHORT' ? 'sell' : 'flat',
+              size: p.size, _sizeUnit: p.sizeUnit || getBaseCurrency(p.venue, p.symbol),
+              average_price: p.avgEntryPrice,
+              floating_profit_loss: p.unrealisedPnl,
+              estimated_liquidation_price: p.liquidationPrice,
+              _updatedTs: p.timestamp || Date.now(),
+            };
+          }
+        }
+      }
+
+      // Merge balances from all exchanges
+      if (data.balances?.length) {
+        blotterData._multiBalances = data.balances;
+      }
+
+      if (blotterExpanded) renderBlotterTable();
+    } catch {}
+  }
+  setInterval(pollMultiExchangeBlotter, 3000);
+  setTimeout(pollMultiExchangeBlotter, 2000);
 }
 
-// ── Boot ──────────────────────────────────────────────────────────────────────
+// ── Health dot updater ───────────────────────────────────────────────────────
+
+(function initHealthDots() {
+  let _healthTimer = null;
+
+  function updateHealthDots(health) {
+    if (!health || !health.adapters) return;
+    for (const s of panels) {
+      const dot = document.getElementById(`health-dot-${s.id}`);
+      if (!dot) continue;
+      const venue = (s.exchange || 'Deribit').toUpperCase();
+      const v = health.adapters[venue];
+      if (!v) { dot.className = 'health-dot'; continue; }
+
+      // Determine worst status
+      const breakerOpen = v.restOrders === 'OPEN' || v.restData === 'OPEN';
+      const breakerHalf = v.restOrders === 'HALF_OPEN' || v.restData === 'HALF_OPEN';
+
+      // Check feed status for this panel's instrument
+      const feedKey = s.instrument || '';
+      const feedStatus = v.feeds[feedKey];
+      const feedStale  = feedStatus === 'STALE';
+
+      if (breakerOpen) {
+        dot.className = 'health-dot bad';
+      } else if (breakerHalf || feedStale) {
+        dot.className = 'health-dot warn';
+      } else if (v.ws === 'CONNECTED' || v.restOrders === 'CLOSED') {
+        dot.className = 'health-dot ok';
+      } else {
+        dot.className = 'health-dot';
+      }
+    }
+  }
+
+  async function pollHealth() {
+    try {
+      const r = await fetch(TCA_BASE + '/api/health');
+      if (r.ok) updateHealthDots(await r.json());
+    } catch {}
+  }
+
+  // Poll every 3 seconds
+  _healthTimer = setInterval(pollHealth, 3000);
+  // Initial fetch after a short delay
+  setTimeout(pollHealth, 1500);
+})();
+
 // ── TCA Dashboard ────────────────────────────────────────────────────────────
-// Resolve server base URL — handles both http://localhost:3000 and file:// origins
-const TCA_BASE = (location.protocol === 'file:') ? 'http://localhost:3000' : '';
 
 (function initTCA() {
   const tcaBtn   = document.getElementById('tca-btn');
@@ -5590,6 +6522,354 @@ const TCA_BASE = (location.protocol === 'file:') ? 'http://localhost:3000' : '';
     } catch (e) {
       miBody.innerHTML = `<div class="tca-empty" style="color:#e05252">Error: ${e.message}</div>`;
     }
+  }
+})();
+
+// ── Algo order modal + blotter tab + floating monitors ───────────────────────
+(function initAlgoSystem() {
+  let _algoType = '', _algoSide = 'BUY', _algoSymbol = '', _configs = [];
+  let _pollTimer = null;
+  const _monitors = new Map(); // strategyId → DOM element
+
+  // ── Load strategy configs from server ────────────────────────────────────
+  async function _loadConfigs() {
+    try {
+      const r = await fetch(TCA_BASE + '/api/algo/strategies');
+      const j = await r.json();
+      if (j.strategies?.length) _configs = j.strategies;
+    } catch {}
+  }
+
+  // ── Algo modal ───────────────────────────────────────────────────────────
+  const overlay = document.getElementById('algo-modal-overlay');
+  const box     = document.getElementById('algo-modal-box');
+
+  function openAlgoModal(instrument, side, mid, qty, exchange) {
+    _algoSymbol = instrument;
+    _algoSide = (side || 'buy').toUpperCase();
+    document.getElementById('algo-f-symbol').value = instrument;
+    document.getElementById('algo-f-size').value = qty || '';
+    document.getElementById('algo-f-buy').className = _algoSide === 'BUY' ? 'buy-active' : '';
+    document.getElementById('algo-f-sell').className = _algoSide === 'SELL' ? 'sell-active' : '';
+    document.getElementById('algo-modal-title').textContent = `Algo · ${instrument}`;
+    document.getElementById('algo-modal-msg').textContent = '';
+    document.getElementById('algo-review').style.display = 'none';
+    document.getElementById('algo-estimate').textContent = '';
+
+    // Qty preset buttons based on base asset
+    const b = base(instrument);
+    const presets = b === 'BTC' ? [0.01,0.1,0.5,1,5] : b === 'ETH' ? [0.1,1,5,10,50] : [1,5,10,50,100];
+    const presEl = document.getElementById('algo-qty-presets');
+    presEl.innerHTML = presets.map(v =>
+      `<button style="font-size:9px;padding:2px 7px;background:#0d0d14;border:1px solid #1e1e28;border-radius:3px;color:#888;cursor:pointer;font-family:inherit" data-aqty="${v}">${v}</button>`
+    ).join('');
+    presEl.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.getElementById('algo-f-size').value = btn.dataset.aqty;
+        _updateSummary();
+        _updateEstimate();
+      });
+    });
+
+    // Fetch risk headroom
+    const riskRef = document.getElementById('algo-risk-ref');
+    riskRef.textContent = '';
+    fetch(TCA_BASE + '/api/risk/headroom?symbol=' + encodeURIComponent(instrument)).then(r => r.json()).then(h => {
+      if (h.positionHeadroom !== undefined) {
+        riskRef.textContent = `Position headroom: ${h.positionHeadroom} ${h.positionUnit} · Max notional: $${Math.round(h.notionalHeadroom).toLocaleString()} remaining`;
+      }
+    }).catch(() => {});
+
+    _buildTabs();
+    overlay.style.display = 'flex';
+    _loadConfigs().then(_buildTabs);
+  }
+
+  // Expose for activateOrderType
+  window._openAlgoModal = openAlgoModal;
+
+  document.getElementById('algo-modal-close').addEventListener('click', () => { overlay.style.display = 'none'; });
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.style.display = 'none'; });
+
+  // Drag
+  let _dx, _dy;
+  document.getElementById('algo-modal-drag').addEventListener('mousedown', e => {
+    if (e.target.tagName === 'BUTTON') return;
+    _dx = e.clientX - box.getBoundingClientRect().left;
+    _dy = e.clientY - box.getBoundingClientRect().top;
+    function mv(ev) { box.style.left = (ev.clientX - _dx) + 'px'; box.style.top = (ev.clientY - _dy) + 'px'; box.style.margin = '0'; }
+    function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); }
+    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+  });
+
+  // Side toggle
+  document.getElementById('algo-f-buy').addEventListener('click', () => { _algoSide = 'BUY'; document.getElementById('algo-f-buy').className = 'buy-active'; document.getElementById('algo-f-sell').className = ''; _updateSummary(); });
+  document.getElementById('algo-f-sell').addEventListener('click', () => { _algoSide = 'SELL'; document.getElementById('algo-f-sell').className = 'sell-active'; document.getElementById('algo-f-buy').className = ''; _updateSummary(); });
+
+  function _buildTabs() {
+    const tabsEl = document.getElementById('algo-type-tabs');
+    if (!_configs.length) { tabsEl.innerHTML = '<span style="color:#444;font-size:10px;padding:8px">Loading strategies...</span>'; return; }
+    if (!_algoType) _algoType = _configs[0].name;
+    tabsEl.innerHTML = _configs.map(c =>
+      `<button class="order-type-tab${c.name === _algoType ? ' active' : ''}" data-atype="${c.name}">${c.displayName}</button>`
+    ).join('');
+    tabsEl.querySelectorAll('.order-type-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        tabsEl.querySelectorAll('.order-type-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        _algoType = btn.dataset.atype;
+        _renderParams();
+        document.getElementById('algo-review').style.display = 'none';
+      });
+    });
+    _renderParams();
+  }
+
+  function _renderParams() {
+    const container = document.getElementById('algo-dynamic-params');
+    const cfg = _configs.find(c => c.name === _algoType);
+    if (!cfg?.params) { container.innerHTML = ''; return; }
+    container.innerHTML = cfg.params.map(p => {
+      const attrs = [];
+      if (p.min !== undefined) attrs.push(`min="${p.min}"`);
+      if (p.max !== undefined) attrs.push(`max="${p.max}"`);
+      attrs.push(`step="${p.step ?? 'any'}"`);
+      const val = p.default !== undefined ? `value="${p.default}"` : '';
+      return `<label style="font-size:10px;color:#555;display:flex;flex-direction:column;gap:2px">${p.label}<input id="algo-dp-${p.key}" type="number" ${val} ${attrs.join(' ')} style="font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit"></label>`;
+    }).join('');
+    // Wire param inputs to update estimate on change
+    container.querySelectorAll('input').forEach(inp => inp.addEventListener('input', _updateEstimate));
+    _updateSummary();
+    _updateEstimate();
+  }
+
+  function _getParamValues() {
+    const cfg = _configs.find(c => c.name === _algoType);
+    if (!cfg) return {};
+    const out = {};
+    for (const p of cfg.params) {
+      const el = document.getElementById('algo-dp-' + p.key);
+      if (el) out[p.key] = parseFloat(el.value) || p.default || 0;
+    }
+    return out;
+  }
+
+  function _updateSummary() {
+    const sym = document.getElementById('algo-f-symbol').value;
+    const size = document.getElementById('algo-f-size').value;
+    const cfg = _configs.find(c => c.name === _algoType);
+    const rev = document.getElementById('algo-review');
+    if (sym && size) {
+      rev.innerHTML = `<strong>${_algoSide} ${size} ${sym}</strong> via <strong>${cfg?.displayName || _algoType}</strong>`;
+      rev.style.display = 'block';
+    } else { rev.style.display = 'none'; }
+  }
+
+  document.getElementById('algo-f-size').addEventListener('input', () => { _updateSummary(); _updateEstimate(); });
+
+  let _estDebounce = null;
+  function _updateEstimate() {
+    clearTimeout(_estDebounce);
+    _estDebounce = setTimeout(async () => {
+      const el = document.getElementById('algo-estimate');
+      if (!_algoType) { el.textContent = ''; return; }
+      const params = _getParamValues();
+      params.totalSize = parseFloat(document.getElementById('algo-f-size').value) || 0;
+      const qs = new URLSearchParams({ type: _algoType });
+      for (const [k, v] of Object.entries(params)) qs.set(k, v);
+      try {
+        const r = await fetch(TCA_BASE + '/api/algo/estimate?' + qs);
+        const j = await r.json();
+        el.textContent = j.estimate || '';
+      } catch { el.textContent = ''; }
+    }, 200);
+  }
+
+  // Launch
+  document.getElementById('algo-launch-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('algo-launch-btn');
+    const msg = document.getElementById('algo-modal-msg');
+    btn.disabled = true; msg.textContent = '';
+    try {
+      const sym  = document.getElementById('algo-f-symbol').value;
+      const size = parseFloat(document.getElementById('algo-f-size').value) || 0;
+      if (!sym || !size) throw new Error('Symbol and size required');
+      const params = { symbol: sym, side: _algoSide, totalSize: size, ..._getParamValues() };
+      const r = await fetch(TCA_BASE + '/api/algo/start', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ strategyType: _algoType, params }),
+      });
+      const j = await r.json();
+      if (j.error) throw new Error(j.error);
+      overlay.style.display = 'none';
+      _pollAlgos();
+    } catch (e) { msg.textContent = e.message; msg.style.color = '#e05252'; }
+    finally { btn.disabled = false; }
+  });
+
+  // ── Wire ALGO tile button into activateOrderType ─────────────────────────
+  // Hook: when activateOrderType is called with 'algo', open our modal instead
+  // (Already handled below by patching activateOrderType)
+
+  // ── Blotter: algos tab rendering ─────────────────────────────────────────
+  window.blotterAlgosHTML = function() {
+    const strats = blotterData.algos;
+    const keys = Object.keys(strats);
+    if (keys.length === 0) return '<div class="bl-empty">No algo strategies this session</div>';
+    let html = '<table class="bl-tbl"><thead><tr><th>Exch</th><th>Type</th><th>Symbol</th><th>Side</th><th>Progress</th><th>Avg Fill</th><th>Status</th><th>Elapsed</th><th></th></tr></thead><tbody>';
+    for (const [sid, s] of Object.entries(strats)) {
+      const pct = s.filledQty && s.totalSize ? Math.round(s.filledQty / (s.totalSize || 1) * 100) : 0;
+      const elapsed = s.elapsed ? (s.elapsed / 1000).toFixed(0) + 's' : '-';
+      const statusCls = 'algo-status-' + (s.state || 'STOPPED');
+      html += `<tr><td>${exchPill(s.venue || 'Deribit')}</td><td>${s.type || '-'}</td><td>${s.symbol || '-'}</td><td>${s.side || '-'}</td>
+        <td><div class="algo-progress-bar"><div class="algo-progress-fill" style="width:${pct}%"></div></div> ${s.filledQty ?? 0}/${s.totalSize ?? '-'}</td>
+        <td>${s.avgFillPrice ? s.avgFillPrice.toFixed(2) : '-'}</td>
+        <td class="${statusCls}">${s.state || '-'}</td><td>${elapsed}</td>
+        <td><button class="algo-stop-btn" onclick="_algoStop('${sid}')">&#10005;</button>
+            <button class="algo-mon-btn" onclick="_algoOpenMonitor('${sid}')">Monitor</button></td></tr>`;
+    }
+    html += '</tbody></table>';
+    return html;
+  };
+
+  // ── Poll algo status → update blotterData.algos ──────────────────────────
+  async function _pollAlgos() {
+    try {
+      const r = await fetch(TCA_BASE + '/api/algo/status');
+      const j = await r.json();
+      const strats = j.strategies || {};
+      blotterData.algos = strats;
+      const active = Object.values(strats).filter(s => s.state === 'RUNNING' || s.state === 'PAUSED').length;
+      blotterBadge.algos = active;
+      blotterUpdateBadge('algos');
+      if (blotterTab === 'algos') renderBlotterTable();
+      // Update open monitors
+      for (const [sid, el] of _monitors) {
+        if (strats[sid]) _updateMonitor(sid, strats[sid], el);
+      }
+    } catch {}
+  }
+  _pollTimer = setInterval(_pollAlgos, 2000);
+  setTimeout(_pollAlgos, 1500);
+
+  // ── Global action handlers ───────────────────────────────────────────────
+  window._algoStop = async (sid) => {
+    try { await fetch(TCA_BASE + '/api/algo/stop/' + sid, { method: 'POST' }); _pollAlgos(); } catch {}
+  };
+  window._algoTogglePause = async (sid, isPaused) => {
+    const ep = isPaused ? 'resume' : 'pause';
+    try { await fetch(TCA_BASE + '/api/algo/' + ep + '/' + sid, { method: 'POST' }); _pollAlgos(); } catch {}
+  };
+
+  // ── Floating monitor panel ───────────────────────────────────────────────
+  window._algoOpenMonitor = function(sid) {
+    if (_monitors.has(sid)) return; // already open
+    const s = blotterData.algos[sid] || {};
+    const el = document.createElement('div');
+    el.className = 'algo-monitor status-' + (s.state || 'STOPPED');
+    // Restore position from localStorage or default
+    const saved = localStorage.getItem('algo-mon-' + sid);
+    const pos = saved ? JSON.parse(saved) : { top: 100 + _monitors.size * 30, left: window.innerWidth - 310 };
+    el.style.top = pos.top + 'px'; el.style.left = pos.left + 'px';
+    el.id = 'algo-mon-' + sid;
+
+    el.innerHTML = `
+      <div class="algo-monitor-hdr" data-sid="${sid}">
+        <span class="algo-monitor-title">${s.type || '?'} ${s.symbol || ''} ${s.filledQty ?? 0}/${s.totalSize ?? '?'}</span>
+        <div class="algo-monitor-btns">
+          <button onclick="_algoTogglePause('${sid}', ${s.state === 'PAUSED'})" title="Pause/Resume">&#10074;&#10074;</button>
+          <button onclick="_algoMinimiseMonitor('${sid}')" title="Minimise">_</button>
+          <button onclick="_algoCloseMonitor('${sid}')" title="Close">×</button>
+        </div>
+      </div>
+      <div class="algo-monitor-body" id="algo-mon-body-${sid}"></div>`;
+
+    document.getElementById('algo-monitors').appendChild(el);
+    _monitors.set(sid, el);
+    _updateMonitor(sid, s, el);
+
+    // Drag
+    const hdr = el.querySelector('.algo-monitor-hdr');
+    hdr.addEventListener('mousedown', e => {
+      if (e.target.tagName === 'BUTTON') return;
+      const ox = e.clientX - el.getBoundingClientRect().left;
+      const oy = e.clientY - el.getBoundingClientRect().top;
+      function mv(ev) { el.style.left = (ev.clientX - ox) + 'px'; el.style.top = (ev.clientY - oy) + 'px'; }
+      function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); localStorage.setItem('algo-mon-' + sid, JSON.stringify({ top: parseInt(el.style.top), left: parseInt(el.style.left) })); }
+      document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+    });
+  };
+
+  function _updateMonitor(sid, s, el) {
+    el.className = 'algo-monitor status-' + (s.state || 'STOPPED');
+    const title = el.querySelector('.algo-monitor-title');
+    const pct = s.totalSize ? Math.round((s.filledQty || 0) / s.totalSize * 100) : 0;
+    title.textContent = `${s.type || '?'} ${s.symbol || ''} ${pct}%`;
+    const body = document.getElementById('algo-mon-body-' + sid);
+    if (!body || el.classList.contains('minimised')) return;
+    const elapsed = s.elapsed ? (s.elapsed / 1000).toFixed(0) + 's' : '-';
+    body.innerHTML = `<dl style="display:grid;grid-template-columns:auto 1fr;gap:2px 8px;margin:0">
+      <dt>Progress</dt><dd><div class="algo-progress-bar" style="width:100%"><div class="algo-progress-fill" style="width:${pct}%"></div></div> ${s.filledQty ?? 0} / ${s.totalSize ?? '-'}</dd>
+      <dt>Avg Fill</dt><dd>${s.avgFillPrice ? s.avgFillPrice.toFixed(2) : '-'}</dd>
+      <dt>Status</dt><dd class="algo-status-${s.state || 'STOPPED'}">${s.state || '-'}</dd>
+      <dt>Elapsed</dt><dd>${elapsed}</dd>
+      <dt>Children</dt><dd>${s.childOrderCount ?? '-'}</dd>
+    </dl>
+    <div style="display:flex;gap:4px;margin-top:6px">
+      <button class="algo-stop-btn" onclick="_algoStop('${sid}')" style="flex:1">Stop</button>
+      <button class="algo-mon-btn" onclick="_algoTogglePause('${sid}', ${s.state === 'PAUSED'})" style="flex:1">${s.state === 'PAUSED' ? 'Resume' : 'Pause'}</button>
+    </div>`;
+  }
+
+  window._algoMinimiseMonitor = function(sid) {
+    const el = _monitors.get(sid);
+    if (el) el.classList.toggle('minimised');
+  };
+
+  window._algoCloseMonitor = function(sid) {
+    const el = _monitors.get(sid);
+    if (el) { el.remove(); _monitors.delete(sid); }
+  };
+})();
+
+// ── Risk rejection toast ─────────────────────────────────────────────────────
+(function initRiskToasts() {
+  window._showRiskToast = function(reason, detail) {
+    // Add to notifications blotter
+    blotterData.notifs.unshift({ ts: Date.now(), text: `[${reason}] ${detail}` });
+    if (blotterData.notifs.length > 200) blotterData.notifs.pop();
+    if (blotterTab === 'notifs') renderBlotterTable();
+    else { blotterBadge.notifs++; blotterUpdateBadge('notifs'); }
+    // Show toast
+    const toast = document.createElement('div');
+    toast.className = 'algo-toast';
+    toast.textContent = `${reason}: ${detail}`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 5000);
+  };
+})();
+
+// ── Vault lock indicator wiring ───────────────────────────────────────────────
+(function initVaultIndicator() {
+  updateVaultIndicator();
+  // Padlock button
+  document.getElementById('vault-lock-btn').addEventListener('click', () => {
+    if (isVaultUnlocked()) {
+      document.getElementById('specs-btn')?.click();
+      setTimeout(() => document.querySelector('.admin-tab[data-admin="apikeys"]')?.click(), 100);
+    } else {
+      openVaultUnlockDropdown();
+    }
+  });
+  // Auto-unlock banner on load — show if vault has entries but is locked
+  const banner = document.getElementById('vault-banner');
+  if (banner && akReadRaw()?.keys?.length > 0 && !isVaultUnlocked()) {
+    banner.style.display = 'flex';
+    const bInp = document.getElementById('vault-banner-pw');
+    const bGo  = document.getElementById('vault-banner-go');
+    const go = () => doVaultUnlock(bInp.value, () => {}, (msg) => { document.getElementById('vault-banner-msg').textContent = msg; bInp.value = ''; bInp.focus(); });
+    bGo.addEventListener('click', go);
+    bInp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
   }
 })();
 

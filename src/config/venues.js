@@ -14,6 +14,10 @@ module.exports = {
     testnet:    TESTNET,
     feedType:   'WEBSOCKET',
     assetClass: ['CRYPTO_PERP', 'CRYPTO_FUTURE', 'CRYPTO_SPOT'],
+    exchangeColor: '#e03040',  // orange-red
+    exchangeBg:    '#2a080e',
+    exchangeText:  'D',
+    logoUrl:       'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iMTYiIGZpbGw9IiNlMzEyMzciLz48dGV4dCB4PSI5IiB5PSIyMiIgZm9udC1zaXplPSIyMCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IndoaXRlIj5EPC90ZXh0Pjwvc3ZnPg==',
   },
 
   BINANCE: {
@@ -23,6 +27,10 @@ module.exports = {
     testnet:    false,
     feedType:   'WEBSOCKET',
     assetClass: ['CRYPTO_SPOT'],
+    exchangeColor: '#f0b90b',  // yellow-green
+    exchangeBg:    '#2a2008',
+    exchangeText:  'B',
+    logoUrl:       'https://bin.bnbstatic.com/static/images/common/favicon.ico',
   },
 
   BYBIT: {
@@ -32,6 +40,10 @@ module.exports = {
     testnet:    false,
     feedType:   'WEBSOCKET',
     assetClass: ['CRYPTO_SPOT', 'CRYPTO_PERP'],
+    exchangeColor: '#f7a600',  // yellow
+    exchangeBg:    '#2a1e08',
+    exchangeText:  'By',
+    logoUrl:       'https://www.bybit.com/favicon.ico',
   },
 
   OKX: {
@@ -41,6 +53,10 @@ module.exports = {
     testnet:    false,
     feedType:   'WEBSOCKET',
     assetClass: ['CRYPTO_SPOT', 'CRYPTO_PERP', 'CRYPTO_FUTURE'],
+    exchangeColor: '#aaaaaa',  // white/grey
+    exchangeBg:    '#1a1a1a',
+    exchangeText:  'OX',
+    logoUrl:       'https://www.okx.com/favicon.ico',
   },
 
   KRAKEN: {
@@ -50,6 +66,47 @@ module.exports = {
     testnet:    false,
     feedType:   'WEBSOCKET',
     assetClass: ['CRYPTO_SPOT', 'CRYPTO_PERP'],
+    exchangeColor: '#8d5ff0',  // purple
+    exchangeBg:    '#100820',
+    exchangeText:  'Kr',
+    logoUrl:       'https://www.kraken.com/favicon.ico',
+  },
+
+  BITMEX: {
+    id:         'BITMEX',
+    wsUrl:      'wss://ws.bitmex.com/realtime',
+    restBase:   'https://www.bitmex.com',
+    testnet:    false,
+    feedType:   'WEBSOCKET',
+    assetClass: ['CRYPTO_PERP', 'CRYPTO_FUTURE'],
+    exchangeColor: '#4a90d9',  // dark blue
+    exchangeBg:    '#081420',
+    exchangeText:  'BX',
+    logoUrl:       'https://www.bitmex.com/favicon.ico',
+  },
+
+  'GATE.IO': {
+    id:         'GATE.IO',
+    restBase:   'https://api.gateio.ws',
+    testnet:    false,
+    feedType:   'WEBSOCKET',
+    assetClass: ['CRYPTO_SPOT'],
+    exchangeColor: '#2196f3',  // blue
+    exchangeBg:    '#081c2e',
+    exchangeText:  'G',
+    logoUrl:       'https://www.gate.io/favicon.ico',
+  },
+
+  KUCOIN: {
+    id:         'KUCOIN',
+    restBase:   'https://api.kucoin.com',
+    testnet:    false,
+    feedType:   'WEBSOCKET',
+    assetClass: ['CRYPTO_SPOT', 'CRYPTO_PERP'],
+    exchangeColor: '#24ae8f',  // green
+    exchangeBg:    '#081e18',
+    exchangeText:  'K',
+    logoUrl:       'https://www.kucoin.com/favicon.ico',
   },
 
   // FIX venues — stubs only (real integration requires FIX 4.4 engine)
@@ -62,6 +119,9 @@ module.exports = {
     testnet:    true,
     feedType:   'FIX',
     assetClass: ['FX_SPOT'],
+    exchangeColor: '#cc8844',  // amber
+    exchangeBg:    '#1e1408',
+    exchangeText:  'LX',
   },
 
   EBS: {
@@ -73,6 +133,9 @@ module.exports = {
     testnet:    true,
     feedType:   'FIX',
     assetClass: ['FX_SPOT'],
+    exchangeColor: '#5588cc',  // steel blue
+    exchangeBg:    '#081420',
+    exchangeText:  'EB',
   },
 
   '360T': {
@@ -84,5 +147,8 @@ module.exports = {
     testnet:    true,
     feedType:   'FIX',
     assetClass: ['FX_SPOT'],
+    exchangeColor: '#66aa66',  // muted green
+    exchangeBg:    '#0e1e0e',
+    exchangeText:  '3T',
   },
 };
