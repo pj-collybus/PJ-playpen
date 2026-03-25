@@ -337,6 +337,7 @@ function _submitIntent(strategyId, intent) {
     sliceNumber: entry.childOrders.length,
     symbol: intent.symbol, side: intent.side, quantity: intent.quantity,
     limitPrice: intent.limitPrice, orderType: intent.orderType || 'LIMIT',
+    timeInForce: intent.timeInForce || 'GTC',
     algoType: intent.algoType || entry.strategyType,
     venue: entry.venue,
   });

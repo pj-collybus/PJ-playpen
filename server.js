@@ -922,6 +922,7 @@ async function _handleOrderIntent(intent) {
       quantity:    intent.quantity,
       limitPrice:  intent.limitPrice,
       orderType:   intent.orderType || 'LIMIT',
+      timeInForce: intent.timeInForce || 'IOC',
       algoType:    intent.algoType || 'ALGO',
       parentOrderId: intent.parentOrderId || intent.strategyId,
       metadata:    {

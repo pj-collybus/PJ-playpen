@@ -75,7 +75,7 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 
 /* ── Contract Specs overlay ── */
 .specs-overlay {
-  position: fixed; inset: 0; z-index: 9000;
+  position: fixed; inset: 0; z-index: 100;
   background: rgba(0,0,0,0.75);
   display: flex; align-items: flex-start; justify-content: center;
   padding-top: 44px;
@@ -165,7 +165,7 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 
 /* ── TCA Dashboard ── */
 #tca-view {
-  display: none; position: fixed; inset: 0; z-index: 8000;
+  display: none; position: fixed; inset: 0; z-index: 90;
   background: #0d0d0f; flex-direction: column; overflow: hidden;
 }
 #tca-view.active { display: flex; }
@@ -233,7 +233,7 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 .algo-mon-btn { background: none; border: 1px solid #222244; border-radius: 3px; color: #6666cc; cursor: pointer; font-size: 10px; padding: 2px 6px; font-family: inherit; }
 .algo-mon-btn:hover { color: #99f; border-color: #4444aa; }
 /* Floating monitor panel */
-.algo-monitor { position: fixed; z-index: 8500; min-width: 480px; max-width: 560px; height: 380px; max-height: 80vh; background: #0a0a10; border: 1px solid #1a1a22; border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.6); display: flex; flex-direction: column; overflow: hidden; }
+.algo-monitor { min-width: 480px; max-width: 560px; min-height: 380px; background: #0a0a10; border: 1px solid #1a1a22; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.4); display: flex; flex-direction: column; overflow: hidden; }
 .algo-monitor.status-RUNNING   { border-left: 3px solid #22cc66; }
 .algo-monitor.status-PAUSED    { border-left: 3px solid #cc9900; }
 .algo-monitor.status-ERROR     { border-left: 3px solid #cc3333; }
@@ -280,12 +280,12 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 .amon-accel-btn { font-size: 9px; padding: 3px 8px; background: #2a1a00; border: 1px solid #664400; border-radius: 3px; color: #ccaa44; cursor: pointer; font-family: inherit; }
 .amon-accel-btn:hover { background: #3a2800; color: #eebb44; }
 .amon-pause-bar { background: #1a1400; color: #ccaa44; font-size: 9px; padding: 3px 10px; text-align: center; }
-.amon-chart-panel { position: fixed; z-index: 8500; width: 320px; background: #0a0a10; border: 1px solid #1a1a22; border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.6); overflow: hidden; display: flex; flex-direction: column; }
+.amon-chart-panel { width: 320px; min-height: 300px; background: #0a0a10; border: 1px solid #1a1a22; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.4); overflow: hidden; display: flex; flex-direction: column; }
 .amon-chart-panel canvas { width: 100% !important; height: 100% !important; }
 .amon-chart-hdr { display:flex; justify-content:space-between; align-items:center; padding:4px 8px; background:#0c0c14; font-size:9px; color:#555; }
 /* amon-chart-btn: inline styles used instead — see _algoOpenMonitor */
 /* Toast */
-.algo-toast { position: fixed; bottom: 18px; right: 18px; z-index: 9500; max-width: 380px; background: #2a2000; border: 1px solid #3a3000; border-radius: 6px; padding: 10px 16px; color: #d4a017; font-size: 11px; animation: toast-in .3s ease; }
+.algo-toast { position: fixed; bottom: 18px; right: 18px; z-index: 200; max-width: 380px; background: #2a2000; border: 1px solid #3a3000; border-radius: 6px; padding: 10px 16px; color: #d4a017; font-size: 11px; animation: toast-in .3s ease; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ── Blotter ── */
@@ -446,7 +446,7 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 
 /* ── Instrument Picker ─────────────────────────────────────── */
 .ip-box {
-  position: fixed; z-index: 9100; background: #0d0d0f;
+  position: fixed; z-index: 150; background: #0d0d0f;
   border: 1px solid #1a1a2e; border-radius: 8px;
   width: 320px; max-height: 440px;
   display: flex; flex-direction: column; overflow: hidden;
@@ -621,7 +621,7 @@ tr:hover td { background: #111118; }
    ORDER MODAL
 ══════════════════════════════════════════ */
 .order-overlay {
-  position: fixed; inset: 0; z-index: 8000;
+  position: fixed; inset: 0; z-index: 100;
   background: rgba(0,0,0,0.55);
   pointer-events: auto;
 }
@@ -631,7 +631,7 @@ tr:hover td { background: #111118; }
   background: #0f0f14; border: 1px solid #1a1a28; border-radius: 10px;
   width: 340px; box-shadow: 0 16px 48px rgba(0,0,0,0.85);
   display: flex; flex-direction: column; overflow: hidden;
-  z-index: 8001;
+  z-index: 101;
 }
 .order-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -712,7 +712,7 @@ tr:hover td { background: #111118; }
 .panel.locked { box-shadow: 0 0 0 1px rgba(240,160,32,0.35), 0 4px 20px rgba(0,0,0,0.6); }
 /* Exchange dropdown */
 .exch-dd {
-  position: fixed; z-index: 9300;
+  position: fixed; z-index: 150;
   background: #0d0d0f; border: 1px solid #1a1a2e; border-radius: 6px;
   width: 148px; box-shadow: 0 8px 24px rgba(0,0,0,0.9); overflow: hidden;
 }
@@ -731,7 +731,7 @@ tr:hover td { background: #111118; }
 .exch-dd-tn-note.okx { color: #2a4a62; }
 /* Tile settings popover */
 .tile-settings-pop {
-  position: fixed; z-index: 9300;
+  position: fixed; z-index: 150;
   background: #0d0d0f; border: 1px solid #1a1a2e; border-radius: 8px;
   width: 190px; box-shadow: 0 8px 24px rgba(0,0,0,0.9); padding: 12px;
 }
@@ -867,7 +867,7 @@ canvas.clickable { cursor: crosshair; }
 .ocol-rfq-old-removed { display: none; }
 
 .rfq-overlay {
-  position: fixed; inset: 0; z-index: 8200;
+  position: fixed; inset: 0; z-index: 100;
   background: rgba(0,0,0,0.55);
 }
 .rfq-box {
@@ -876,7 +876,7 @@ canvas.clickable { cursor: crosshair; }
   background: #0f0f14; border: 1px solid #1a1a30; border-radius: 10px;
   width: 380px; max-height: 82vh;
   box-shadow: 0 16px 48px rgba(0,0,0,0.9);
-  display: flex; flex-direction: column; overflow: hidden; z-index: 8201;
+  display: flex; flex-direction: column; overflow: hidden; z-index: 101;
 }
 .rfq-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -1135,6 +1135,19 @@ canvas.clickable { cursor: crosshair; }
       <div class="algo-side-toggle">
         <button id="algo-f-buy" class="buy-active">BUY</button>
         <button id="algo-f-sell">SELL</button>
+      </div>
+      <div id="algo-vwap-fields" style="display:none">
+        <label style="font-size:10px;color:#555">VWAP Mode
+          <select id="algo-f-vwapMode" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px">
+            <option value="realtime">Real-time VWAP</option>
+            <option value="benchmark">Benchmark VWAP</option>
+            <option value="historical">Historical Profile</option>
+          </select>
+        </label>
+      </div>
+      <div id="algo-iceberg-fields" style="display:none;gap:8px">
+        <label style="flex:1;font-size:10px;color:#555">Visible size (per slice)<input id="algo-f-visibleSize" type="number" value="10" min="0.001" step="any" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
+        <label style="flex:1;font-size:10px;color:#555">Size variance %<input id="algo-f-visibleVariancePct" type="number" value="20" min="0" max="50" step="1" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
       </div>
       <div style="display:flex;gap:8px">
         <label id="algo-duration-field" style="flex:1;font-size:10px;color:#555">Duration (mins or end time e.g. 16:00)<input id="algo-f-duration" type="text" value="30" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="30"></label>
@@ -5417,7 +5430,7 @@ function openVaultUnlockDropdown() {
   const rect = lockBtn.getBoundingClientRect();
   dd = document.createElement('div');
   dd.id = 'vault-unlock-dropdown';
-  dd.style.cssText = `position:fixed;top:${rect.bottom+4}px;left:${rect.left}px;z-index:9100;background:#0a0a10;border:1px solid #1e1e28;border-radius:6px;padding:10px;width:220px;box-shadow:0 8px 24px rgba(0,0,0,.6)`;
+  dd.style.cssText = `position:fixed;top:${rect.bottom+4}px;left:${rect.left}px;z-index:150;background:#0a0a10;border:1px solid #1e1e28;border-radius:6px;padding:10px;width:220px;box-shadow:0 8px 24px rgba(0,0,0,.6)`;
   dd.innerHTML = `<div style="font-size:10px;color:#666;margin-bottom:6px">Unlock API vault</div>
     <input id="vault-dd-pw" type="password" placeholder="Vault password" style="width:100%;font-size:11px;padding:5px 8px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-bottom:6px">
     <button id="vault-dd-go" style="width:100%;padding:5px;background:#10102a;border:1px solid #4444aa;border-radius:4px;color:#99f;cursor:pointer;font-size:11px;font-family:inherit">Unlock</button>
@@ -7001,7 +7014,7 @@ function initBlotter() {
   }
 
   // Params handled by simple view — skip in advanced panel
-  const SIMPLE_KEYS = new Set(['venue','startMode','startScheduled','durationMode','durationMinutes','endTime','urgency']);
+  const SIMPLE_KEYS = new Set(['venue','startMode','startScheduled','durationMode','durationMinutes','endTime','urgency','visibleSize','visibleVariancePct','vwapMode','duration','urgencyBias']);
 
   function _renderParams() {
     const container = document.getElementById('algo-dynamic-params');
@@ -7009,7 +7022,11 @@ function initBlotter() {
     if (!cfg?.params) { container.innerHTML = ''; return; }
     // Show/hide Duration field (TWAP only — POV has no duration)
     const durField = document.getElementById('algo-duration-field');
-    if (durField) durField.style.display = _algoType === 'TWAP' ? '' : 'none'; // Duration only for TWAP
+    if (durField) durField.style.display = (_algoType === 'TWAP' || _algoType === 'VWAP' || _algoType === 'IS') ? '' : 'none';
+    const iceFields = document.getElementById('algo-iceberg-fields');
+    if (iceFields) iceFields.style.display = _algoType === 'ICEBERG' ? 'flex' : 'none';
+    const vwapFields = document.getElementById('algo-vwap-fields');
+    if (vwapFields) vwapFields.style.display = _algoType === 'VWAP' ? '' : 'none';
     const inputStyle = 'font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;width:100%';
     // Only render advanced params (not handled by simple fields)
     const advParams = cfg.params.filter(p => !SIMPLE_KEYS.has(p.key));
@@ -7068,6 +7085,26 @@ function initBlotter() {
     // Read simple fields
     out.venue = _algoExchange;
     out.urgency = _algoUrgency;
+
+    // VWAP simple fields
+    if (_algoType === 'VWAP') {
+      out.vwapMode = document.getElementById('algo-f-vwapMode')?.value || 'realtime';
+      // VWAP uses the Duration field for its duration
+      const vDur = (document.getElementById('algo-f-duration')?.value || '30').trim();
+      out.duration = vDur;
+    }
+
+    // IS uses the Duration field
+    if (_algoType === 'IS') {
+      const isDur = (document.getElementById('algo-f-duration')?.value || '30').trim();
+      out.duration = isDur;
+    }
+
+    // Iceberg simple fields
+    if (_algoType === 'ICEBERG') {
+      out.visibleSize = parseFloat(document.getElementById('algo-f-visibleSize')?.value) || 10;
+      out.visibleVariancePct = parseFloat(document.getElementById('algo-f-visibleVariancePct')?.value) || 20;
+    }
 
     // Parse duration field — auto-detect minutes vs HH:MM
     const durVal = (document.getElementById('algo-f-duration')?.value || '30').trim();
@@ -7270,7 +7307,7 @@ function initBlotter() {
     try { await fetch(TCA_BASE + '/api/algo/' + ep + '/' + sid, { method: 'POST' }); _pollAlgos(); } catch {}
   };
 
-  // ── Floating monitor panel — live execution dashboard ─────────────────────
+  // ── Monitor panel — integrated into panel grid layout ────────────────────
   window._algoOpenMonitor = function(sid, { centre = false } = {}) {
     if (_monitors.has(sid)) return;
     const s = blotterData.algos[sid] || {};
@@ -7283,7 +7320,8 @@ function initBlotter() {
       const saved = localStorage.getItem('algo-mon-' + sid);
       pos = saved ? JSON.parse(saved) : { top: 80 + _monitors.size * 30, left: window.innerWidth - 510 };
     }
-    el.style.top = pos.top + 'px'; el.style.left = pos.left + 'px';
+    el.style.position = 'absolute';
+    el.style.top = (pos.top || pos.y || 10) + 'px'; el.style.left = (pos.left || pos.x || 10) + 'px';
     el.id = 'algo-mon-' + sid;
     el.innerHTML = `
       <div class="algo-monitor-hdr" data-sid="${sid}">
@@ -7295,7 +7333,7 @@ function initBlotter() {
         </div>
       </div>
       <div class="algo-monitor-body" id="algo-mon-body-${sid}"></div>`;
-    document.getElementById('algo-monitors').appendChild(el);
+    document.getElementById('panels-canvas').appendChild(el);
     _monitors.set(sid, el);
 
     // Create CHART button programmatically with inline styles
@@ -7429,6 +7467,15 @@ function initBlotter() {
             : s.type === 'ICEBERG'
             ? `<span style="color:#555">Slice: <span style="color:#ccc">${s.slicesFired||0} fired · ${s.currentSliceSize?formatNum(s.currentSliceSize,2)+' resting':'waiting'}</span></span>
                <span style="color:#555">Detection: <span style="color:${(s.detectionScore||0)<30?'#00c896':(s.detectionScore||0)<70?'#ccaa44':'#e05252'}">${s.detectionScore||0}/100 ${(s.detectionScore||0)<30?'Low':(s.detectionScore||0)<70?'Medium':'High'}</span>${s.chaseRequired?' · <span style="color:#ccaa44">chasing</span>':''}</span>`
+            : s.type === 'VWAP'
+            ? `<span style="color:#555">VWAP: <span style="color:#ccc">$${s.rollingVwap?s.rollingVwap.toFixed(pxD):'—'} <span style="font-size:8px;color:#7F77DD">${s.vwapMode||'realtime'}</span></span></span>
+               <span style="color:#555">Dev: <span style="color:${Math.abs(s.deviationFromVwap||0)<10?'#00c896':'#ccaa44'}">${(s.deviationFromVwap||0).toFixed(1)}bps ${s.inParticipationBand?'✓ in band':'outside band'}</span></span>`
+            : s.type === 'SNIPER'
+            ? `<span style="color:#555">Target: <span style="color:${s.triggered?'#00c896':'#ccaa44'}">$${s.targetPrice?.toFixed(pxD)||'—'} ${s.triggered?'TRIGGERED':'waiting'}</span></span>
+               <span style="color:#555">Distance: <span style="color:${Math.abs(s.distanceBps||0)<5?'#00c896':'#ccc'}">${(s.distanceBps||0).toFixed(1)} bps ${s.triggerCondition||''}</span></span>`
+            : s.type === 'IS'
+            ? `<span style="color:#555">IS cost: <span style="color:${(s.totalIsCost||0)<=0?'#00c896':'#e05252'};font-weight:700">${(s.totalIsCost||0).toFixed(1)} bps</span> <span style="font-size:8px;color:#666">(timing ${(s.timingCost||0).toFixed(1)} + impact ${(s.marketImpactCost||0).toFixed(1)})</span></span>
+               <span style="color:#555">Rate: <span style="color:#ccc">${((s.optimalRate||0)*100).toFixed(0)}% ${s.currentUrgency||''}</span> · Vol: <span style="color:#ccc">${((s.estimatedVolatility||0)*100).toFixed(2)}%</span></span>`
             : `<span style="color:#555">Schedule: <span style="color:#ccc">${schedTxt}${nextSec>0&&state==='RUNNING'?' · next '+nextSec+'s':''}</span></span>
                <span style="color:${onSch?'#00c896':'#ccaa44'};font-size:9px">${onSch?'On schedule':'Behind '+behindQty.toFixed(2)}</span>`
           }
@@ -7476,6 +7523,7 @@ function initBlotter() {
     const el = _monitors.get(sid);
     if (el) { el.remove(); _monitors.delete(sid); }
     _closeChart(sid);
+    setTimeout(updateAreaSize, 50);
   };
 
   // ── Execution chart panel ─────────────────────────────────────────────────
@@ -7496,11 +7544,13 @@ function initBlotter() {
     const monRect = monEl.getBoundingClientRect();
 
     const panel = document.createElement('div');
-    panel.className = 'amon-chart-panel';
+    panel.className = 'panel amon-chart-panel';
     panel.id = 'amon-chart-' + sid;
-    panel.style.top = monRect.top + 'px';
-    panel.style.left = (monRect.right + 4) + 'px';
-    panel.style.height = monRect.height + 'px';
+    panel.style.position = 'absolute';
+    // Position to the right of the monitor panel
+    panel.style.top = monEl.offsetTop + 'px';
+    panel.style.left = (monEl.offsetLeft + monEl.offsetWidth + 8) + 'px';
+    panel.style.height = monEl.offsetHeight + 'px';
     panel.style.width = '320px';
 
     // ResizeObserver: sync chart height to monitor height
@@ -7518,7 +7568,7 @@ function initBlotter() {
     </div>
     <div style="padding:4px;flex:1;position:relative;min-height:0"><canvas id="amon-chart-canvas-${sid}"></canvas></div>`;
 
-    document.getElementById('algo-monitors').appendChild(panel);
+    document.getElementById('panels-canvas').appendChild(panel);
 
     // Drag
     const hdr = panel.querySelector('.amon-chart-hdr');
@@ -7526,8 +7576,8 @@ function initBlotter() {
     hdr.addEventListener('mousedown', e => {
       if (e.target.tagName === 'BUTTON') return;
       hdr.style.cursor = 'grabbing';
-      const ox = e.clientX - panel.getBoundingClientRect().left;
-      const oy = e.clientY - panel.getBoundingClientRect().top;
+      const ox = e.clientX - panel.offsetLeft;
+      const oy = e.clientY - panel.offsetTop;
       function mv(ev) { panel.style.left = (ev.clientX - ox) + 'px'; panel.style.top = (ev.clientY - oy) + 'px'; }
       function up() { hdr.style.cursor = 'grab'; document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); }
       document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
@@ -7569,6 +7619,8 @@ function initBlotter() {
             rotation: [], backgroundColor: [], borderColor: [], borderWidth: 1 },
           { label: 'Volume', data: [], type: 'bar', yAxisID: 'y2',
             backgroundColor: 'rgba(55,138,221,0.15)', borderWidth: 0, barThickness: 2, maxBarThickness: 3 },
+          { label: 'VWAP', data: [], borderColor: '#7F77DD', borderWidth: 1, borderDash: [3,3], pointRadius: 0, tension: 0 },
+          { label: 'Target', data: [], borderColor: '#ccaa44', borderWidth: 1, borderDash: [5,3], pointRadius: 0, tension: 0 },
         ],
       },
       options: {
@@ -7617,9 +7669,19 @@ function initBlotter() {
       const volBars = s.chartVolBars || [];
       if (chart.data.datasets[4] && volBars.length) {
         const maxVol = Math.max(...volBars, 1);
-        // Scale: y2 max = maxVol * 5 so bars fill ~20% of height
         chart.data.datasets[4].data = volBars.map((v,i) => ({ x: times[i], y: v }));
         chart.options.scales.y2.max = maxVol * 5;
+      }
+      // VWAP line (dataset index 5) — purple dashed
+      const vwapLine = s.chartVwap || [];
+      if (chart.data.datasets[5] && vwapLine.length) {
+        chart.data.datasets[5].data = vwapLine.map((v,i) => v ? { x: times[i], y: v } : null).filter(Boolean);
+      }
+      // Target price line (dataset index 6) — amber, turns green when triggered
+      if (chart.data.datasets[6] && s.chartTargetPrice && times.length >= 2) {
+        const tp = s.chartTargetPrice;
+        chart.data.datasets[6].data = [{ x: times[0], y: tp }, { x: times[times.length-1], y: tp }];
+        chart.data.datasets[6].borderColor = s.triggered ? '#00c896' : '#ccaa44';
       }
 
       // Fills as scatter points — always render ALL fills

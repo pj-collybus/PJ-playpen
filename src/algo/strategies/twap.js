@@ -41,6 +41,7 @@ const config = {
     { key: 'urgency',             label: 'Urgency',                type: 'select', options: [{value:'passive',label:'Passive'},{value:'neutral',label:'Neutral'},{value:'aggressive',label:'Aggressive'}], default: 'passive' },
     // Participation
     { key: 'maxParticipationPct', label: 'Max participation %',    type: 'number', default: 15, min: 1, max: 100 },
+    { key: 'maxSpreadBps',       label: 'Max spread (bps)',       type: 'number', default: 50, min: 0 },
   ],
 };
 
@@ -76,7 +77,7 @@ function _parseTime(str) {
 
 function _rand(min, max) { return min + Math.random() * (max - min); }
 
-const MAX_SPREAD_BPS = 50;    // auto-pause if spread > 50bps
+const DEFAULT_MAX_SPREAD_BPS = 50;
 const STALE_DATA_MS = 10000;  // auto-pause if no data for 10s
 const CHASE_DELAY_MIN = 3000;
 const CHASE_DELAY_MAX = 7000;
@@ -119,6 +120,7 @@ class TWAPStrategy {
     // Urgency
     this._urgency           = params.urgency || 'passive';
     this._maxParticipation  = params.maxParticipationPct || 15;
+    this._maxSpreadBps      = params.maxSpreadBps || DEFAULT_MAX_SPREAD_BPS;
     this._tickSize          = params.tickSize || 0.0001;
     this._activated         = false;
 
@@ -351,8 +353,8 @@ class TWAPStrategy {
     // ── Auto-pause checks ─────────────────────────────────────────────────
     if (this.status === 'RUNNING') {
       // Spread check
-      if (mid > 0 && marketData.spreadBps > MAX_SPREAD_BPS) {
-        this.status = 'PAUSED'; this.pauseReason = `Spread ${marketData.spreadBps.toFixed(0)}bps > ${MAX_SPREAD_BPS}bps`;
+      if (mid > 0 && marketData.spreadBps > this._maxSpreadBps) {
+        this.status = 'PAUSED'; this.pauseReason = `Spread ${marketData.spreadBps.toFixed(0)}bps > ${this._maxSpreadBps}bps`;
         console.log(`[twap] Auto-paused: ${this.pauseReason}`);
         return;
       }
@@ -371,7 +373,7 @@ class TWAPStrategy {
 
     // ── Auto-resume ───────────────────────────────────────────────────────
     if (this.status === 'PAUSED' && this.pauseReason !== 'manual') {
-      const spreadOk = !mid || marketData.spreadBps <= MAX_SPREAD_BPS;
+      const spreadOk = !mid || marketData.spreadBps <= this._maxSpreadBps;
       if (spreadOk) { this.status = 'RUNNING'; this.pauseReason = null; console.log('[twap] Auto-resumed'); }
     }
 
