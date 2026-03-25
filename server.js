@@ -348,7 +348,7 @@ app.post('/api/risk/check', (req, res) => {
 
 app.get('/api/risk/headroom', (req, res) => {
   try {
-    const { symbol, accountId } = req.query;
+    const { symbol, exchange, accountId } = req.query;
     const limits = require('./src/config/riskLimits');
     const d = limits.default;
     const s = limits.symbols?.[symbol] || {};
@@ -363,7 +363,8 @@ app.get('/api/risk/headroom', (req, res) => {
     for (const n of Object.values(state.openNotional)) totalNotional += n;
     const notionalHeadroom = cfg.maxTotalNotional - totalNotional;
 
-    const unit = symbol ? symbol.split('-')[0] : '';
+    const { getBaseCurrency } = require('./src/adapters/orderInterface');
+    const unit = symbol ? getBaseCurrency(exchange || 'DERIBIT', symbol) : '';
     res.json({
       positionHeadroom: Math.max(0, posHeadroom),
       positionUnit:     unit,
@@ -382,6 +383,29 @@ const blotterService = require('./src/services/blotterService');
 app.get('/api/blotter', (req, res) => {
   const { venue } = req.query;
   res.json(blotterService.getSnapshot(venue || undefined));
+});
+
+app.get('/api/positions/consolidated', async (req, res) => {
+  try {
+    const cps = require('./src/services/consolidatedPositionService');
+    const view = await cps.getConsolidatedView();
+    res.json(view);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/positions/all', (req, res) => {
+  try {
+    const cps = require('./src/services/consolidatedPositionService');
+    const { venue } = req.query;
+    res.json(cps.getAllPositions(venue || undefined));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/prices/oracle', (req, res) => {
+  try {
+    const po = require('./src/services/priceOracle');
+    res.json(po.stats());
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Trigger private channel auth for all exchanges with credentials
@@ -800,6 +824,38 @@ function spawnAlgoWorker() {
         // TODO: wire to orderService.cancel() when child order tracking is implemented
         break;
 
+      case 'SIMULATED_FILL': {
+        // Publish simulated fill to blotter — normalise venue to uppercase
+        const venue = (msg.venue || 'UNKNOWN').toUpperCase();
+        console.log(`[algo] Simulated fill: ${msg.symbol} ${msg.side} ${msg.fillSize} @ ${msg.fillPrice}`);
+        publish(Topics.FILLS, {
+          fillId: 'sim-' + msg.intentId, orderId: msg.intentId,
+          venue, symbol: msg.symbol,
+          side: msg.side, fillPrice: msg.fillPrice, fillSize: msg.fillSize,
+          fillTs: Date.now(), receivedTs: Date.now(),
+          commission: 0, commissionAsset: '', slippageBps: 0, arrivalMid: 0,
+          simulated: true,
+        }, msg.symbol).catch(() => {});
+        // Update position — read existing and adjust size
+        const posKey = `${venue}::${msg.symbol}`;
+        const existingPos = blotterService.getPositions().find(p => p.venue === venue && p.symbol === msg.symbol);
+        const curSize = existingPos?.size || 0;
+        const curSide = existingPos?.side || 'FLAT';
+        const fillSigned = msg.side === 'BUY' ? msg.fillSize : -msg.fillSize;
+        const prevSigned = curSide === 'LONG' ? curSize : curSide === 'SHORT' ? -curSize : 0;
+        const newSigned = prevSigned + fillSigned;
+        const newSide = newSigned > 0 ? 'LONG' : newSigned < 0 ? 'SHORT' : 'FLAT';
+        publish(Topics.POSITIONS, {
+          venue, symbol: msg.symbol, side: newSide,
+          size: Math.abs(newSigned),
+          sizeUnit: existingPos?.sizeUnit || msg.symbol.replace(/USD.*|USDT$|USDC$/, ''),
+          avgEntryPrice: msg.fillPrice, markPrice: msg.fillPrice,
+          unrealisedPnl: 0, liquidationPrice: 0,
+          timestamp: Date.now(), simulated: true,
+        }, msg.symbol).catch(() => {});
+        break;
+      }
+
       case 'STRATEGY_CONFIGS':
         _algoConfigs = msg.configs || [];
         console.log(`[algo] Received ${_algoConfigs.length} strategy configs from worker`);
@@ -819,6 +875,14 @@ function spawnAlgoWorker() {
   });
 
   _algoWorker = worker;
+
+  // Send simulated fill venues config
+  const venues = require('./src/config/venues');
+  const simVenues = Object.keys(venues).filter(k => venues[k].simulateFills);
+  if (simVenues.length) {
+    setTimeout(() => worker.postMessage({ type: 'SET_SIM_VENUES', venues: simVenues }), 500);
+  }
+
   return worker;
 }
 
@@ -859,8 +923,12 @@ async function _handleOrderIntent(intent) {
       limitPrice:  intent.limitPrice,
       orderType:   intent.orderType || 'LIMIT',
       algoType:    intent.algoType || 'ALGO',
-      parentOrderId: intent.strategyId,
-      metadata:    { source: 'algo', strategyId: intent.strategyId, intentId: intent.intentId },
+      parentOrderId: intent.parentOrderId || intent.strategyId,
+      metadata:    {
+        source: 'algo', strategyId: intent.strategyId, intentId: intent.intentId,
+        shortId: intent.shortId, parentOrderId: intent.parentOrderId,
+        sliceNumber: intent.sliceNumber,
+      },
     });
     console.log(`[algo] ORDER_INTENT ${intent.intentId} submitted as order ${order.orderId}`);
   } catch (err) {
@@ -901,6 +969,11 @@ async function _wireAlgoDataFeeds() {
   });
   await busSubscribe('orders.fills', 'algo-engine-fills', async (event) => {
     if (_algoWorker) _algoWorker.postMessage({ type: 'FILL_DATA', payload: event });
+  });
+  await busSubscribe('orders.state', 'algo-engine-orders', async (event) => {
+    if (_algoWorker && (event.state === 'REJECTED' || event.state === 'CANCELLED')) {
+      _algoWorker.postMessage({ type: 'ORDER_UPDATE', payload: event });
+    }
   });
 }
 
@@ -952,6 +1025,23 @@ app.post('/api/algo/resume/:strategyId', (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// Acceleration: immediately execute remaining qty aggressively
+app.post('/api/algo/accelerate/:strategyId', (req, res) => {
+  try {
+    const { quantity } = req.body;
+    _sendToWorker({ type: 'ACCELERATE', strategyId: req.params.strategyId, quantity: parseFloat(quantity) || 0 });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Browser pushes live market data for active algo strategies
+app.post('/api/algo/market-data', (req, res) => {
+  try {
+    if (_algoWorker) _algoWorker.postMessage({ type: 'MARKET_DATA', payload: req.body });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/algo/status', async (req, res) => {
@@ -1041,6 +1131,10 @@ async function startDataPipeline() {
     await tickStore.start();
     await tcaService.start();
     await blotterService.start();
+    const priceOracle = require('./src/services/priceOracle');
+    await priceOracle.start();
+    const consolidatedPositionService = require('./src/services/consolidatedPositionService');
+    await consolidatedPositionService.start();
     await startDataQuality();
 
     const kafkaMode = useRealKafka ? 'real' : 'stub';

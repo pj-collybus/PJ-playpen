@@ -216,6 +216,8 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 .algo-side-toggle .sell-active { background: #1a0a0a; border-color: #cc3333; color: #cc3333; }
 .algo-review { background: #0c0c18; border: 1px solid #1a1a2a; border-radius: 6px; padding: 8px 12px; font-size: 11px; color: #888; display: none; }
 .algo-review strong { color: #ccc; }
+.algo-tip { position:relative; cursor:help; color:#555; font-size:9px; }
+.algo-tip:hover::after { content:attr(data-tip); position:absolute; bottom:120%; left:50%; transform:translateX(-50%); background:#1a1a22; color:#ccc; font-size:9px; padding:6px 8px; border-radius:4px; border:1px solid #333; max-width:220px; white-space:normal; z-index:100; line-height:1.3; box-shadow:0 4px 12px rgba(0,0,0,.5); }
 .algo-launch-btn { padding: 8px; background: #10102a; border: 1px solid #4444aa; border-radius: 5px; color: #99f; cursor: pointer; font-size: 11px; font-weight: 700; font-family: inherit; width: 100%; }
 .algo-launch-btn:hover { background: #1a1a3a; color: #ccf; }
 .algo-launch-btn:disabled { opacity: .4; cursor: default; }
@@ -231,20 +233,57 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 .algo-mon-btn { background: none; border: 1px solid #222244; border-radius: 3px; color: #6666cc; cursor: pointer; font-size: 10px; padding: 2px 6px; font-family: inherit; }
 .algo-mon-btn:hover { color: #99f; border-color: #4444aa; }
 /* Floating monitor panel */
-.algo-monitor { position: fixed; z-index: 8500; width: 280px; background: #0a0a10; border: 1px solid #1a1a22; border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.6); display: flex; flex-direction: column; overflow: hidden; }
-.algo-monitor.status-RUNNING { border-left: 3px solid #22cc66; }
-.algo-monitor.status-PAUSED  { border-left: 3px solid #cc9900; }
-.algo-monitor.status-ERROR   { border-left: 3px solid #cc3333; }
+.algo-monitor { position: fixed; z-index: 8500; min-width: 480px; max-width: 560px; height: 380px; max-height: 80vh; background: #0a0a10; border: 1px solid #1a1a22; border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.6); display: flex; flex-direction: column; overflow: hidden; }
+.algo-monitor.status-RUNNING   { border-left: 3px solid #22cc66; }
+.algo-monitor.status-PAUSED    { border-left: 3px solid #cc9900; }
+.algo-monitor.status-ERROR     { border-left: 3px solid #cc3333; }
+.algo-monitor.status-STOPPED   { border-left: 3px solid #555; }
+.algo-monitor.status-COMPLETED { border-left: 3px solid #4488ff; }
+.algo-monitor.status-WAITING   { border-left: 3px solid #555; }
+.algo-monitor.status-COMPLETING { border-left: 3px solid #4488ff; }
+.amon-status-COMPLETING { background:#081428; color:#4488ff; border:1px solid #223366; }
+.amon-status-pill { display:inline-block; font-size:8px; padding:1px 6px; border-radius:3px; font-weight:700; }
+.amon-status-RUNNING   { background:#0a1a0a; color:#22cc66; border:1px solid #114411; }
+.amon-status-PAUSED    { background:#1a1400; color:#ccaa00; border:1px solid #664400; }
+.amon-status-STOPPED   { background:#111; color:#666; border:1px solid #333; }
+.amon-status-COMPLETED { background:#081428; color:#4488ff; border:1px solid #223366; }
+.amon-status-WAITING   { background:#111; color:#888; border:1px solid #333; }
+.amon-status-ERROR     { background:#1a0808; color:#cc3333; border:1px solid #441111; }
+@keyframes amon-complete-flash { 0%{background:#0a2a0a}50%{background:#1a4a1a}100%{background:#0a2a0a} }
+.amon-complete-flash .algo-progress-fill { animation: amon-complete-flash 1s ease; }
 .algo-monitor-hdr { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: #0c0c14; cursor: grab; user-select: none; flex-shrink: 0; }
 .algo-monitor-hdr:active { cursor: grabbing; }
 .algo-monitor-title { font-size: 10px; font-weight: 700; color: #999; }
 .algo-monitor-btns { display: flex; gap: 4px; }
 .algo-monitor-btns button { background: none; border: none; color: #555; cursor: pointer; font-size: 11px; padding: 0 3px; font-family: inherit; }
 .algo-monitor-btns button:hover { color: #ccc; }
-.algo-monitor-body { padding: 8px 10px; font-size: 11px; }
+.algo-monitor-body { padding: 0; font-size: 11px; overflow-y: auto; flex: 1; min-height: 0; }
 .algo-monitor-body dt { color: #555; font-weight: 600; }
 .algo-monitor-body dd { color: #ccc; margin-bottom: 4px; }
 .algo-monitor.minimised .algo-monitor-body { display: none; }
+.amon-section { padding: 4px 10px; border-bottom: 1px solid #111; }
+.amon-section:last-child { border-bottom: none; }
+.amon-market { display: flex; gap: 8px; align-items: center; font-variant-numeric: tabular-nums; }
+.amon-bid { color: #00c896; font-weight: 600; }
+.amon-ask { color: #e05252; font-weight: 600; }
+.amon-spread { color: #444; font-size: 9px; }
+.amon-active-order { background: #0e0e1a; border: 1px solid #2a2a44; border-radius: 4px; padding: 5px 8px; margin: 4px 0; font-size: 10px; }
+.amon-child-tbl { width: 100%; border-collapse: collapse; font-size: 9px; }
+.amon-child-tbl th { color: #444; font-weight: 600; text-transform: uppercase; padding: 3px 6px; text-align: left; position: sticky; top: 0; background: #0a0a10; }
+.amon-child-tbl td { padding: 2px 6px; color: #555; border-bottom: 1px solid #0d0d12; }
+.amon-child-tbl tr.child-filled td { color: #00c896; }
+.amon-child-tbl tr.child-open td { color: #6688ff; }
+.amon-child-tbl tr.child-cancelled td { color: #333; }
+.amon-child-tbl tr.child-rejected td { color: #cc3333; }
+.amon-accel { display: flex; gap: 4px; align-items: center; }
+.amon-accel input { width: 60px; font-size: 10px; padding: 3px 5px; background: #0d0d14; border: 1px solid #1e1e28; border-radius: 3px; color: #ccc; font-family: inherit; }
+.amon-accel-btn { font-size: 9px; padding: 3px 8px; background: #2a1a00; border: 1px solid #664400; border-radius: 3px; color: #ccaa44; cursor: pointer; font-family: inherit; }
+.amon-accel-btn:hover { background: #3a2800; color: #eebb44; }
+.amon-pause-bar { background: #1a1400; color: #ccaa44; font-size: 9px; padding: 3px 10px; text-align: center; }
+.amon-chart-panel { position: fixed; z-index: 8500; width: 320px; background: #0a0a10; border: 1px solid #1a1a22; border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.6); overflow: hidden; display: flex; flex-direction: column; }
+.amon-chart-panel canvas { width: 100% !important; height: 100% !important; }
+.amon-chart-hdr { display:flex; justify-content:space-between; align-items:center; padding:4px 8px; background:#0c0c14; font-size:9px; color:#555; }
+/* amon-chart-btn: inline styles used instead — see _algoOpenMonitor */
 /* Toast */
 .algo-toast { position: fixed; bottom: 18px; right: 18px; z-index: 9500; max-width: 380px; background: #2a2000; border: 1px solid #3a3000; border-radius: 6px; padding: 10px 16px; color: #d4a017; font-size: 11px; animation: toast-in .3s ease; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
@@ -278,6 +317,22 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 .bl-period-pill:hover { color: #888; border-color: #333; }
 .bl-period-pill.active { background: #1a1a28; color: #8888cc; border-color: #333; }
 .bl-loading { text-align: center; padding: 20px; color: #444; font-size: 11px; }
+.bl-consol-summary { display:flex; gap:16px; padding:6px 12px; font-size:10px; color:#666; border-bottom:1px solid #1a1a22; background:#08080e; align-items:center; flex-wrap:wrap; }
+.bl-consol-summary .cs-label { color:#444; text-transform:uppercase; letter-spacing:0.05em; }
+.bl-consol-summary .cs-val { font-variant-numeric:tabular-nums; font-weight:600; }
+.bl-parent-row td { background:#0c0c14 !important; cursor:pointer; }
+.bl-parent-row td:first-child { font-weight:700; }
+.bl-parent-row:hover td { background:#10101a !important; }
+.bl-child-row td { padding-left:24px !important; color:#555; }
+.bl-child-row td:first-child { border-left:2px solid #222; }
+.bl-settle-pill { font-size:8px; padding:1px 5px; border-radius:3px; font-weight:600; letter-spacing:0.03em; }
+.bl-settle-usdt { background:#1a1e08; color:#d4aa00; border:1px solid #333008; }
+.bl-settle-usdc { background:#081a1e; color:#00aacc; border:1px solid #003344; }
+.bl-settle-inv  { background:#1a0818; color:#cc66aa; border:1px solid #331133; }
+.bl-settle-qnt  { background:#1a1408; color:#ccaa44; border:1px solid #332808; }
+.bl-settle-usd  { background:#0a1a0a; color:#66aa66; border:1px solid #113311; }
+.bl-settle-unk  { background:#111; color:#555; border:1px solid #222; }
+.bl-arrow { display:inline-block; width:12px; color:#444; font-size:10px; }
 .bl-hist-err { font-size: 9px; color: #664444; padding: 2px 8px; }
 .bl-table td { padding: 4px 10px; color: #666; border-bottom: 1px solid #0d0d12; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .bl-table tr:hover td { background: #0f0f18; }
@@ -1070,18 +1125,35 @@ canvas.clickable { cursor: crosshair; }
     </div>
     <div class="order-type-tabs" id="algo-type-tabs"></div>
     <div class="order-body" style="padding:10px 14px;display:flex;flex-direction:column;gap:8px;">
+      <!-- Simple fields -->
       <div style="display:flex;gap:8px">
-        <label style="flex:1;font-size:10px;color:#555">Symbol<input id="algo-f-symbol" type="text" readonly style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
-        <label style="flex:1;font-size:10px;color:#555">Total Size<input id="algo-f-size" type="number" min="0" step="any" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
+        <label style="flex:1;font-size:10px;color:#555">Symbol<input id="algo-f-symbol" type="text" readonly style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#666;font-family:inherit;margin-top:2px"></label>
+        <label style="flex:1;font-size:10px;color:#555">Exchange<input id="algo-f-exchange" type="text" readonly style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#666;font-family:inherit;margin-top:2px"></label>
       </div>
+      <label style="font-size:10px;color:#555">Total Size<input id="algo-f-size" type="number" min="0" step="any" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
       <div id="algo-qty-presets" style="display:flex;gap:4px;flex-wrap:wrap"></div>
       <div class="algo-side-toggle">
         <button id="algo-f-buy" class="buy-active">BUY</button>
         <button id="algo-f-sell">SELL</button>
       </div>
-      <div id="algo-dynamic-params" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;"></div>
+      <div style="display:flex;gap:8px">
+        <label id="algo-duration-field" style="flex:1;font-size:10px;color:#555">Duration (mins or end time e.g. 16:00)<input id="algo-f-duration" type="text" value="30" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="30"></label>
+        <label style="flex:1;font-size:10px;color:#555">Start (blank = now, or +10m / 15:45)<input id="algo-f-start" type="text" value="" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="now"></label>
+      </div>
+      <!-- Urgency pills -->
+      <div style="font-size:10px;color:#555">Urgency <span class="algo-tip" data-tip="Passive: post at TOB, wait for fill. Neutral: post at mid, crosses half spread. Aggressive: cross spread immediately, guaranteed fill.">&#x24D8;</span></div>
+      <div id="algo-urgency-pills" style="display:flex;gap:4px">
+        <button class="bl-period-pill active" data-urg="passive" style="flex:1" title="Post at best bid/ask — wait for market to come to you. Cheapest but may not fill if market moves away.">Passive</button>
+        <button class="bl-period-pill" data-urg="neutral" style="flex:1" title="Post at mid price — crosses half the spread. Balanced fill rate and cost.">Neutral</button>
+        <button class="bl-period-pill" data-urg="aggressive" style="flex:1" title="Cross the spread immediately — guaranteed fill but pays full spread cost. Auto-activates in final 10% of window.">Aggressive</button>
+      </div>
+      <!-- Estimate + summary -->
       <div id="algo-estimate" style="font-size:10px;color:#555"></div>
       <div id="algo-review" class="algo-review"></div>
+      <!-- Advanced toggle -->
+      <a id="algo-adv-toggle" href="#" style="font-size:10px;color:#6666cc;text-decoration:none;text-align:center">+ Advanced</a>
+      <div id="algo-dynamic-params" style="display:none;grid-template-columns:1fr 1fr;gap:6px 10px;"></div>
+      <!-- Launch -->
       <div id="algo-modal-msg" style="font-size:10px;text-align:center;min-height:14px"></div>
       <button class="algo-launch-btn" id="algo-launch-btn">Launch</button>
       <div id="algo-risk-ref" style="font-size:9px;color:#333;text-align:center"></div>
@@ -1229,6 +1301,8 @@ canvas.clickable { cursor: crosshair; }
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script>
 // Server base URL — must be first so all fetch calls can use it
 const TCA_BASE = (location.protocol === 'file:') ? 'http://localhost:3000' : '';
@@ -1261,6 +1335,7 @@ const wsRequests = new Map(); // id → {resolve, reject}
 
 // ── Blotter state ─────────────────────────────────────────────────────────────
 const BL_TABS = [
+  { id:'consolidated',  label:'Consolidated' },
   { id:'trades',        label:'Trades' },
   { id:'orders',        label:'Orders' },
   { id:'positions',     label:'Positions' },
@@ -1283,14 +1358,41 @@ const blotterData = {
   alerts:          [],
   notifs:          [],
   balances:        { BTC:{}, ETH:{}, USDC:{} },
+  consolidated:    null, // populated from /api/positions/consolidated
 };
 const blotterBadge = {};
 BL_TABS.forEach(t => blotterBadge[t.id] = 0);
 const blotterSort = {};
+// Tick size cache for price formatting in blotters: 'exchange::symbol' → tickSize
+const _blotterTickSizes = new Map();
 BL_TABS.forEach(t => blotterSort[t.id] = { col:null, dir:'desc' });
 let blotterTab      = 'trades';
 let blotterPeriod   = 'today'; // 'today' | 'yesterday' | '7d'
 const PERIOD_TABS = ['trades','orders','opt-trades','opt-orders'];
+// Consolidated tab state
+const _consolExpanded = JSON.parse(localStorage.getItem('consol_expanded') || '{}'); // underlying → bool
+let _consolPollTimer = null;
+
+function _saveConsolExpanded() { localStorage.setItem('consol_expanded', JSON.stringify(_consolExpanded)); }
+
+async function _fetchConsolidated() {
+  try {
+    const r = await fetch(TCA_BASE + '/api/positions/consolidated');
+    if (!r.ok) return;
+    blotterData.consolidated = await r.json();
+    if (blotterExpanded && blotterTab === 'consolidated') renderBlotterTable();
+  } catch {}
+}
+
+function _startConsolPoll() {
+  if (_consolPollTimer) return;
+  _consolPollTimer = setInterval(_fetchConsolidated, 5000);
+  _fetchConsolidated(); // immediate first fetch
+}
+
+function _stopConsolPoll() {
+  if (_consolPollTimer) { clearInterval(_consolPollTimer); _consolPollTimer = null; }
+}
 const _histCache = new Map(); // `${tab}::${period}` → { data, fetchedAt }
 const HIST_CACHE_TTL = 5 * 60 * 1000; // 5 min
 let _histLoading = false;
@@ -1413,6 +1515,10 @@ async function loadInstruments() {
       const bp = b.instrument_name.includes('PERPETUAL') ? 0 : 1;
       return ap !== bp ? ap - bp : a.instrument_name.localeCompare(b.instrument_name);
     });
+    // Seed tick size cache from Deribit instruments
+    for (const i of instruments) {
+      if (i.tick_size) _blotterTickSizes.set(`Deribit::${i.instrument_name}`, i.tick_size);
+    }
   } catch(e) { console.error('loadInstruments:', e); }
 }
 
@@ -3873,6 +3979,7 @@ async function fetchInstrumentSpec(exchange, symbol) {
     if (!r.ok) return cached?.spec || null;
     const spec = await r.json();
     _specCache.set(key, { spec, fetchedAt: Date.now() });
+    if (spec.tickSize) _blotterTickSizes.set(key, spec.tickSize);
     console.log(`[spec] ${exchange} ${symbol}:`, { tickSize: spec.tickSize, lotSize: spec.lotSize, contractType: spec.contractType, baseCurrency: spec.baseCurrency });
     return spec;
   } catch { return cached?.spec || null; }
@@ -5295,6 +5402,8 @@ async function doVaultUnlock(pw, onSuccess, onError) {
         const startOfDay = new Date().setHours(0,0,0,0);
         fetchAndMergeHistory('trades', startOfDay, Date.now());
         fetchAndMergeHistory('orders', startOfDay, Date.now());
+        // Fetch consolidated positions immediately
+        _fetchConsolidated();
       }).catch(e => console.error('[vault] subscribe-private failed:', e.message));
     }
     onSuccess();
@@ -5764,6 +5873,7 @@ function renderBlotterTable() {
   } else {
     // Today (live data) or non-period tabs
     switch (blotterTab) {
+      case 'consolidated':  tableHTML = blotterConsolidatedHTML(); break;
       case 'trades':        tableHTML = blotterTradesHTML(blotterData.trades, 'trades'); break;
       case 'opt-trades':    tableHTML = blotterTradesHTML(blotterData['opt-trades'], 'opt-trades'); break;
       case 'orders':        tableHTML = blotterOrdersHTML(blotterData.orders, 'orders'); break;
@@ -5929,6 +6039,15 @@ async function _fetchHistory(tab, period) {
   renderBlotterTable();
 }
 
+// Price formatting using cached tick sizes — falls back to 4 decimals
+function blotterPriceFmt(price, exchange, instrument) {
+  if (price == null) return '—';
+  const key = `${exchange||''}::${instrument||''}`;
+  const ts = _blotterTickSizes.get(key);
+  const d = ts ? tickDecimals(ts) : 4;
+  return formatNum(price, d);
+}
+
 function blotterTH(col, label, tabId) {
   const s = blotterSort[tabId];
   const cls = s.col === col ? (s.dir === 'asc' ? 'sort-asc' : 'sort-desc') : '';
@@ -5963,9 +6082,9 @@ function blotterTradesHTML(rows, tabId) {
     return `<tr id="bl-row-${t.trade_id}">
       <td>${exchPill(t._exchange || 'Deribit')}</td>
       <td>${BL_TS(t.timestamp)}</td>
-      <td>${t.instrument_name||'—'}</td>
+      <td>${t.instrument_name||'—'}${t.simulated ? ' <span style="font-size:7px;color:#ccaa44;border:1px solid #664400;padding:0 3px;border-radius:2px">SIM</span>' : ''}</td>
       <td class="${sc}">${(t.direction||'').toUpperCase()}</td>
-      <td>${formatNum(t.amount, 4)}</td><td>${formatNum(t.price, 2)}</td>
+      <td>${formatNum(t.amount, 4)}</td><td>${blotterPriceFmt(t.price, t._exchange, t.instrument_name)}</td>
       <td>${formatNum(t.fee, 6)}</td>
       <td style="font-size:9px;color:#444">${t.order_id||'—'}</td>
       <td style="font-size:9px;color:#444">${t.trade_id||'—'}</td>
@@ -5976,12 +6095,25 @@ function blotterTradesHTML(rows, tabId) {
   return `<table class="bl-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
+// Expand/collapse state for algo parent orders
+const _algoOrderExpanded = JSON.parse(localStorage.getItem('algo_order_expanded') || '{}');
+
 function blotterOrdersHTML(ordersMap, tabId) {
   let rows = Array.isArray(ordersMap) ? ordersMap : Object.values(ordersMap);
-  rows = blotterSort[tabId].col ? blotterSortRows(rows, tabId) : rows.sort((a,b) => (b.last_update_timestamp||0)-(a.last_update_timestamp||0));
+  // Status priority: open/partial first, then by time
+  const _stPri = s => { const st = (s||'').toLowerCase(); return st === 'open' ? 0 : st === 'partial' || st === 'partially_filled' ? 1 : st === 'filled' ? 2 : 3; };
+  if (blotterSort[tabId].col) {
+    rows = blotterSortRows(rows, tabId);
+  } else {
+    rows.sort((a, b) => {
+      const pa = _stPri(a.order_state), pb = _stPri(b.order_state);
+      if (pa !== pb) return pa - pb;
+      return (b.last_update_timestamp||0) - (a.last_update_timestamp||0);
+    });
+  }
   if (!rows.length) return '<div class="bl-empty">No orders this session</div>';
   const head = [
-    '<th>Exch</th>',
+    '<th></th>', '<th>Exch</th>',
     blotterTH('creation_timestamp','Time',tabId), blotterTH('instrument_name','Instrument',tabId),
     blotterTH('order_type','Type',tabId),         blotterTH('direction','Side',tabId),
     blotterTH('amount','Amount',tabId),            blotterTH('filled_amount','Filled',tabId),
@@ -5989,26 +6121,96 @@ function blotterOrdersHTML(ordersMap, tabId) {
     blotterTH('order_state','Status',tabId),       blotterTH('order_id','Order ID',tabId),
     '<th></th>',
   ].join('');
-  const body = rows.map(o => {
-    const sc   = o.direction === 'buy' ? 'bl-green' : 'bl-red';
-    const isRejected = o.order_state === 'rejected' || o.order_state === 'cancelled';
-    const stc  = o.order_state === 'open' ? 'bl-st-open' : o.order_state === 'filled' ? 'bl-st-filled' : o.order_state === 'rejected' ? 'bl-st-rejected' : 'bl-st-cancelled';
-    const rem  = (o.amount||0) - (o.filled_amount||0);
-    const canc = o.order_state === 'open' ? `<button class="bl-cancel-btn" data-oid="${o.order_id}">✕</button>` : '';
+
+  // Group algo child orders under parent rows
+  const algoChildren = new Map(); // parentOrderId → [childOrders]
+  const standaloneRows = [];
+  for (const o of rows) {
+    const parentId = o._parentOrderId || o._metadata?.parentOrderId;
+    if (parentId) {
+      if (!algoChildren.has(parentId)) algoChildren.set(parentId, []);
+      algoChildren.get(parentId).push(o);
+    } else {
+      standaloneRows.push(o);
+    }
+  }
+
+  let body = '';
+  // Render algo parent rows from blotterData.algos
+  for (const [sid, s] of Object.entries(blotterData.algos || {})) {
+    const shortId = s.shortId || sid.substring(sid.length - 6);
+    const parentId = `TWAP-${shortId}`;
+    const children = algoChildren.get(parentId) || [];
+    if (children.length === 0 && !s.symbol) continue;
+    const expanded = _algoOrderExpanded[sid] !== false;
+    const arrow = expanded ? '▼' : '▶';
+    const st = (s.state || s.status || '').toLowerCase();
+    const stc = st === 'running' ? 'bl-st-open' : st === 'completed' ? 'bl-st-filled' : 'bl-st-cancelled';
+    const sc = (s.side || '').toUpperCase() === 'BUY' ? 'bl-green' : 'bl-red';
+    const totalFilled = children.reduce((sum, c) => sum + (c.filled_amount || 0), 0);
+    const totalAmt = s.totalSize || children.reduce((sum, c) => sum + (c.amount || 0), 0);
+    const avgPx = s.avgFillPrice || 0;
+    body += `<tr class="bl-parent-row" data-algo-sid="${sid}" style="cursor:pointer">
+      <td><span class="bl-arrow">${arrow}</span></td>
+      <td>${exchPill(s.venue || 'Deribit')}</td>
+      <td>${BL_TS(s.startTime || children[0]?.creation_timestamp)}</td>
+      <td style="font-weight:600">${s.symbol||'—'} <span style="font-size:7px;color:#8866cc;border:1px solid #443388;padding:0 3px;border-radius:2px">${s.type||'TWAP'}</span></td>
+      <td>TWAP</td>
+      <td class="${sc}">${(s.side||'').toUpperCase()}</td>
+      <td>${formatNum(totalAmt, 4)}</td><td>${formatNum(totalFilled, 4)}</td><td>${formatNum(Math.max(0, totalAmt - totalFilled), 4)}</td>
+      <td>${avgPx ? blotterPriceFmt(avgPx, s.venue, s.symbol) : '—'}</td>
+      <td class="${stc}">${st || '—'}</td>
+      <td style="font-size:9px;color:#444">${parentId}</td>
+      <td></td>
+    </tr>`;
+    if (expanded) {
+      for (let i = 0; i < children.length; i++) {
+        const o = children[i];
+        const csc = o.direction === 'buy' ? 'bl-green' : 'bl-red';
+        const cstc = o.order_state === 'open' ? 'bl-st-open' : o.order_state === 'filled' ? 'bl-st-filled' : 'bl-st-cancelled';
+        const rem = Math.max(0, (o.amount||0) - (o.filled_amount||0));
+        body += `<tr class="bl-child-row">
+          <td></td>
+          <td>${exchPill(o._exchange || s.venue || 'Deribit')}</td>
+          <td>${BL_TS(o.last_update_timestamp || o.creation_timestamp)}</td>
+          <td style="padding-left:20px;color:#555">S${i+1}</td>
+          <td>${o.order_type||'—'}</td>
+          <td class="${csc}">${(o.direction||'').toUpperCase()}</td>
+          <td>${formatNum(o.amount, 4)}</td><td>${formatNum(o.filled_amount, 4)}</td><td>${formatNum(rem, 4)}</td>
+          <td>${blotterPriceFmt(o.price, o._exchange || s.venue, o.instrument_name || s.symbol)}</td>
+          <td class="${cstc}">${o.order_state||'—'}</td>
+          <td style="font-size:9px;color:#333">${o.order_id||'—'}</td>
+          <td></td>
+        </tr>`;
+      }
+    }
+    algoChildren.delete(parentId);
+  }
+
+  // Render standalone (non-algo) orders
+  for (const o of standaloneRows) {
+    const sc = o.direction === 'buy' ? 'bl-green' : 'bl-red';
+    const st = (o.order_state || '').toLowerCase();
+    const stc = st === 'open' ? 'bl-st-open' : st === 'filled' ? 'bl-st-filled' : st === 'rejected' ? 'bl-st-rejected' : 'bl-st-cancelled';
+    const isOpen = st === 'open' || st === 'partial' || st === 'partially_filled';
+    const rem = Math.max(0, (o.amount||0) - (o.filled_amount||0));
+    const canc = isOpen ? `<button class="bl-cancel-btn" data-oid="${o.order_id}">✕</button>` : '';
     const rejectTip = o._rejectReason ? ` title="${escHtml(o._rejectReason)}"` : '';
-    return `<tr id="bl-row-${o.order_id}">
+    const openBorder = isOpen ? 'border-left:2px solid #4466aa;' : '';
+    body += `<tr id="bl-row-${o.order_id}" style="${openBorder}">
+      <td></td>
       <td>${exchPill(o._exchange || 'Deribit')}</td>
       <td>${BL_TS(o.last_update_timestamp || o.creation_timestamp)}</td>
       <td>${o.instrument_name||'—'}</td>
       <td>${o.order_type||'—'}</td>
       <td class="${sc}">${(o.direction||'').toUpperCase()}</td>
       <td>${formatNum(o.amount, 4)}</td><td>${formatNum(o.filled_amount, 4)}</td><td>${formatNum(rem, 4)}</td>
-      <td>${formatNum(o.price, 2)}</td>
+      <td>${blotterPriceFmt(o.price, o._exchange, o.instrument_name)}</td>
       <td class="${stc}"${rejectTip}>${o.order_state||'—'}</td>
       <td style="font-size:9px;color:#444">${o.order_id||'—'}</td>
       <td>${canc}</td>
     </tr>`;
-  }).join('');
+  }
   return `<table class="bl-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
@@ -6041,8 +6243,8 @@ function blotterPositionsHTML(posMap, showGreeks) {
       <td>${p.instrument_name||'—'}</td>
       <td class="${sc}">${sideLabel}</td>
       <td>${formatNum(p.size, 4)} ${p._sizeUnit || getBaseCurrency(p._exchange || 'Deribit', p.instrument_name)}</td>
-      <td>${BL_FMT(p.average_price)}</td>
-      <td>${BL_FMT(p.mark_price)}</td>
+      <td>${blotterPriceFmt(p.average_price, p._exchange, p.instrument_name)}</td>
+      <td>${blotterPriceFmt(p.mark_price, p._exchange, p.instrument_name)}</td>
       <td class="${upc}">${BL_FMT(p.floating_profit_loss,6)}</td>
       <td class="${rpc}">${BL_FMT(p.realized_profit_loss,6)}</td>
       <td>${BL_FMT(p.estimated_liquidation_price)}</td>
@@ -6086,6 +6288,116 @@ function blotterBalancesHTML() {
   return `<table class="bl-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
+function _settlePill(s) {
+  const map = { 'USDT':'bl-settle-usdt', 'USDC':'bl-settle-usdc', 'USD-INVERSE':'bl-settle-inv', 'USD-QUANTO':'bl-settle-qnt', 'USD':'bl-settle-usd' };
+  return `<span class="bl-settle-pill ${map[s] || 'bl-settle-unk'}">${s}</span>`;
+}
+
+function blotterConsolidatedHTML() {
+  const data = blotterData.consolidated;
+  if (!data || data.positionCount === 0) return '<div class="bl-empty">No open positions across connected exchanges</div>';
+
+  // Summary header
+  let totalLongUsd = 0, totalShortUsd = 0, totalUpnl = 0;
+  const ulKeys = Object.keys(data.underlyings);
+  for (const ul of ulKeys) {
+    const g = data.underlyings[ul];
+    for (const p of g.positions) {
+      if (p.side === 'LONG') totalLongUsd += p.usdValue;
+      else totalShortUsd += p.usdValue;
+      totalUpnl += p.unrealisedPnl || 0;
+    }
+  }
+  const netUsd = totalLongUsd - totalShortUsd;
+  const netLabel = netUsd >= 0 ? 'NET LONG' : 'NET SHORT';
+  const upnlCls = totalUpnl >= 0 ? 'bl-green' : 'bl-red';
+  const summary = `<div class="bl-consol-summary">
+    <span><span class="cs-label">Portfolio: </span><span class="cs-val bl-green">LONG $${formatNum(totalLongUsd,0)}</span></span>
+    <span class="cs-val bl-red">SHORT $${formatNum(totalShortUsd,0)}</span>
+    <span class="cs-val" style="color:${netUsd>=0?'#00c896':'#e05252'}">${netLabel} $${formatNum(Math.abs(netUsd),0)}</span>
+    <span style="color:#555">${ulKeys.length} asset${ulKeys.length!==1?'s':''}</span>
+    <span><span class="cs-label">uPnL: </span><span class="cs-val ${upnlCls}">${totalUpnl>=0?'+':''}$${formatNum(totalUpnl,2)}</span></span>
+    ${data.estimatedCount ? `<span style="color:#886644" title="${data.estimatedCount} positions with estimated values">~${data.estimatedCount} est.</span>` : ''}
+  </div>`;
+
+  // Table
+  const tabId = 'consolidated';
+  const head = [
+    '<th style="width:20px"></th>',
+    blotterTH('underlying','Asset',tabId), '<th>Exchanges</th>', blotterTH('side','Side',tabId),
+    blotterTH('netSize','Net Size',tabId), blotterTH('usdValue','USD Value',tabId),
+    blotterTH('unrealisedPnl','uPnL',tabId), '<th>Settlement</th>', '<th>Instrument</th>',
+    blotterTH('avgEntryPrice','Entry',tabId), blotterTH('markPrice','Mark',tabId),
+  ].join('');
+
+  // Sort underlyings
+  let sortedUls = ulKeys.map(ul => ({ ul, ...data.underlyings[ul] }));
+  const sort = blotterSort[tabId];
+  if (sort?.col) {
+    sortedUls.sort((a, b) => {
+      let av, bv;
+      if (sort.col === 'underlying') { av = a.ul; bv = b.ul; }
+      else if (sort.col === 'netSize') { av = a.netSize; bv = b.netSize; }
+      else if (sort.col === 'usdValue') { av = Math.abs(a.netUsdValue); bv = Math.abs(b.netUsdValue); }
+      else if (sort.col === 'unrealisedPnl') { av = a.positions.reduce((s,p)=>s+(p.unrealisedPnl||0),0); bv = b.positions.reduce((s,p)=>s+(p.unrealisedPnl||0),0); }
+      else { av = a.ul; bv = b.ul; }
+      if (typeof av === 'string') return sort.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      return sort.dir === 'asc' ? (av||0) - (bv||0) : (bv||0) - (av||0);
+    });
+  }
+
+  let body = '';
+  for (const g of sortedUls) {
+    const ul = g.ul;
+    const expanded = _consolExpanded[ul] !== false; // default expanded
+    const arrow = expanded ? '▼' : '▶';
+    const sideCls = g.netSize > 0 ? 'bl-green' : g.netSize < 0 ? 'bl-red' : '';
+    const sideLabel = g.netSize > 0 ? 'LONG' : g.netSize < 0 ? 'SHORT' : 'FLAT';
+    const groupUpnl = g.positions.reduce((s,p) => s + (p.unrealisedPnl || 0), 0);
+    const upnlC = groupUpnl >= 0 ? 'bl-green' : 'bl-red';
+    const exchanges = [...new Set(g.positions.map(p => p.venue))];
+    const exchPills = exchanges.map(e => exchPill(e)).join(' ');
+    const settlements = Object.keys(g.settlements || {});
+
+    body += `<tr class="bl-parent-row" data-ul="${ul}">
+      <td><span class="bl-arrow">${arrow}</span></td>
+      <td style="font-weight:700;color:#aaa">${ul}</td>
+      <td>${exchPills}</td>
+      <td class="${sideCls}">${sideLabel}</td>
+      <td>${formatNum(Math.abs(g.netSize), 4)} ${ul}</td>
+      <td>$${formatNum(Math.abs(g.netUsdValue), 0)}</td>
+      <td class="${upnlC}">${groupUpnl>=0?'+':''}$${formatNum(groupUpnl, 2)}</td>
+      <td>${settlements.map(s => _settlePill(s)).join(' ')}</td>
+      <td></td><td></td><td></td>
+    </tr>`;
+
+    if (expanded) {
+      for (const p of g.positions) {
+        const pSideCls = p.side === 'LONG' ? 'bl-green' : 'bl-red';
+        const pUpnlCls = (p.unrealisedPnl||0) >= 0 ? 'bl-green' : 'bl-red';
+        const est = p.estimated ? ' title="Estimated — spec unavailable"' : '';
+        const estPfx = p.estimated ? '~' : '';
+        const qntWarn = p.settlement === 'USD-QUANTO' ? ' <span style="color:#ccaa44" title="Settled in BTC — PnL depends on BTC price">&#x26A0;</span>' : '';
+        body += `<tr class="bl-child-row">
+          <td></td>
+          <td>${_settlePill(p.settlement)}${qntWarn}</td>
+          <td>${exchPill(p.venue)}</td>
+          <td class="${pSideCls}">${p.side}</td>
+          <td${est}>${estPfx}${formatNum(p.size, 4)} ${p.sizeUnit || ul}</td>
+          <td>$${formatNum(p.usdValue, 0)}</td>
+          <td class="${pUpnlCls}"${est}>${estPfx}${(p.unrealisedPnl||0)>=0?'+':''}$${formatNum(p.unrealisedPnl||0, 4)}</td>
+          <td>${p.settlement}</td>
+          <td style="color:#555">${p.symbol}</td>
+          <td>${blotterPriceFmt(p.avgEntryPrice, p.venue, p.symbol)}</td>
+          <td>${blotterPriceFmt(p.markPrice, p.venue, p.symbol)}</td>
+        </tr>`;
+      }
+    }
+  }
+
+  return summary + `<table class="bl-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
 function blotterListHTML(items, emptyMsg) {
   if (!items.length) return `<div class="bl-empty">${emptyMsg}</div>`;
   return `<div style="padding:8px 12px;font-size:11px;color:#666">${items.map(i=>`<div style="padding:4px 0;border-bottom:1px solid #0d0d12">${i}</div>`).join('')}</div>`;
@@ -6093,6 +6405,21 @@ function blotterListHTML(items, emptyMsg) {
 
 // ── Blotter table wiring ──────────────────────────────────────────────────────
 function blotterWireActions() {
+  // Consolidated tab expand/collapse
+  document.querySelectorAll('#bl-table-wrap .bl-parent-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const ul = row.dataset.ul;
+      const algoSid = row.dataset.algoSid;
+      if (ul) {
+        _consolExpanded[ul] = _consolExpanded[ul] === false;
+        _saveConsolExpanded();
+      } else if (algoSid) {
+        _algoOrderExpanded[algoSid] = !(_algoOrderExpanded[algoSid] !== false);
+        localStorage.setItem('algo_order_expanded', JSON.stringify(_algoOrderExpanded));
+      }
+      renderBlotterTable();
+    });
+  });
   document.querySelectorAll('#bl-table-wrap .bl-cancel-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const oid = btn.dataset.oid;
@@ -6164,6 +6491,9 @@ function initBlotter() {
     btn.addEventListener('click', () => {
       if (!blotterExpanded) expandBlotter();
       blotterTab = btn.dataset.bl;
+      // Start/stop consolidated poll
+      if (blotterTab === 'consolidated') _startConsolPoll();
+      else _stopConsolPoll();
       // Reset period to Today when switching to a period tab
       if (PERIOD_TABS.includes(blotterTab)) blotterPeriod = 'today';
       tabBar.querySelectorAll('.bl-tab').forEach(b => b.classList.remove('active'));
@@ -6237,6 +6567,7 @@ function initBlotter() {
             _exchange: t.venue, trade_id: key, order_id: t.orderId,
             instrument_name: t.symbol, direction: t.side?.toLowerCase(),
             amount: t.size, price: t.price, fee: t.fee, timestamp: t.timestamp,
+            simulated: !!t.simulated,
           });
           if (blotterData.trades.length > 500) blotterData.trades.pop();
           if (blotterTab !== 'trades') { blotterBadge.trades++; blotterUpdateBadge('trades'); }
@@ -6257,6 +6588,9 @@ function initBlotter() {
             order_state: o.state?.toLowerCase(), _rejectReason: o.rejectReason,
             creation_timestamp: existing?.creation_timestamp || o.timestamp,
             last_update_timestamp: o.timestamp,
+            _parentOrderId: o.parentOrderId || existing?._parentOrderId || null,
+            _strategyId: o.strategyId || existing?._strategyId || null,
+            _metadata: o.metadata || existing?._metadata || null,
           };
         }
       }
@@ -6530,6 +6864,8 @@ function initBlotter() {
   let _algoType = '', _algoSide = 'BUY', _algoSymbol = '', _configs = [];
   let _pollTimer = null;
   const _monitors = new Map(); // strategyId → DOM element
+  const _chartInstances = new Map(); // sid → Chart.js instance
+  const _chartVisible = {}; // sid → boolean
 
   // ── Load strategy configs from server ────────────────────────────────────
   async function _loadConfigs() {
@@ -6544,17 +6880,31 @@ function initBlotter() {
   const overlay = document.getElementById('algo-modal-overlay');
   const box     = document.getElementById('algo-modal-box');
 
+  let _algoExchange = 'Deribit';
   function openAlgoModal(instrument, side, mid, qty, exchange) {
     _algoSymbol = instrument;
     _algoSide = (side || 'buy').toUpperCase();
+    _algoExchange = exchange || 'Deribit';
     document.getElementById('algo-f-symbol').value = instrument;
+    document.getElementById('algo-f-exchange').value = _algoExchange;
     document.getElementById('algo-f-size').value = qty || '';
+    document.getElementById('algo-f-duration').value = '30';
+    document.getElementById('algo-f-start').value = '';
     document.getElementById('algo-f-buy').className = _algoSide === 'BUY' ? 'buy-active' : '';
     document.getElementById('algo-f-sell').className = _algoSide === 'SELL' ? 'sell-active' : '';
     document.getElementById('algo-modal-title').textContent = `Algo · ${instrument}`;
     document.getElementById('algo-modal-msg').textContent = '';
     document.getElementById('algo-review').style.display = 'none';
     document.getElementById('algo-estimate').textContent = '';
+    // Reset urgency pills
+    document.querySelectorAll('#algo-urgency-pills .bl-period-pill').forEach(b => b.classList.remove('active'));
+    document.querySelector('#algo-urgency-pills [data-urg="passive"]').classList.add('active');
+    // Restore advanced toggle state
+    const advOpen = localStorage.getItem('algo_adv_open') === 'true';
+    const advEl = document.getElementById('algo-dynamic-params');
+    const advToggle = document.getElementById('algo-adv-toggle');
+    advEl.style.display = advOpen ? 'grid' : 'none';
+    advToggle.textContent = advOpen ? '− Advanced' : '+ Advanced';
 
     // Qty preset buttons based on base asset
     const b = base(instrument);
@@ -6574,7 +6924,7 @@ function initBlotter() {
     // Fetch risk headroom
     const riskRef = document.getElementById('algo-risk-ref');
     riskRef.textContent = '';
-    fetch(TCA_BASE + '/api/risk/headroom?symbol=' + encodeURIComponent(instrument)).then(r => r.json()).then(h => {
+    fetch(TCA_BASE + '/api/risk/headroom?symbol=' + encodeURIComponent(instrument) + '&exchange=' + encodeURIComponent(_algoExchange)).then(r => r.json()).then(h => {
       if (h.positionHeadroom !== undefined) {
         riskRef.textContent = `Position headroom: ${h.positionHeadroom} ${h.positionUnit} · Max notional: $${Math.round(h.notionalHeadroom).toLocaleString()} remaining`;
       }
@@ -6606,6 +6956,31 @@ function initBlotter() {
   document.getElementById('algo-f-buy').addEventListener('click', () => { _algoSide = 'BUY'; document.getElementById('algo-f-buy').className = 'buy-active'; document.getElementById('algo-f-sell').className = ''; _updateSummary(); });
   document.getElementById('algo-f-sell').addEventListener('click', () => { _algoSide = 'SELL'; document.getElementById('algo-f-sell').className = 'sell-active'; document.getElementById('algo-f-buy').className = ''; _updateSummary(); });
 
+  // Urgency pills
+  let _algoUrgency = 'passive';
+  document.querySelectorAll('#algo-urgency-pills .bl-period-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#algo-urgency-pills .bl-period-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _algoUrgency = btn.dataset.urg;
+    });
+  });
+
+  // Advanced toggle
+  document.getElementById('algo-adv-toggle').addEventListener('click', e => {
+    e.preventDefault();
+    const el = document.getElementById('algo-dynamic-params');
+    const isOpen = el.style.display === 'grid';
+    el.style.display = isOpen ? 'none' : 'grid';
+    e.target.textContent = isOpen ? '+ Advanced' : '− Advanced';
+    localStorage.setItem('algo_adv_open', !isOpen);
+  });
+
+  // Duration/Start inputs update estimate
+  document.getElementById('algo-f-duration').addEventListener('input', _updateEstimate);
+  document.getElementById('algo-f-start').addEventListener('input', _updateEstimate);
+  document.getElementById('algo-f-size').addEventListener('input', () => { _updateSummary(); _updateEstimate(); });
+
   function _buildTabs() {
     const tabsEl = document.getElementById('algo-type-tabs');
     if (!_configs.length) { tabsEl.innerHTML = '<span style="color:#444;font-size:10px;padding:8px">Loading strategies...</span>'; return; }
@@ -6625,20 +7000,62 @@ function initBlotter() {
     _renderParams();
   }
 
+  // Params handled by simple view — skip in advanced panel
+  const SIMPLE_KEYS = new Set(['venue','startMode','startScheduled','durationMode','durationMinutes','endTime','urgency']);
+
   function _renderParams() {
     const container = document.getElementById('algo-dynamic-params');
     const cfg = _configs.find(c => c.name === _algoType);
     if (!cfg?.params) { container.innerHTML = ''; return; }
-    container.innerHTML = cfg.params.map(p => {
+    // Show/hide Duration field (TWAP only — POV has no duration)
+    const durField = document.getElementById('algo-duration-field');
+    if (durField) durField.style.display = _algoType === 'TWAP' ? '' : 'none'; // Duration only for TWAP
+    const inputStyle = 'font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;width:100%';
+    // Only render advanced params (not handled by simple fields)
+    const advParams = cfg.params.filter(p => !SIMPLE_KEYS.has(p.key));
+    container.innerHTML = advParams.map(p => {
+      const depAttr = p.dependsOn ? ` data-depends-key="${Object.keys(p.dependsOn)[0]}" data-depends-val="${Object.values(p.dependsOn)[0]}"` : '';
+      const wrap = `<label class="algo-dp-wrap" id="algo-wrap-${p.key}" style="font-size:10px;color:#555;display:flex;flex-direction:column;gap:2px;transition:opacity 0.2s"${depAttr}>`;
+      if (p.type === 'select') {
+        const firstOpt = (p.options||[])[0];
+        const presel = p.default || (typeof firstOpt === 'object' ? firstOpt?.value : firstOpt) || '';
+        const opts = (p.options || []).map(o => {
+          const val = typeof o === 'object' ? o.value : o;
+          const lbl = typeof o === 'object' ? o.label : o;
+          return `<option value="${val}"${val === presel ? ' selected' : ''}>${lbl}</option>`;
+        }).join('');
+        return `${wrap}${p.label}<select id="algo-dp-${p.key}" style="${inputStyle}">${opts}</select></label>`;
+      }
+      if (p.type === 'text') {
+        const val = p.default !== undefined ? `value="${p.default}"` : '';
+        return `${wrap}${p.label}<input id="algo-dp-${p.key}" type="text" ${val} style="${inputStyle}" placeholder="${p.label}"></label>`;
+      }
       const attrs = [];
       if (p.min !== undefined) attrs.push(`min="${p.min}"`);
       if (p.max !== undefined) attrs.push(`max="${p.max}"`);
       attrs.push(`step="${p.step ?? 'any'}"`);
       const val = p.default !== undefined ? `value="${p.default}"` : '';
-      return `<label style="font-size:10px;color:#555;display:flex;flex-direction:column;gap:2px">${p.label}<input id="algo-dp-${p.key}" type="number" ${val} ${attrs.join(' ')} style="font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit"></label>`;
+      return `${wrap}${p.label}<input id="algo-dp-${p.key}" type="number" ${val} ${attrs.join(' ')} style="${inputStyle}"></label>`;
     }).join('');
-    // Wire param inputs to update estimate on change
-    container.querySelectorAll('input').forEach(inp => inp.addEventListener('input', _updateEstimate));
+
+    // dependsOn: show/hide dependent params
+    function _applyDependsOn() {
+      container.querySelectorAll('.algo-dp-wrap[data-depends-key]').forEach(wrap => {
+        const depKey = wrap.dataset.dependsKey;
+        const depVal = wrap.dataset.dependsVal;
+        const parentEl = document.getElementById('algo-dp-' + depKey);
+        const parentVal = parentEl ? parentEl.value : '';
+        const show = parentVal === depVal;
+        wrap.style.display = show ? '' : 'none';
+        wrap.style.opacity = show ? '1' : '0';
+      });
+    }
+    _applyDependsOn();
+    // Re-evaluate on any select/input change
+    container.querySelectorAll('select, input').forEach(el => {
+      el.addEventListener('change', () => { _applyDependsOn(); _updateEstimate(); });
+      el.addEventListener('input', _updateEstimate);
+    });
     _updateSummary();
     _updateEstimate();
   }
@@ -6647,9 +7064,40 @@ function initBlotter() {
     const cfg = _configs.find(c => c.name === _algoType);
     if (!cfg) return {};
     const out = {};
+
+    // Read simple fields
+    out.venue = _algoExchange;
+    out.urgency = _algoUrgency;
+
+    // Parse duration field — auto-detect minutes vs HH:MM
+    const durVal = (document.getElementById('algo-f-duration')?.value || '30').trim();
+    if (durVal.includes(':')) {
+      out.durationMode = 'until_time';
+      out.endTime = durVal;
+    } else {
+      out.durationMode = 'minutes';
+      out.durationMinutes = parseFloat(durVal) || 30;
+    }
+
+    // Parse start field — blank=immediate, +Nm=scheduled, HH:MM=scheduled
+    const startVal = (document.getElementById('algo-f-start')?.value || '').trim();
+    if (!startVal) {
+      out.startMode = 'immediate';
+    } else {
+      out.startMode = 'scheduled';
+      out.startScheduled = startVal;
+    }
+
+    // Read advanced params from dynamic panel
     for (const p of cfg.params) {
+      if (SIMPLE_KEYS.has(p.key)) continue;
+      const wrap = document.getElementById('algo-wrap-' + p.key);
+      if (wrap && wrap.style.display === 'none') continue;
       const el = document.getElementById('algo-dp-' + p.key);
-      if (el) out[p.key] = parseFloat(el.value) || p.default || 0;
+      if (!el) continue;
+      if (p.type === 'select') { out[p.key] = el.value; }
+      else if (p.type === 'text') { out[p.key] = el.value; }
+      else { out[p.key] = parseFloat(el.value) || p.default || 0; }
     }
     return out;
   }
@@ -6660,7 +7108,7 @@ function initBlotter() {
     const cfg = _configs.find(c => c.name === _algoType);
     const rev = document.getElementById('algo-review');
     if (sym && size) {
-      rev.innerHTML = `<strong>${_algoSide} ${size} ${sym}</strong> via <strong>${cfg?.displayName || _algoType}</strong>`;
+      rev.innerHTML = `<strong>${_algoSide} ${size} ${sym}</strong> on <strong>${_algoExchange}</strong> via <strong>${cfg?.displayName || _algoType}</strong>`;
       rev.style.display = 'block';
     } else { rev.style.display = 'none'; }
   }
@@ -6694,7 +7142,16 @@ function initBlotter() {
       const sym  = document.getElementById('algo-f-symbol').value;
       const size = parseFloat(document.getElementById('algo-f-size').value) || 0;
       if (!sym || !size) throw new Error('Symbol and size required');
-      const params = { symbol: sym, side: _algoSide, totalSize: size, ..._getParamValues() };
+      // Get tick size from the tile's instrument spec
+      const tile = panels.find(p => p.instrument === sym && p.exchange === _algoExchange);
+      const tickSize = tile?._spec?.tickSize || 0.0001;
+      const lotSize = tile?._spec?.lotSize || 1;
+      const params = { symbol: sym, side: _algoSide, totalSize: size, tickSize, lotSize, ..._getParamValues() };
+      // Clamp targetPct to 50% max
+      if (params.targetPct && params.targetPct > 50) {
+        params.targetPct = 50;
+        throw new Error('Maximum participation is 50% — higher rates risk moving the market');
+      }
       const r = await fetch(TCA_BASE + '/api/algo/start', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ strategyType: _algoType, params }),
@@ -6702,7 +7159,14 @@ function initBlotter() {
       const j = await r.json();
       if (j.error) throw new Error(j.error);
       overlay.style.display = 'none';
-      _pollAlgos();
+      await _pollAlgos();
+      // Auto-open monitor and chart for the new strategy
+      if (j.strategyId) {
+        setTimeout(() => {
+          window._algoOpenMonitor(j.strategyId, { centre: true });
+          setTimeout(() => window._algoToggleChart(j.strategyId), 300);
+        }, 200);
+      }
     } catch (e) { msg.textContent = e.message; msg.style.color = '#e05252'; }
     finally { btn.disabled = false; }
   });
@@ -6716,15 +7180,28 @@ function initBlotter() {
     const strats = blotterData.algos;
     const keys = Object.keys(strats);
     if (keys.length === 0) return '<div class="bl-empty">No algo strategies this session</div>';
-    let html = '<table class="bl-tbl"><thead><tr><th>Exch</th><th>Type</th><th>Symbol</th><th>Side</th><th>Progress</th><th>Avg Fill</th><th>Status</th><th>Elapsed</th><th></th></tr></thead><tbody>';
+    let html = '<table class="bl-tbl"><thead><tr><th>Exch</th><th>Type</th><th>Symbol</th><th>Side</th><th>Progress</th><th>Avg Fill</th><th>Slip (bps)</th><th>Schedule</th><th>Status</th><th></th></tr></thead><tbody>';
     for (const [sid, s] of Object.entries(strats)) {
       const pct = s.filledQty && s.totalSize ? Math.round(s.filledQty / (s.totalSize || 1) * 100) : 0;
-      const elapsed = s.elapsed ? (s.elapsed / 1000).toFixed(0) + 's' : '-';
-      const statusCls = 'algo-status-' + (s.state || 'STOPPED');
+      const statusCls = 'algo-status-' + (s.state || s.status || 'STOPPED');
+      // Slippage display
+      const slip = s.slippageVsArrival != null ? s.slippageVsArrival.toFixed(1) : '-';
+      const slipCls = (s.slippageVsArrival || 0) <= 0 ? 'bl-green' : 'bl-red';
+      // Schedule display
+      let schedTxt = '-';
+      if (s.currentSlice != null && s.numSlices) {
+        const nextSec = s.nextSliceIn ? Math.round(s.nextSliceIn / 1000) : 0;
+        schedTxt = `${s.currentSlice}/${s.numSlices}`;
+        if (nextSec > 0 && (s.state === 'RUNNING' || s.status === 'RUNNING')) schedTxt += ` (${nextSec}s)`;
+      }
+      const state = s.state || s.status || '-';
+      const pauseInfo = s.pauseReason && state === 'PAUSED' ? ` <span style="color:#ccaa44;font-size:8px">${s.pauseReason}</span>` : '';
       html += `<tr><td>${exchPill(s.venue || 'Deribit')}</td><td>${s.type || '-'}</td><td>${s.symbol || '-'}</td><td>${s.side || '-'}</td>
-        <td><div class="algo-progress-bar"><div class="algo-progress-fill" style="width:${pct}%"></div></div> ${s.filledQty ?? 0}/${s.totalSize ?? '-'}</td>
-        <td>${s.avgFillPrice ? s.avgFillPrice.toFixed(2) : '-'}</td>
-        <td class="${statusCls}">${s.state || '-'}</td><td>${elapsed}</td>
+        <td><div class="algo-progress-bar"><div class="algo-progress-fill" style="width:${pct}%"></div></div> ${formatNum(s.filledQty,4)}/${formatNum(s.totalSize,4)}</td>
+        <td>${s.avgFillPrice ? s.avgFillPrice.toFixed(4) : '-'}</td>
+        <td class="${slipCls}">${slip}</td>
+        <td style="font-size:9px">${schedTxt}</td>
+        <td class="${statusCls}">${state}${pauseInfo}</td>
         <td><button class="algo-stop-btn" onclick="_algoStop('${sid}')">&#10005;</button>
             <button class="algo-mon-btn" onclick="_algoOpenMonitor('${sid}')">Monitor</button></td></tr>`;
     }
@@ -6747,10 +7224,42 @@ function initBlotter() {
       for (const [sid, el] of _monitors) {
         if (strats[sid]) _updateMonitor(sid, strats[sid], el);
       }
+      // Update execution charts
+      if (_chartInstances.size > 0) _updateCharts();
     } catch {}
   }
   _pollTimer = setInterval(_pollAlgos, 2000);
   setTimeout(_pollAlgos, 1500);
+
+  // ── Push live market data to algo engine for running strategies ──────────
+  let _lastMdPushTs = 0;
+  setInterval(() => {
+    const now = Date.now();
+    // Throttle: skip if last push was less than 800ms ago (prevents burst on tab refocus)
+    if (now - _lastMdPushTs < 800) return;
+    _lastMdPushTs = now;
+    const strats = blotterData.algos;
+    for (const [sid, s] of Object.entries(strats)) {
+      const st = s.state || s.status;
+      // Skip completed/stopped strategies entirely
+      if (st === 'COMPLETED' || st === 'STOPPED' || st === 'ERROR') continue;
+      if (st !== 'RUNNING' && st !== 'WAITING' && st !== 'PAUSED' && st !== 'COMPLETING') continue;
+      const tile = panels.find(p => p.instrument === s.symbol && p.exchange === (s.venue || 'Deribit'));
+      if (!tile?.ticker?.best_bid_price) continue;
+      const bid = tile.ticker.best_bid_price || 0;
+      const ask = tile.ticker.best_ask_price || 0;
+      const mid = bid && ask ? (bid + ask) / 2 : 0;
+      if (mid <= 0) continue;
+      fetch(TCA_BASE + '/api/algo/market-data', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          venue: tile.exchange, symbol: s.symbol, venueSymbol: s.symbol,
+          bidPrice: bid, askPrice: ask, midPrice: mid,
+          spreadBps: mid > 0 ? (ask - bid) / mid * 10000 : 0,
+        }),
+      }).catch(() => {});
+    }
+  }, 1000);
 
   // ── Global action handlers ───────────────────────────────────────────────
   window._algoStop = async (sid) => {
@@ -6761,64 +7270,201 @@ function initBlotter() {
     try { await fetch(TCA_BASE + '/api/algo/' + ep + '/' + sid, { method: 'POST' }); _pollAlgos(); } catch {}
   };
 
-  // ── Floating monitor panel ───────────────────────────────────────────────
-  window._algoOpenMonitor = function(sid) {
-    if (_monitors.has(sid)) return; // already open
+  // ── Floating monitor panel — live execution dashboard ─────────────────────
+  window._algoOpenMonitor = function(sid, { centre = false } = {}) {
+    if (_monitors.has(sid)) return;
     const s = blotterData.algos[sid] || {};
     const el = document.createElement('div');
-    el.className = 'algo-monitor status-' + (s.state || 'STOPPED');
-    // Restore position from localStorage or default
-    const saved = localStorage.getItem('algo-mon-' + sid);
-    const pos = saved ? JSON.parse(saved) : { top: 100 + _monitors.size * 30, left: window.innerWidth - 310 };
+    el.className = 'algo-monitor status-' + (s.state || s.status || 'STOPPED');
+    let pos;
+    if (centre) {
+      pos = { top: Math.round((window.innerHeight - 380) / 2), left: Math.round((window.innerWidth - 480) / 2) };
+    } else {
+      const saved = localStorage.getItem('algo-mon-' + sid);
+      pos = saved ? JSON.parse(saved) : { top: 80 + _monitors.size * 30, left: window.innerWidth - 510 };
+    }
     el.style.top = pos.top + 'px'; el.style.left = pos.left + 'px';
     el.id = 'algo-mon-' + sid;
-
     el.innerHTML = `
       <div class="algo-monitor-hdr" data-sid="${sid}">
-        <span class="algo-monitor-title">${s.type || '?'} ${s.symbol || ''} ${s.filledQty ?? 0}/${s.totalSize ?? '?'}</span>
+        <span class="algo-monitor-title"></span>
         <div class="algo-monitor-btns">
-          <button onclick="_algoTogglePause('${sid}', ${s.state === 'PAUSED'})" title="Pause/Resume">&#10074;&#10074;</button>
+          <span id="amon-chart-btn-${sid}"></span>
           <button onclick="_algoMinimiseMonitor('${sid}')" title="Minimise">_</button>
-          <button onclick="_algoCloseMonitor('${sid}')" title="Close">×</button>
+          <button onclick="_algoCloseMonitor('${sid}')" title="Close">&times;</button>
         </div>
       </div>
       <div class="algo-monitor-body" id="algo-mon-body-${sid}"></div>`;
-
     document.getElementById('algo-monitors').appendChild(el);
     _monitors.set(sid, el);
-    _updateMonitor(sid, s, el);
 
-    // Drag
+    // Create CHART button programmatically with inline styles
+    const chartBtnSlot = document.getElementById('amon-chart-btn-' + sid);
+    if (chartBtnSlot) {
+      const chartBtn = document.createElement('button');
+      chartBtn.textContent = 'CHART';
+      chartBtn.title = 'Execution chart';
+      chartBtn.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid #4488ff;background:#0a1628;color:#4488ff;font-weight:700;cursor:pointer;margin-right:4px;pointer-events:all;position:relative;z-index:10;';
+      // Stop mousedown from being captured by the drag handler
+      chartBtn.addEventListener('mousedown', e => e.stopPropagation());
+      chartBtn.onclick = function(e) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        if (_chartVisible[sid]) {
+          _closeChart(sid);
+        } else {
+          _chartVisible[sid] = true;
+          _algoToggleChart(sid);
+        }
+      };
+      chartBtnSlot.replaceWith(chartBtn);
+    }
+
+    _updateMonitor(sid, s, el);
     const hdr = el.querySelector('.algo-monitor-hdr');
     hdr.addEventListener('mousedown', e => {
       if (e.target.tagName === 'BUTTON') return;
       const ox = e.clientX - el.getBoundingClientRect().left;
       const oy = e.clientY - el.getBoundingClientRect().top;
       function mv(ev) { el.style.left = (ev.clientX - ox) + 'px'; el.style.top = (ev.clientY - oy) + 'px'; }
-      function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); localStorage.setItem('algo-mon-' + sid, JSON.stringify({ top: parseInt(el.style.top), left: parseInt(el.style.left) })); }
+      function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
+        localStorage.setItem('algo-mon-' + sid, JSON.stringify({ top: parseInt(el.style.top), left: parseInt(el.style.left) })); }
       document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
     });
   };
 
+  // Accelerate handler
+  window._algoAccelerate = async function(sid) {
+    const inp = document.getElementById('amon-accel-qty-' + sid);
+    const qty = parseFloat(inp?.value) || 0;
+    if (qty <= 0) return;
+    if (!confirm(`Execute ${qty.toFixed(4)} aggressively now?`)) return;
+    try {
+      await fetch(TCA_BASE + '/api/algo/accelerate/' + sid, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: qty }),
+      });
+      _pollAlgos();
+    } catch (e) { console.error('[algo] accelerate failed:', e.message); }
+  };
+
   function _updateMonitor(sid, s, el) {
-    el.className = 'algo-monitor status-' + (s.state || 'STOPPED');
+    const state = s.state || s.status || 'STOPPED';
+    el.className = 'algo-monitor status-' + state;
     const title = el.querySelector('.algo-monitor-title');
     const pct = s.totalSize ? Math.round((s.filledQty || 0) / s.totalSize * 100) : 0;
-    title.textContent = `${s.type || '?'} ${s.symbol || ''} ${pct}%`;
+    title.innerHTML = `${exchPill(s.venue||'Deribit')} <strong>${s.type||'?'}</strong> ${s.symbol||''} ${s.side||''} <span style="color:#ccc">${pct}%</span> <span class="amon-status-pill amon-status-${state}">${state}</span>`;
     const body = document.getElementById('algo-mon-body-' + sid);
     if (!body || el.classList.contains('minimised')) return;
-    const elapsed = s.elapsed ? (s.elapsed / 1000).toFixed(0) + 's' : '-';
-    body.innerHTML = `<dl style="display:grid;grid-template-columns:auto 1fr;gap:2px 8px;margin:0">
-      <dt>Progress</dt><dd><div class="algo-progress-bar" style="width:100%"><div class="algo-progress-fill" style="width:${pct}%"></div></div> ${s.filledQty ?? 0} / ${s.totalSize ?? '-'}</dd>
-      <dt>Avg Fill</dt><dd>${s.avgFillPrice ? s.avgFillPrice.toFixed(2) : '-'}</dd>
-      <dt>Status</dt><dd class="algo-status-${s.state || 'STOPPED'}">${s.state || '-'}</dd>
-      <dt>Elapsed</dt><dd>${elapsed}</dd>
-      <dt>Children</dt><dd>${s.childOrderCount ?? '-'}</dd>
-    </dl>
-    <div style="display:flex;gap:4px;margin-top:6px">
-      <button class="algo-stop-btn" onclick="_algoStop('${sid}')" style="flex:1">Stop</button>
-      <button class="algo-mon-btn" onclick="_algoTogglePause('${sid}', ${s.state === 'PAUSED'})" style="flex:1">${s.state === 'PAUSED' ? 'Resume' : 'Pause'}</button>
-    </div>`;
+
+    // Frozen final state for COMPLETED/STOPPED — don't re-render live data
+    if ((state === 'COMPLETED' || state === 'STOPPED') && body.dataset.frozen === 'true') return;
+    if (state === 'COMPLETED' || state === 'STOPPED') body.dataset.frozen = 'true';
+
+    const pxD = s.tickSize ? tickDecimals(s.tickSize) : 4;
+    // Live market from tile
+    const tile = panels.find(p => p.instrument === s.symbol && p.exchange === (s.venue || 'Deribit'));
+    const bid = tile?.ticker?.best_bid_price || 0;
+    const ask = tile?.ticker?.best_ask_price || 0;
+    const mid = bid && ask ? (bid + ask) / 2 : 0;
+    const spreadBps = mid > 0 ? ((ask - bid) / mid * 10000).toFixed(1) : '-';
+
+    // Metrics
+    const slipArr = s.slippageVsArrival != null ? s.slippageVsArrival.toFixed(1) : '-';
+    const slipVwap = s.slippageVsVwap != null ? s.slippageVsVwap.toFixed(1) : '-';
+    const slipArrCls = (s.slippageVsArrival||0) <= 0 ? 'bl-green' : 'bl-red';
+    const slipVwapCls = (s.slippageVsVwap||0) <= 0 ? 'bl-green' : 'bl-red';
+    const nextSec = s.nextSliceIn ? Math.round(s.nextSliceIn/1000) : 0;
+    const schedTxt = s.currentSlice != null ? `Slice ${s.currentSlice}/${s.numSlices}` : '-';
+    const remQty = s.remainingQty ?? (s.totalSize - (s.filledQty||0));
+    const behindQty = s.totalSize && s.currentSlice && s.numSlices ? ((s.currentSlice/s.numSlices)*s.totalSize)-(s.filledQty||0) : 0;
+    const onSch = behindQty <= 0;
+    const _fmtDur = ms => { if (!ms) return '-'; const s=Math.round(ms/1000); const m=Math.floor(s/60); const r=s%60; return m>0?`${m}m ${r}s`:`${s}s`; };
+    const timeRem = _fmtDur(s.timeRemaining);
+    const elTxt = _fmtDur(s.elapsed);
+    // Urgency context
+    let urgCtx = '';
+    const urg = s.urgency || 'passive';
+    const aop = s.activeOrderPrice;
+    if (urg === 'passive') urgCtx = aop ? `Passive — resting @ $${aop.toFixed(pxD)}` : (bid ? `Passive — next at ${s.side==='BUY'?'bid':'ask'}` : 'Passive');
+    else if (urg === 'aggressive') urgCtx = aop ? `Aggressive — crossing @ $${aop.toFixed(pxD)}` : (ask ? `Aggressive — next crosses spread` : 'Aggressive');
+    else urgCtx = aop ? `Neutral — @ $${aop.toFixed(pxD)}` : (mid ? `Neutral — next at mid` : 'Neutral');
+    // Pause bar
+    const pauseBar = state === 'PAUSED' && s.pauseReason ? `<div class="amon-pause-bar">Paused: ${s.pauseReason}</div>` : '';
+    // Child orders from blotter (match by strategyId prefix)
+    const sidShort = sid.substring(0, 12);
+    const childOrders = Object.values(blotterData.orders).filter(o =>
+      o._strategyId === sid || (o.order_id||'').includes(sidShort)
+    ).sort((a,b) => (b.creation_timestamp||0)-(a.creation_timestamp||0)).slice(0, 50);
+    let childHTML = '';
+    if (childOrders.length) {
+      const pxDec = s.tickSize ? tickDecimals(s.tickSize) : 4;
+      childHTML = `<table class="amon-child-tbl"><thead><tr><th>Time</th><th>Side</th><th>Size</th><th>Price</th><th>Status</th><th>Filled</th></tr></thead><tbody>` +
+        childOrders.map(o => {
+          const st = (o.order_state||'').toLowerCase();
+          const cls = st==='filled'?'child-filled':st==='open'?'child-open':st==='cancelled'?'child-cancelled':st==='rejected'?'child-rejected':'';
+          return `<tr class="${cls}"><td>${BL_TS(o.creation_timestamp||o.last_update_timestamp)}</td><td>${(o.direction||'').toUpperCase()}</td><td>${formatNum(o.amount,4)}</td><td>${BL_FMT(o.price, pxDec)}</td><td>${st}</td><td>${formatNum(o.filled_amount,4)}</td></tr>`;
+        }).join('') + '</tbody></table>';
+    }
+
+    body.innerHTML = `${pauseBar}
+      <div class="amon-section">
+        <div class="amon-market">
+          <span class="amon-bid">${bid?'$'+bid.toFixed(pxD):'—'}</span>
+          <span class="amon-spread">${spreadBps} bps</span>
+          <span class="amon-ask">${ask?'$'+ask.toFixed(pxD):'—'}</span>
+          <span style="color:#555;margin-left:auto;font-size:9px">${urgCtx}</span>
+        </div>
+      </div>
+      <div class="amon-section">
+        <div class="algo-progress-bar" style="margin-bottom:4px"><div class="algo-progress-fill" style="width:${pct}%"></div></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;font-size:10px">
+          <span style="color:#555">Filled: <span style="color:#ccc">${formatNum(s.filledQty,4)}</span></span>
+          <span style="color:#555">Remaining: <span style="color:#ccc">${formatNum(remQty,4)}</span></span>
+          <span style="color:#555">Avg fill: <span style="color:#ccc">${s.avgFillPrice?'$'+s.avgFillPrice.toFixed(pxD):'—'}</span></span>
+          <span style="color:#555">Arrival: <span style="color:#ccc">${s.arrivalPrice?'$'+s.arrivalPrice.toFixed(pxD):'—'}</span></span>
+          ${s.type === 'POV'
+            ? `<span style="color:#555">Participation: <span style="color:#ccc">${(s.participationRate||0).toFixed(1)}% (target ${s.targetPct||10}%)</span></span>
+               <span style="color:#555">Window vol: <span style="color:#ccc">${formatNum(s.windowVolume||0,1)} · deficit ${formatNum(s.deficit||0,2)}</span></span>`
+            : s.type === 'ICEBERG'
+            ? `<span style="color:#555">Slice: <span style="color:#ccc">${s.slicesFired||0} fired · ${s.currentSliceSize?formatNum(s.currentSliceSize,2)+' resting':'waiting'}</span></span>
+               <span style="color:#555">Detection: <span style="color:${(s.detectionScore||0)<30?'#00c896':(s.detectionScore||0)<70?'#ccaa44':'#e05252'}">${s.detectionScore||0}/100 ${(s.detectionScore||0)<30?'Low':(s.detectionScore||0)<70?'Medium':'High'}</span>${s.chaseRequired?' · <span style="color:#ccaa44">chasing</span>':''}</span>`
+            : `<span style="color:#555">Schedule: <span style="color:#ccc">${schedTxt}${nextSec>0&&state==='RUNNING'?' · next '+nextSec+'s':''}</span></span>
+               <span style="color:${onSch?'#00c896':'#ccaa44'};font-size:9px">${onSch?'On schedule':'Behind '+behindQty.toFixed(2)}</span>`
+          }
+          <span style="color:#555">Elapsed: <span style="color:#ccc">${elTxt}</span></span>
+          <span style="color:#555">Time left: <span style="color:#ccc">~${timeRem}</span></span>
+          <span style="color:#555">Slip vs arr: <span class="${slipArrCls}">${slipArr} bps</span></span>
+          <span style="color:#555">Slip vs VWAP: <span class="${slipVwapCls}">${slipVwap} bps</span></span>
+        </div>
+      </div>
+      <div class="amon-section" style="padding:2px 10px 0">
+        <div style="font-size:8px;color:#444;margin-bottom:2px">${s.numSlices
+          ? `Orders: ${childOrders.filter(o=>(o.order_state||'').toLowerCase()==='filled').length}/${s.numSlices} filled`
+          : `Orders: ${s.childCount||childOrders.length} placed · ${childOrders.filter(o=>(o.order_state||'').toLowerCase()==='filled').length} filled`
+        }</div>
+        <div style="max-height:112px;overflow-y:auto">
+          ${childHTML||'<span style="color:#333;font-size:9px">No child orders yet</span>'}
+        </div>
+      </div>
+      ${(state === 'COMPLETED') ? `<div class="amon-section amon-complete-flash" style="text-align:center;color:#4488ff;font-size:10px">
+        Completed — ${formatNum(s.filledQty,4)} filled at avg $${s.avgFillPrice?.toFixed(pxD)||'—'}, slippage ${slipArr} bps vs arrival
+      </div>` : (state === 'STOPPED') ? `<div class="amon-section" style="text-align:center;color:#666;font-size:10px">
+        Stopped — ${formatNum(s.filledQty,4)} filled of ${formatNum(s.totalSize,4)} total
+      </div>` : ''}
+      <div class="amon-section" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        ${(state==='COMPLETED'||state==='STOPPED') ? `
+          <button class="algo-stop-btn" onclick="_algoCloseMonitor('${sid}')" style="flex:1">Close</button>
+        ` : `
+          <button class="algo-mon-btn" onclick="_algoTogglePause('${sid}',${state==='PAUSED'})" style="flex:1;min-width:55px">${state==='PAUSED'?'Resume':'Pause'}</button>
+          <button class="algo-stop-btn" onclick="_algoStop('${sid}')" style="flex:1;min-width:55px">Stop</button>
+          <div class="amon-accel">
+            <span style="color:#555;font-size:9px">Accel:</span>
+            <input id="amon-accel-qty-${sid}" type="number" value="${formatNum(remQty,2)}" step="any">
+            <button class="amon-accel-btn" onclick="_algoAccelerate('${sid}')">Execute Now</button>
+          </div>
+        `}
+      </div>`;
   }
 
   window._algoMinimiseMonitor = function(sid) {
@@ -6829,7 +7475,200 @@ function initBlotter() {
   window._algoCloseMonitor = function(sid) {
     const el = _monitors.get(sid);
     if (el) { el.remove(); _monitors.delete(sid); }
+    _closeChart(sid);
   };
+
+  // ── Execution chart panel ─────────────────────────────────────────────────
+
+  window._closeChart = function(sid) {
+    const el = document.getElementById('amon-chart-' + sid);
+    if (el) { if (el._ro) el._ro.disconnect(); el.remove(); }
+    _chartInstances.delete(sid);
+    _chartVisible[sid] = false;
+  };
+
+  window._algoToggleChart = function(sid) {
+    // Only opens — closing is handled by _closeChart via button onclick
+    if (document.getElementById('amon-chart-' + sid)) return; // already open
+
+    const monEl = _monitors.get(sid);
+    if (!monEl) return;
+    const monRect = monEl.getBoundingClientRect();
+
+    const panel = document.createElement('div');
+    panel.className = 'amon-chart-panel';
+    panel.id = 'amon-chart-' + sid;
+    panel.style.top = monRect.top + 'px';
+    panel.style.left = (monRect.right + 4) + 'px';
+    panel.style.height = monRect.height + 'px';
+    panel.style.width = '320px';
+
+    // ResizeObserver: sync chart height to monitor height
+    const ro = new ResizeObserver(() => {
+      const h = monEl.getBoundingClientRect().height;
+      panel.style.height = h + 'px';
+      const ch = _chartInstances.get(sid);
+      if (ch) ch.resize();
+    });
+    ro.observe(monEl);
+    panel._ro = ro;
+    panel.innerHTML = `<div class="amon-chart-hdr">
+      <span>Execution Chart</span>
+      <button style="background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:0 3px" onclick="_closeChart('${sid}')">&times;</button>
+    </div>
+    <div style="padding:4px;flex:1;position:relative;min-height:0"><canvas id="amon-chart-canvas-${sid}"></canvas></div>`;
+
+    document.getElementById('algo-monitors').appendChild(panel);
+
+    // Drag
+    const hdr = panel.querySelector('.amon-chart-hdr');
+    hdr.style.cursor = 'grab';
+    hdr.addEventListener('mousedown', e => {
+      if (e.target.tagName === 'BUTTON') return;
+      hdr.style.cursor = 'grabbing';
+      const ox = e.clientX - panel.getBoundingClientRect().left;
+      const oy = e.clientY - panel.getBoundingClientRect().top;
+      function mv(ev) { panel.style.left = (ev.clientX - ox) + 'px'; panel.style.top = (ev.clientY - oy) + 'px'; }
+      function up() { hdr.style.cursor = 'grab'; document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); }
+      document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+    });
+
+    // Create Chart.js after DOM paint — requestAnimationFrame ensures canvas is laid out
+    requestAnimationFrame(() => {
+    const ctx = document.getElementById('amon-chart-canvas-' + sid)?.getContext('2d');
+    if (!ctx || typeof Chart === 'undefined') { console.error('[chart] Canvas or Chart.js unavailable for', sid); return; }
+
+    // Seed chart with initial data if strategy has fewer than 5 data points
+    const algoState = blotterData.algos[sid];
+    const seedBids = [], seedAsks = [], seedTimes = [], seedOrders = [];
+    if (algoState?.chartBids?.length >= 5) {
+      seedBids.push(...algoState.chartBids); seedAsks.push(...algoState.chartAsks);
+      seedTimes.push(...algoState.chartTimes); seedOrders.push(...(algoState.chartOrder || []));
+    } else {
+      // Pre-fill with current bid/ask for last 10 seconds
+      const tile = panels.find(p => p.instrument === algoState?.symbol && p.exchange === (algoState?.venue || 'Deribit'));
+      const curBid = tile?.ticker?.best_bid_price || 0;
+      const curAsk = tile?.ticker?.best_ask_price || 0;
+      if (curBid > 0 && curAsk > 0) {
+        const now = Date.now();
+        for (let i = 10; i >= 0; i--) {
+          seedBids.push(curBid); seedAsks.push(curAsk);
+          seedTimes.push(now - i * 1000); seedOrders.push(null);
+        }
+      }
+    }
+
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        datasets: [
+          { label: 'Bid', data: seedBids.map((v,i) => ({x:seedTimes[i],y:v})), borderColor: '#e05252', borderWidth: 1, pointRadius: 0, tension: 0 },
+          { label: 'Ask', data: seedAsks.map((v,i) => ({x:seedTimes[i],y:v})), borderColor: '#00c896', borderWidth: 1, pointRadius: 0, tension: 0 },
+          { label: 'Order', data: seedOrders.map((v,i) => v?{x:seedTimes[i],y:v}:null).filter(Boolean), borderColor: '#4488ff', borderWidth: 1.5, pointRadius: 0, tension: 0, borderDash: [4,2] },
+          { label: 'Fills', data: [], type: 'scatter', pointRadius: 8, pointStyle: [],
+            rotation: [], backgroundColor: [], borderColor: [], borderWidth: 1 },
+          { label: 'Volume', data: [], type: 'bar', yAxisID: 'y2',
+            backgroundColor: 'rgba(55,138,221,0.15)', borderWidth: 0, barThickness: 2, maxBarThickness: 3 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        scales: {
+          x: { type: 'time', time: { unit: 'second', displayFormats: { second: 'HH:mm:ss' }, tooltipFormat: 'HH:mm:ss' }, display: true, ticks: { color: '#333', font: { size: 8 }, maxTicksLimit: 6, autoSkip: true }, grid: { color: '#111' } },
+          y: { display: true, ticks: { color: '#444', font: { size: 9 } }, grid: { color: '#111' } },
+          y2: { display: false, position: 'right', beginAtZero: true, grid: { display: false } },
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: true, callbacks: {
+            label: item => {
+              if (item.datasetIndex === 3) {
+                const f = item.raw._fill;
+                return f ? `${f.side} ${f.size.toFixed(4)} @ ${f.price.toFixed(4)}${f.simulated?' (SIM)':''}` : '';
+              }
+              return `${item.dataset.label}: ${item.parsed.y?.toFixed(4)}`;
+            }
+          }},
+        },
+      },
+    });
+    _chartInstances.set(sid, chart);
+    }); // end requestAnimationFrame
+  };
+
+  // Update charts on every algo poll
+  function _updateCharts() {
+    for (const [sid, chart] of _chartInstances) {
+      const s = blotterData.algos[sid];
+      // Height sync handled by ResizeObserver — no manual sync needed
+      if (!s?.chartTimes?.length) continue;
+
+      const times = s.chartTimes;
+      const bids = s.chartBids;
+      const asks = s.chartAsks;
+      const orders = s.chartOrder;
+      const fills = s.chartFills || [];
+
+      chart.data.datasets[0].data = bids.map((v,i) => ({ x: times[i], y: v }));
+      chart.data.datasets[1].data = asks.map((v,i) => ({ x: times[i], y: v }));
+      chart.data.datasets[2].data = orders.map((v,i) => v ? { x: times[i], y: v } : null).filter(Boolean);
+
+      // Volume bars (dataset index 4) — scale to fit bottom 20% of chart
+      const volBars = s.chartVolBars || [];
+      if (chart.data.datasets[4] && volBars.length) {
+        const maxVol = Math.max(...volBars, 1);
+        // Scale: y2 max = maxVol * 5 so bars fill ~20% of height
+        chart.data.datasets[4].data = volBars.map((v,i) => ({ x: times[i], y: v }));
+        chart.options.scales.y2.max = maxVol * 5;
+      }
+
+      // Fills as scatter points — always render ALL fills
+      if (fills.length) console.log('[chart] rendering fills:', fills.length, 'for strategy:', sid);
+      const fillPts = fills.map(f => ({ x: f.time, y: f.price, _fill: f }));
+      chart.data.datasets[3].data = fillPts;
+      const bgColors = fills.map(f => f.side === 'BUY' ? '#00c896' : '#e05252');
+      const bdColors = fills.map(f => f.simulated ? '#ccaa44' : (f.side === 'BUY' ? '#00c896' : '#e05252'));
+      const styles = fills.map(() => 'triangle');
+      const rotations = fills.map(f => f.side === 'BUY' ? 0 : 180); // ▲ buy, ▽ sell
+      const radii = fills.map(() => 8);
+      // Last fill marker: blue square on completion
+      const sState = s.state || s.status;
+      if ((sState === 'COMPLETED' || sState === 'STOPPED') && styles.length > 0) {
+        const last = styles.length - 1;
+        styles[last] = 'rect';
+        bgColors[last] = '#378ADD';
+        bdColors[last] = '#378ADD';
+        rotations[last] = 0;
+        radii[last] = 6;
+      }
+      chart.data.datasets[3].backgroundColor = bgColors;
+      chart.data.datasets[3].borderColor = bdColors;
+      chart.data.datasets[3].pointStyle = styles;
+      chart.data.datasets[3].rotation = rotations;
+      chart.data.datasets[3].pointRadius = radii;
+
+      // Auto-scale Y with 10% padding — include fill prices
+      const fillPrices = fills.map(f => f.price).filter(v => v > 0);
+      const allPrices = [...bids, ...asks, ...fillPrices].filter(v => v > 0);
+      if (allPrices.length) {
+        const mn = Math.min(...allPrices), mx = Math.max(...allPrices);
+        const pad = (mx - mn) * 0.1 || 0.001;
+        chart.options.scales.y.min = mn - pad;
+        chart.options.scales.y.max = mx + pad;
+      }
+
+      chart.update('none');
+    }
+  }
+
+  // ── Tab visibility: refresh charts when tab becomes active ────────────────
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      _updateCharts();
+      for (const [, chart] of _chartInstances) { try { chart.resize(); } catch {} }
+    }
+  });
+
 })();
 
 // ── Risk rejection toast ─────────────────────────────────────────────────────

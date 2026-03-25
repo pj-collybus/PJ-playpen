@@ -396,7 +396,7 @@ class DeribitAdapter extends EventEmitter {
             avgEntryPrice: p.average_price || 0,
             unrealisedPnl: p.floating_profit_loss || 0,
             liquidationPrice: p.estimated_liquidation_price || 0,
-            markPrice: markPx,
+            markPrice: p.mark_price || 0,
             timestamp: Date.now(),
           };
           if (kind === 'future') futureCount++; else optionCount++;

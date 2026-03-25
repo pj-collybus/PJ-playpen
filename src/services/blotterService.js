@@ -59,6 +59,7 @@ class BlotterService extends EventEmitter {
         fee:         fill.commission || 0,
         feeCurrency: fill.commissionAsset || '',
         timestamp:   fill.fillTs || Date.now(),
+        simulated:   !!fill.simulated,
       };
       this._trades.unshift(trade);
       if (this._trades.length > MAX_TRADES) this._trades.pop();
@@ -91,6 +92,10 @@ class BlotterService extends EventEmitter {
         state:        order.state,
         rejectReason: order.rejectReason || null,
         timestamp:    order.updatedTs || order.createdTs || Date.now(),
+        parentOrderId: order.parentOrderId || order.metadata?.parentOrderId || null,
+        sliceNumber:   order.metadata?.sliceNumber || null,
+        strategyId:    order.metadata?.strategyId || null,
+        shortId:       order.metadata?.shortId || null,
       });
       // Cap size
       if (this._orders.size > MAX_ORDERS) {

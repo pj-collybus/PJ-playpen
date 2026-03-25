@@ -286,11 +286,12 @@ class BybitAdapter extends EventEmitter {
         side: p.side === 'Buy' ? 'LONG' : 'SHORT',
         size, sizeUnit: unit,
         avgEntryPrice: parseFloat(p.avgPrice) || 0,
+        markPrice: parseFloat(p.markPrice) || 0,
         unrealisedPnl: parseFloat(p.unrealisedPnl) || 0,
         liquidationPrice: parseFloat(p.liqPrice) || 0,
         timestamp: Date.now(),
       };
-      console.log('[bybit] Initial position:', p.symbol, pos.side, pos.size, pos.sizeUnit);
+      console.log('[bybit] Initial position:', p.symbol, pos.side, pos.size, pos.sizeUnit, 'mark:', pos.markPrice);
       publish(Topics.POSITIONS, pos, p.symbol).catch(() => {});
     }
   }
@@ -332,6 +333,7 @@ class BybitAdapter extends EventEmitter {
         venue: VENUE, symbol: p.symbol,
         side: p.side === 'Buy' ? 'LONG' : p.side === 'Sell' ? 'SHORT' : 'FLAT',
         size, sizeUnit: unit, avgEntryPrice: parseFloat(p.avgPrice) || 0,
+        markPrice: parseFloat(p.markPrice) || 0,
         unrealisedPnl: parseFloat(p.unrealisedPnl) || 0,
         liquidationPrice: parseFloat(p.liqPrice) || 0, timestamp: Date.now(),
       };

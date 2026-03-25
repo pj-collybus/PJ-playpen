@@ -12,6 +12,7 @@ const config = {
   displayName: 'VWAP',
   description: 'Volume-weighted average price — targets market VWAP with participation rate cap',
   params: [
+    { key: 'venue',                label: 'Exchange',                type: 'select', options: ['Deribit','Binance','Bybit','OKX','Kraken','BitMEX'] },
     { key: 'windowMinutes',        label: 'Window (minutes)',        type: 'number', default: 5,  min: 1 },
     { key: 'maxParticipationRate', label: 'Max participation rate %', type: 'number', default: 15, min: 1, max: 100 },
     { key: 'intervalSeconds',      label: 'Interval (seconds)',      type: 'number', default: 30, min: 5 },

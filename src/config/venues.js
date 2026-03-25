@@ -12,6 +12,7 @@ module.exports = {
     wsUrl:      TESTNET ? 'wss://test.deribit.com/ws/api/v2' : 'wss://www.deribit.com/ws/api/v2',
     restBase:   TESTNET ? 'https://test.deribit.com' : 'https://www.deribit.com',
     testnet:    TESTNET,
+    simulateFills: TESTNET, // simulate fills on testnet where matching engine is unreliable
     feedType:   'WEBSOCKET',
     assetClass: ['CRYPTO_PERP', 'CRYPTO_FUTURE', 'CRYPTO_SPOT'],
     exchangeColor: '#e03040',  // orange-red
@@ -38,6 +39,7 @@ module.exports = {
     wsUrl:      'wss://stream.bybit.com/v5/public/spot',
     restBase:   'https://api.bybit.com',
     testnet:    false,
+    simulateFills: TESTNET,
     feedType:   'WEBSOCKET',
     assetClass: ['CRYPTO_SPOT', 'CRYPTO_PERP'],
     exchangeColor: '#f7a600',  // yellow
@@ -77,6 +79,7 @@ module.exports = {
     wsUrl:      'wss://ws.bitmex.com/realtime',
     restBase:   'https://www.bitmex.com',
     testnet:    false,
+    simulateFills: TESTNET,
     feedType:   'WEBSOCKET',
     assetClass: ['CRYPTO_PERP', 'CRYPTO_FUTURE'],
     exchangeColor: '#4a90d9',  // dark blue
