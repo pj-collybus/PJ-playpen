@@ -776,6 +776,11 @@ let _algoStrategies = new Map(); // strategyId → latest status
 let _algoConfigs    = [];        // strategy plugin configs from worker
 
 function spawnAlgoWorker() {
+  // Kill existing worker if any (ensures fresh code on restart)
+  if (_algoWorker) {
+    try { _algoWorker.terminate(); } catch {}
+    _algoWorker = null;
+  }
   const workerPath = path.join(__dirname, 'src', 'algo', 'engine.js');
   const worker = new Worker(workerPath);
 
@@ -861,6 +866,10 @@ function spawnAlgoWorker() {
         console.log(`[algo] Received ${_algoConfigs.length} strategy configs from worker`);
         _resolveCallback('_configs', msg);
         break;
+
+      case 'PLUGINS_RELOADED':
+        console.log(`[algo] Plugins reloaded: ${(msg.plugins || []).join(', ')}`);
+        break;
     }
   });
 
@@ -886,32 +895,28 @@ function spawnAlgoWorker() {
   return worker;
 }
 
-async function _handleOrderIntent(intent) {
-  // Run through risk service first
-  const riskResult = riskService.check({
-    symbol:     intent.symbol,
-    venue:      intent.venue || 'DERIBIT',
-    side:       intent.side,
-    quantity:   intent.quantity,
-    limitPrice: intent.limitPrice,
-    orderType:  intent.orderType || 'LIMIT',
-    arrivalMid: 0, // will be filled by orderService
-    metadata:   { source: 'algo', strategyId: intent.strategyId, algoType: intent.algoType },
-  });
+/** Map exchange orderId → intentId so order state updates reach the correct strategy */
+const _orderIdToIntentId = new Map();
 
-  if (riskResult.rejected) {
-    console.warn(`[algo] ORDER_INTENT rejected by risk: ${riskResult.reason} — ${riskResult.detail}`);
-    // Notify worker of rejection as an error
-    if (_algoWorker) {
-      _algoWorker.postMessage({
-        type: 'FILL_DATA',
-        payload: { childId: intent.intentId, fillSize: 0, fillPrice: 0, rejected: true, reason: riskResult.reason },
-      });
-    }
+/** Venues where fills are simulated — skip real exchange submission */
+let _simFillVenueSet = new Set();
+{
+  const venues = require('./src/config/venues');
+  for (const k of Object.keys(venues)) {
+    if (venues[k].simulateFills) _simFillVenueSet.add(k.toUpperCase());
+  }
+}
+
+async function _handleOrderIntent(intent) {
+  const venue = (intent.venue || 'DERIBIT').toUpperCase();
+
+  // For sim-fill venues, skip real exchange — the worker's sim fill system handles it
+  if (_simFillVenueSet.has(venue)) {
+    console.log(`[algo] ORDER_INTENT ${intent.intentId} — sim-fill venue ${venue}, skipping exchange submission`);
     return;
   }
 
-  // Submit through orderService
+  // Submit through orderService for real venues
   try {
     const orderService = require('./src/services/orderService');
     const order = await orderService.submit({
@@ -932,8 +937,27 @@ async function _handleOrderIntent(intent) {
       },
     });
     console.log(`[algo] ORDER_INTENT ${intent.intentId} submitted as order ${order.orderId}`);
+    // Map exchange orderId → intentId for order state updates
+    if (order.orderId) _orderIdToIntentId.set(order.orderId, intent.intentId);
+    // If immediately rejected, notify worker
+    if (order.state === 'REJECTED') {
+      console.log(`[algo] ORDER_INTENT ${intent.intentId} immediately rejected: ${order.rejectReason || 'unknown'}`);
+      if (_algoWorker) {
+        _algoWorker.postMessage({
+          type: 'ORDER_UPDATE',
+          payload: { orderId: intent.intentId, intentId: intent.intentId, state: 'REJECTED', reason: order.rejectReason },
+        });
+      }
+    }
   } catch (err) {
     console.error(`[algo] ORDER_INTENT ${intent.intentId} failed:`, err.message);
+    // Treat submission failure as rejection
+    if (_algoWorker) {
+      _algoWorker.postMessage({
+        type: 'ORDER_UPDATE',
+        payload: { orderId: intent.intentId, intentId: intent.intentId, state: 'REJECTED', reason: err.message },
+      });
+    }
   }
 }
 
@@ -973,6 +997,12 @@ async function _wireAlgoDataFeeds() {
   });
   await busSubscribe('orders.state', 'algo-engine-orders', async (event) => {
     if (_algoWorker && (event.state === 'REJECTED' || event.state === 'CANCELLED')) {
+      // Map exchange orderId back to intentId so the worker can match it
+      const intentId = _orderIdToIntentId.get(event.orderId);
+      if (intentId) {
+        event.intentId = intentId;
+        _orderIdToIntentId.delete(event.orderId);
+      }
       _algoWorker.postMessage({ type: 'ORDER_UPDATE', payload: event });
     }
   });
@@ -1056,6 +1086,17 @@ app.get('/api/algo/status', async (req, res) => {
   } catch (e) {
     res.json({ strategies: Object.fromEntries(_algoStrategies), workerStatus: 'TIMEOUT' });
   }
+});
+
+app.post('/api/algo/reload-plugins', async (req, res) => {
+  try {
+    if (_algoWorker) {
+      _algoWorker.postMessage({ type: 'RELOAD_PLUGINS' });
+      res.json({ ok: true, message: 'Plugin reload triggered' });
+    } else {
+      res.status(503).json({ ok: false, error: 'Algo worker not running' });
+    }
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 app.get('/api/algo/strategies', (req, res) => {

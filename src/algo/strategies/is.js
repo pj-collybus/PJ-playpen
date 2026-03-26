@@ -202,6 +202,40 @@ class ISStrategy {
 
     if (this.status === 'WAITING' || this._stopped || this.status === 'COMPLETED' || this.status === 'STOPPED') return;
 
+    // ── COMPLETING deadline check ─────────────────────────────────────────
+    if (this.status === 'COMPLETING') {
+      console.log(`[is] COMPLETING deadline check: now=${now} deadline=${this._completingDeadline} expired=${now > this._completingDeadline} activeChild=${this.activeChildId}`);
+      if (now > this._completingDeadline || !this.activeChildId) {
+        console.log(`[is] COMPLETING finalised — ${!this.activeChildId ? 'no active child (sweep rejected/filled)' : 'deadline expired'} — filled=${this.filledSize.toFixed(4)}`);
+        this._completedTs = now; this.status = 'COMPLETED'; this.stop();
+      }
+      return; // don't fire new slices while completing
+    }
+
+    // ── Hard duration enforcement — must end at endTime (overrides pause) ──
+    if (now >= this._endTs && (this.status === 'RUNNING' || this.status === 'PAUSED')) {
+      console.log(`[is] Duration check: now=${now} endTs=${this._endTs} diff=${now - this._endTs}ms status=${this.status}`);
+      if (this.activeChildId) {
+        console.log(`[is] Duration expired — cancelling resting order ${this.activeChildId}`);
+        this._ctx.cancelChild(this.activeChildId); this.activeChildId = null;
+      }
+      if (this.remainingSize > 0.001 && bid > 0 && ask > 0) {
+        const tick = this._tickSize;
+        const sweep = this.side === 'BUY' ? ask + tick : bid - tick;
+        console.log(`[is] Duration expired — sweeping remaining ${this.remainingSize.toFixed(4)} @ ${sweep}`);
+        this.activeChildId = this._ctx.submitIntent({
+          symbol: this.symbol, side: this.side, quantity: this.remainingSize,
+          limitPrice: sweep, orderType: 'LIMIT', algoType: 'IS-SWEEP',
+        });
+        this._restingPrice = sweep;
+        this.status = 'COMPLETING';
+        this._completingDeadline = now + 10000;
+      } else {
+        this._completedTs = now; this.status = 'COMPLETED'; this.stop();
+      }
+      return;
+    }
+
     // ── Volatility estimation ─────────────────────────────────────────────
     if (mid > 0 && this._prevMid > 0) {
       const ret = (mid - this._prevMid) / this._prevMid;
@@ -258,27 +292,6 @@ class ISStrategy {
     if (this.filledSize >= this.totalSize - 0.001) {
       this._completedTs = now; this.status = 'COMPLETED'; this.stop(); return;
     }
-    // Hard end time
-    if (now >= this._endTs) {
-      if (this.activeChildId) { this._ctx.cancelChild(this.activeChildId); this.activeChildId = null; }
-      if (this.remainingSize > 0.001 && bid > 0 && ask > 0) {
-        const tick = this._tickSize;
-        const sweep = this.side === 'BUY' ? ask + tick : bid - tick;
-        this.activeChildId = this._ctx.submitIntent({
-          symbol: this.symbol, side: this.side, quantity: this.remainingSize,
-          limitPrice: sweep, orderType: 'LIMIT', algoType: 'IS-SWEEP',
-        });
-        this._restingPrice = sweep;
-        this.status = 'COMPLETING';
-        this._completingDeadline = now + 10000;
-      } else {
-        this._completedTs = now; this.status = 'COMPLETED'; this.stop();
-      }
-      return;
-    }
-    if (this.status === 'COMPLETING' && now > this._completingDeadline) {
-      this._completedTs = now; this.status = 'COMPLETED'; this.stop(); return;
-    }
 
     // ── Chase ─────────────────────────────────────────────────────────────
     if (this.activeChildId && bid > 0 && ask > 0) {
@@ -303,12 +316,30 @@ class ISStrategy {
     if (mid <= 0) return;
     this.slicesFired++;
 
-    // Adaptive slice sizing based on optimal rate
     const remainingTimeMs = Math.max(1000, this._endTs - Date.now());
-    let sliceSize = this.remainingSize * this.optimalRate * (60000 / remainingTimeMs);
+    const totalDurationMs = this._endTs - this._startTs;
+    const elapsedFraction = 1 - (remainingTimeMs / totalDurationMs);
+    // Cap optimalRate for first slice to prevent aggressive front-loading
+    const effectiveRate = this.slicesFired === 1 ? Math.min(this.optimalRate, 0.5) : this.optimalRate;
+
+    // Target number of slices across the full duration (minimum 5 for 100-unit orders)
+    const minSlices = Math.max(5, Math.round(this.totalSize / (this._lotSize * 5)));
+    // Slice size = totalSize / minSlices, scaled by rate for urgency bias
+    let sliceSize = this.totalSize / minSlices;
+    // Rate scaling: at 5% rate → slices are ~10% of base; at 95% rate → slices are ~190% of base
+    sliceSize *= Math.max(0.1, effectiveRate * 2);
+    // Hard cap: never more than totalSize / 5 in the first half of the window
+    if (elapsedFraction < 0.5) {
+      sliceSize = Math.min(sliceSize, this.totalSize / 5);
+    }
+    // Never more than half remaining (unless last slice)
+    const isLastSlice = this.remainingSize <= this._lotSize * 2;
+    if (!isLastSlice) sliceSize = Math.min(sliceSize, this.remainingSize / 2);
     sliceSize = Math.max(this._lotSize, Math.min(sliceSize, this.remainingSize));
     sliceSize = Math.round(sliceSize / this._lotSize) * this._lotSize;
     sliceSize = Math.max(this._lotSize, Math.min(sliceSize, this.remainingSize));
+    console.log(`[is] _fireSlice entry: remainingSize=${this.remainingSize.toFixed(4)} optimalRate=${this.optimalRate.toFixed(3)} slicesFired=${this.slicesFired} elapsed=${(elapsedFraction*100).toFixed(0)}%`);
+    console.log(`[is] slice sizing: base=${(this.totalSize/minSlices).toFixed(4)} rateScaled=${(this.totalSize/minSlices*Math.max(0.1,effectiveRate*2)).toFixed(4)} maxFirstHalf=${(this.totalSize/5).toFixed(4)} final=${sliceSize.toFixed(4)}`);
 
     // Price based on derived urgency
     const tick = this._tickSize;
@@ -332,8 +363,7 @@ class ISStrategy {
     this._chaseAt = 0;
 
     // Adaptive interval: higher rate → shorter interval
-    const baseInterval = 60000;
-    const interval = Math.max(5000, baseInterval / Math.max(0.1, this.optimalRate));
+    const interval = Math.max(5000, 60000 / Math.max(0.1, this.optimalRate));
     const variance = 0.1;
     this.nextSliceAt = Date.now() + interval * (1 + (Math.random() * 2 - 1) * variance);
 
@@ -342,7 +372,9 @@ class ISStrategy {
 
   onFill(fill) {
     if (!fill.fillSize || fill.fillSize <= 0) return;
+    // Accept fills during COMPLETING (final sweep) — only reject after fully done
     if (this.status === 'COMPLETED' || this.status === 'STOPPED') return;
+    console.log(`[is] onFill: fillSize=${fill.fillSize} filledSize before=${this.filledSize.toFixed(4)} filledSize after=${(this.filledSize + fill.fillSize).toFixed(4)} status=${this.status}`);
 
     this.filledSize += fill.fillSize;
     this.remainingSize = Math.max(0, this.totalSize - this.filledSize);
@@ -357,14 +389,16 @@ class ISStrategy {
       this.slippageVsArrival = this.marketImpactCost;
     }
 
+    // Always record fill to chart — including during COMPLETING and first fill before chart init
     this._chartFills.push({
       time: Date.now(), price: fill.fillPrice, size: fill.fillSize,
       side: this.side, simulated: !!fill.simulated,
     });
+    console.log(`[is] chartFills push: price=${fill.fillPrice} total fills: ${this._chartFills.length}`);
 
     this.activeChildId = null; this._restingPrice = null; this._chaseAt = 0;
 
-    console.log(`[is] Fill: ${fill.fillSize.toFixed(4)} @ ${fill.fillPrice} — IS cost: ${this.totalIsCost.toFixed(1)}bps (timing=${this.timingCost.toFixed(1)} impact=${this.marketImpactCost.toFixed(1)})`);
+    console.log(`[is] Fill: ${fill.fillSize.toFixed(4)} @ ${fill.fillPrice} — IS cost: ${this.totalIsCost.toFixed(1)}bps (timing=${this.timingCost.toFixed(1)} impact=${this.marketImpactCost.toFixed(1)}) status=${this.status}`);
 
     if (this.filledSize >= this.totalSize - 0.001) {
       this._completedTs = Date.now(); this.status = 'COMPLETED'; this.stop();
@@ -372,9 +406,16 @@ class ISStrategy {
   }
 
   onOrderUpdate(order) {
-    if (order.orderId !== this.activeChildId) return;
-    if (order.state === 'REJECTED') {
+    const matchId = order.orderId || order.intentId;
+    if (matchId !== this.activeChildId && order.intentId !== this.activeChildId) return;
+    if (order.state === 'REJECTED' || order.state === 'CANCELLED') {
+      console.log(`[is] Order ${matchId} ${order.state} — status=${this.status} activeChild=${this.activeChildId}`);
       this.activeChildId = null; this._restingPrice = null; this._chaseAt = 0;
+      // If sweep was rejected/cancelled during COMPLETING, immediately finish
+      if (this.status === 'COMPLETING') {
+        console.log(`[is] Final sweep ${order.state} during COMPLETING — completing with ${this.filledSize.toFixed(4)} filled`);
+        this._completedTs = Date.now(); this.status = 'COMPLETED'; this.stop();
+      }
     }
   }
 
@@ -411,9 +452,10 @@ class ISStrategy {
       tickSize: this._tickSize,
       childCount: this.slicesFired,
       maxChartPoints: this._chartMaxPts,
-      chartBids: this._chartBids, chartAsks: this._chartAsks,
-      chartOrder: this._chartOrder, chartTimes: this._chartTimes,
-      chartFills: this._chartFills, chartVwap: this._chartVwap,
+      chartBids: [...this._chartBids], chartAsks: [...this._chartAsks],
+      chartOrder: [...this._chartOrder], chartTimes: [...this._chartTimes],
+      chartFills: [...this._chartFills], chartVwap: [...this._chartVwap],
+      chartDecision: [...this._chartDecision],
       chartTargetPrice: this.decisionPrice, // decision price line on chart
     };
   }

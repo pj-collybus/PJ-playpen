@@ -31,6 +31,8 @@ function _loadPlugins() {
     if (!file.endsWith('.js')) continue;
     const fullPath = path.join(STRATEGIES_DIR, file);
     try {
+      // Bust require cache so worker always loads fresh strategy code
+      delete require.cache[require.resolve(fullPath)];
       const mod = require(fullPath);
       if (mod.config && mod.Strategy) {
         const name = mod.config.name.toUpperCase();
@@ -51,7 +53,9 @@ _loadPlugins();
 /** @type {Map<string, { strategy, state, startTime, intentCount, intentWindow, childOrders, venue }>} */
 const _strategies = new Map();
 const MAX_INTENTS_PER_SEC = 10;
-let _nextIntentId = 1;
+const _sessionId = Date.now().toString(36);
+let _nextIntentId = 0;
+function _nextIntent() { return `${_sessionId}-${++_nextIntentId}`; }
 
 // ── Fill simulation for unreliable testnet matching engines ──────────────────
 /** @type {Set<string>} venues where fills should be simulated */
@@ -65,17 +69,27 @@ const _lastMdBySymbol = new Map();
 
 setInterval(() => {
   for (const [sid, entry] of _strategies) {
-    if (entry.state === 'STOPPED' || entry.state === 'ERROR') continue;
-    const sym = entry.strategy.symbol;
+    if (entry.state === 'STOPPED' || entry.state === 'ERROR' || entry.state === 'COMPLETED') continue;
+    const s = entry.strategy;
+    const sym = s.symbol;
     const lastMd = _lastMdBySymbol.get(sym);
+    // Tick strategies in RUNNING, PAUSED, and COMPLETING states
     if (lastMd) {
-      try { entry.strategy.onTick(lastMd); }
+      console.log(`[engine] heartbeat tick for: ${sid.substring(sid.length - 6)} state: ${entry.state} stratStatus: ${s.status}`);
+      try { s.onTick(lastMd); }
       catch (err) { _handleStrategyError(sid, entry, err); }
     }
     // Safety: force completion if strategy is filled but status not COMPLETED
-    const s = entry.strategy;
     if (s.filledSize >= s.totalSize - 0.001 && s.status !== 'COMPLETED' && s.status !== 'STOPPED' && s.status !== 'COMPLETING') {
-      console.log(`[twap] Heartbeat forced completion: filled=${s.filledSize} total=${s.totalSize} status was ${s.status}`);
+      console.log(`[engine] Heartbeat forced completion: filled=${s.filledSize} total=${s.totalSize} status was ${s.status}`);
+      s._completedTs = s._completedTs || Date.now();
+      s.status = 'COMPLETED';
+      entry.state = 'COMPLETED';
+      if (typeof s.stop === 'function') s.stop();
+    }
+    // Safety: force completion if COMPLETING with no active child (sweep rejected/filled)
+    if (s.status === 'COMPLETING' && !s.activeChildId) {
+      console.log(`[engine] Heartbeat: COMPLETING with no active child — forcing COMPLETED for ${sid.substring(sid.length - 6)}`);
       s._completedTs = s._completedTs || Date.now();
       s.status = 'COMPLETED';
       entry.state = 'COMPLETED';
@@ -89,13 +103,14 @@ setInterval(() => {
 
   // Check simulated fills
   const now = Date.now();
+  if (_pendingSimFills.size > 0) console.log(`[sim] pending fills: ${_pendingSimFills.size} — ${Array.from(_pendingSimFills.keys()).join(', ')}`);
   for (const [intentId, pend] of _pendingSimFills) {
     const md = _lastMdBySymbol.get(pend.symbol);
     if (!md) continue;
     const bid = md.bidPrice || 0, ask = md.askPrice || 0;
     if (bid <= 0 || ask <= 0) continue;
-    // Check if market crossed order price
-    const crossed = pend.side === 'BUY' ? (bid >= pend.price) : (ask <= pend.price);
+    // Check if market crossed order price — BUY fills when ask <= limit, SELL fills when bid >= limit
+    const crossed = pend.side === 'BUY' ? (ask <= pend.price) : (bid >= pend.price);
     // Random delay 500-2000ms after crossing
     if (crossed && now >= pend.placedAt + 500 + Math.random() * 1500) {
       console.log(`[algo] Simulated fill for ${intentId} at ${pend.price} — testnet mode`);
@@ -154,6 +169,14 @@ parentPort.on('message', (msg) => {
       case 'FILL_DATA':       _onFillData(msg.payload);         break;
       case 'ACCELERATE':      _accelerate(msg.strategyId, msg.quantity); break;
       case 'ORDER_UPDATE':    _onOrderUpdate(msg.payload);              break;
+      case 'RELOAD_PLUGINS': {
+        console.log('[algo-engine] Reloading strategy plugins...');
+        _loadPlugins();
+        const names = Array.from(_plugins.keys());
+        _send('PLUGINS_RELOADED', { plugins: names });
+        _sendConfigs();
+        break;
+      }
       case 'SET_SIM_VENUES':  {
         _simFillVenues.clear();
         for (const v of (msg.venues || [])) _simFillVenues.add(v.toUpperCase());
@@ -318,7 +341,7 @@ function _onFillData(data) {
 
 function _submitIntent(strategyId, intent) {
   const entry = _strategies.get(strategyId);
-  if (!entry || entry.state !== 'RUNNING') return null;
+  if (!entry || (entry.state !== 'RUNNING' && entry.strategy?.status !== 'COMPLETING')) return null;
 
   const now = Date.now();
   if (now - entry.intentWindow >= 1000) { entry.intentCount = 0; entry.intentWindow = now; }
@@ -328,7 +351,7 @@ function _submitIntent(strategyId, intent) {
     return null;
   }
 
-  const intentId = `intent-${_nextIntentId++}`;
+  const intentId = _nextIntent();
   entry.childOrders.push(intentId);
 
   _send('ORDER_INTENT', {
@@ -378,7 +401,7 @@ function _accelerate(strategyId, quantity) {
   const price = s.side === 'BUY' ? ask : bid; // aggressive
   console.log(`[twap] Acceleration triggered: amount=${qty} price=${price} urgency=aggressive`);
 
-  const intentId = `intent-${_nextIntentId++}`;
+  const intentId = _nextIntent();
   entry.childOrders.push(intentId);
   _send('ORDER_INTENT', {
     intentId, strategyId,
