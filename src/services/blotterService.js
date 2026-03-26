@@ -78,6 +78,7 @@ class BlotterService extends EventEmitter {
           }
         }
       }
+      const prev = this._orders.get(key);
       this._orders.set(key, {
         venue:        order.venue,
         orderId:      key,
@@ -92,10 +93,10 @@ class BlotterService extends EventEmitter {
         state:        order.state,
         rejectReason: order.rejectReason || null,
         timestamp:    order.updatedTs || order.createdTs || Date.now(),
-        parentOrderId: order.parentOrderId || order.metadata?.parentOrderId || null,
-        sliceNumber:   order.metadata?.sliceNumber || null,
-        strategyId:    order.metadata?.strategyId || null,
-        shortId:       order.metadata?.shortId || null,
+        parentOrderId: order.parentOrderId || order.metadata?.parentOrderId || prev?.parentOrderId || null,
+        sliceNumber:   order.metadata?.sliceNumber || prev?.sliceNumber || null,
+        strategyId:    order.metadata?.strategyId || prev?.strategyId || null,
+        shortId:       order.metadata?.shortId || prev?.shortId || null,
       });
       // Cap size
       if (this._orders.size > MAX_ORDERS) {

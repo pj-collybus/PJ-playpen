@@ -1155,11 +1155,12 @@ canvas.clickable { cursor: crosshair; }
       </div>
       <div id="algo-duration-presets" style="display:flex;gap:4px;flex-wrap:wrap"></div>
       <!-- Urgency pills -->
-      <div style="font-size:10px;color:#555">Urgency <span class="algo-tip" data-tip="Passive: post at TOB, wait for fill. Neutral: post at mid, crosses half spread. Aggressive: cross spread immediately, guaranteed fill.">&#x24D8;</span></div>
-      <div id="algo-urgency-pills" style="display:flex;gap:4px">
-        <button class="bl-period-pill active" data-urg="passive" style="flex:1" title="Post at best bid/ask — wait for market to come to you. Cheapest but may not fill if market moves away.">Passive</button>
-        <button class="bl-period-pill" data-urg="neutral" style="flex:1" title="Post at mid price — crosses half the spread. Balanced fill rate and cost.">Neutral</button>
-        <button class="bl-period-pill" data-urg="aggressive" style="flex:1" title="Cross the spread immediately — guaranteed fill but pays full spread cost. Auto-activates in final 10% of window.">Aggressive</button>
+      <div id="algo-urgency-section">
+        <div style="font-size:10px;color:#555">Urgency <span class="algo-tip" data-tip="Passive: posts at top of book, crosses spread at 80% of slice interval if unfilled. Tries to earn the spread first. Aggressive: crosses the spread immediately at each slice time. Guaranteed fill, pays the spread.">&#x24D8;</span></div>
+        <div id="algo-urgency-pills" style="display:flex;gap:4px">
+          <button class="bl-period-pill active" data-urg="passive" style="flex:1" title="Posts at top of book, crosses spread at 80% of slice interval if unfilled. Tries to earn the spread first.">Passive</button>
+          <button class="bl-period-pill" data-urg="aggressive" style="flex:1" title="Crosses the spread immediately at each slice time. Guaranteed fill, pays the spread.">Aggressive</button>
+        </div>
       </div>
       <!-- Estimate + summary -->
       <div id="algo-estimate" style="font-size:10px;color:#555"></div>
@@ -6161,15 +6162,17 @@ function blotterOrdersHTML(ordersMap, tabId) {
     const st = (s.state || s.status || '').toLowerCase();
     const stc = st === 'running' ? 'bl-st-open' : st === 'completed' ? 'bl-st-filled' : 'bl-st-cancelled';
     const sc = (s.side || '').toUpperCase() === 'BUY' ? 'bl-green' : 'bl-red';
-    const totalFilled = children.reduce((sum, c) => sum + (c.filled_amount || 0), 0);
+    const childFilled = children.reduce((sum, c) => sum + (c.filled_amount || 0), 0);
+    const totalFilled = s.filledQty || childFilled;
     const totalAmt = s.totalSize || children.reduce((sum, c) => sum + (c.amount || 0), 0);
     const avgPx = s.avgFillPrice || 0;
+    const algoType = s.type || 'TWAP';
     body += `<tr class="bl-parent-row" data-algo-sid="${sid}" style="cursor:pointer">
       <td><span class="bl-arrow">${arrow}</span></td>
       <td>${exchPill(s.venue || 'Deribit')}</td>
       <td>${BL_TS(s.startTime || children[0]?.creation_timestamp)}</td>
-      <td style="font-weight:600">${s.symbol||'—'} <span style="font-size:7px;color:#8866cc;border:1px solid #443388;padding:0 3px;border-radius:2px">${s.type||'TWAP'}</span></td>
-      <td>TWAP</td>
+      <td style="font-weight:600">${s.symbol||'—'} <span style="font-size:7px;color:#8866cc;border:1px solid #443388;padding:0 3px;border-radius:2px">${algoType}</span></td>
+      <td>${algoType}</td>
       <td class="${sc}">${(s.side||'').toUpperCase()}</td>
       <td>${formatNum(totalAmt, 4)}</td><td>${formatNum(totalFilled, 4)}</td><td>${formatNum(Math.max(0, totalAmt - totalFilled), 4)}</td>
       <td>${avgPx ? blotterPriceFmt(avgPx, s.venue, s.symbol) : '—'}</td>
@@ -6591,7 +6594,8 @@ function initBlotter() {
       // Merge orders from non-Deribit exchanges (update existing, add new)
       if (data.orders?.length) {
         for (const o of data.orders) {
-          if (o.venue === 'DERIBIT') continue;
+          // Skip Deribit orders from browser WS — but allow simulated algo child orders through
+          if ((o.venue || '').toUpperCase() === 'DERIBIT' && !o.parentOrderId && !o.metadata?.simulated) continue;
           const existing = blotterData.orders[o.orderId];
           // Always update — server blotter is authoritative for non-Deribit
           blotterData.orders[o.orderId] = {
@@ -7059,6 +7063,9 @@ function initBlotter() {
     if (durField) durField.style.display = hasDuration ? '' : 'none';
     const durPresetsEl = document.getElementById('algo-duration-presets');
     if (durPresetsEl) durPresetsEl.style.display = hasDuration ? 'flex' : 'none';
+    // Show urgency for strategies that use it — not Sniper (has its own execution mode)
+    const urgSection = document.getElementById('algo-urgency-section');
+    if (urgSection) urgSection.style.display = _algoType === 'SNIPER' ? 'none' : '';
     const iceFields = document.getElementById('algo-iceberg-fields');
     if (iceFields) iceFields.style.display = _algoType === 'ICEBERG' ? 'flex' : 'none';
     const vwapFields = document.getElementById('algo-vwap-fields');
@@ -7120,7 +7127,7 @@ function initBlotter() {
 
     // Read simple fields
     out.venue = _algoExchange;
-    out.urgency = _algoUrgency;
+    if (_algoType !== 'SNIPER') out.urgency = _algoUrgency;
 
     // VWAP simple fields
     if (_algoType === 'VWAP') {
@@ -7460,9 +7467,9 @@ function initBlotter() {
     let urgCtx = '';
     const urg = s.urgency || 'passive';
     const aop = s.activeOrderPrice;
-    if (urg === 'passive') urgCtx = aop ? `Passive — resting @ $${aop.toFixed(pxD)}` : (bid ? `Passive — next at ${s.side==='BUY'?'bid':'ask'}` : 'Passive');
+    if (urg === 'passive' && s.sliceCrossed) urgCtx = aop ? `Passive — crossing now @ $${aop.toFixed(pxD)}` : 'Passive — crossing (unfilled)';
+    else if (urg === 'passive') urgCtx = aop ? `Passive — resting @ $${aop.toFixed(pxD)}` : (bid ? `Passive — next at ${s.side==='BUY'?'bid':'ask'}` : 'Passive');
     else if (urg === 'aggressive') urgCtx = aop ? `Aggressive — crossing @ $${aop.toFixed(pxD)}` : (ask ? `Aggressive — next crosses spread` : 'Aggressive');
-    else urgCtx = aop ? `Neutral — @ $${aop.toFixed(pxD)}` : (mid ? `Neutral — next at mid` : 'Neutral');
     // Pause bar
     const pauseBar = state === 'PAUSED' && s.pauseReason ? `<div class="amon-pause-bar">Paused: ${s.pauseReason}</div>` : '';
     // Child orders from blotter (match by strategyId prefix)

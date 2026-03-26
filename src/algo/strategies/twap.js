@@ -38,7 +38,7 @@ const config = {
     { key: 'limitPrice',          label: 'Limit price',            type: 'number', default: 0, dependsOn: { limitMode: 'market_limit' } },
     { key: 'averageRateLimit',    label: 'Max average rate',       type: 'number', default: 0, dependsOn: { limitMode: 'average_rate' } },
     // Urgency
-    { key: 'urgency',             label: 'Urgency',                type: 'select', options: [{value:'passive',label:'Passive'},{value:'neutral',label:'Neutral'},{value:'aggressive',label:'Aggressive'}], default: 'passive' },
+    { key: 'urgency',             label: 'Urgency',                type: 'select', options: [{value:'passive',label:'Passive — post then cross'},{value:'aggressive',label:'Aggressive — cross immediately'}], default: 'passive' },
     // Participation
     { key: 'maxParticipationPct', label: 'Max participation %',    type: 'number', default: 15, min: 1, max: 100 },
     { key: 'maxSpreadBps',       label: 'Max spread (bps)',       type: 'number', default: 50, min: 0 },
@@ -167,6 +167,10 @@ class TWAPStrategy {
     this._ctx            = null;
     this._stopped        = false;
     this._startTimer     = null;
+    // Passive urgency: post-then-cross tracking
+    this._sliceStartTs    = 0;      // when current slice was placed
+    this._sliceDeadlineTs = 0;      // sliceStartTs + intervalMs * 0.8
+    this._sliceCrossed    = false;   // whether this slice has been crossed
   }
 
   get type() { return 'TWAP'; }
@@ -387,19 +391,37 @@ class TWAPStrategy {
       this.stop(); return;
     }
 
-    // ── Chase logic for active child ──────────────────────────────────────
-    if (this.activeChildId && bid > 0 && ask > 0) {
+    // ── Passive cross: at 80% of slice interval, cross spread if unfilled ──
+    if (this._urgency === 'passive' && this.activeChildId && !this._sliceCrossed && this._sliceDeadlineTs > 0 && now >= this._sliceDeadlineTs && bid > 0 && ask > 0) {
+      console.log(`[twap] Passive slice deadline reached — crossing spread for unfilled portion`);
+      this._ctx.cancelChild(this.activeChildId);
+      this.activeChildId = null;
+      this._sliceCrossed = true;
+      // Immediately cross the spread
+      const tick = this._tickSize || 0.0001;
+      const crossPrice = this.side === 'BUY' ? ask + tick : bid - tick;
+      const crossQty = this.remainingSize > 0 ? Math.min(this.remainingSize, this.totalSize / Math.max(1, this.slicesTotal)) : 0;
+      if (crossQty > 0.001) {
+        console.log(`[twap] Passive cross: ${crossQty.toFixed(4)} @ ${crossPrice} (aggressive)`);
+        this.activeChildId = this._ctx.submitIntent({
+          symbol: this.symbol, side: this.side, quantity: crossQty,
+          limitPrice: crossPrice, orderType: 'LIMIT', algoType: 'TWAP-CROSS',
+        });
+        this._restingPrice = crossPrice;
+      }
+    }
+
+    // ── Chase logic for active child (aggressive or post-cross) ────────────
+    if (this.activeChildId && bid > 0 && ask > 0 && (this._urgency === 'aggressive' || this._sliceCrossed)) {
       // Check if market moved away from resting order price
       const restingPrice = this._restingPrice || 0;
       const marketMoved = this.side === 'BUY'
         ? (bid > restingPrice * 1.0001)   // bid moved above our resting bid
         : (ask < restingPrice * 0.9999);  // ask moved below our resting ask
       if (marketMoved && this._chaseDeadline === 0) {
-        // Start chase timer (randomised 3-7s delay)
         this._chaseDeadline = now + _rand(CHASE_DELAY_MIN, CHASE_DELAY_MAX);
         console.log(`[twap] Market moved from resting ${restingPrice} — chase in ${Math.round((this._chaseDeadline - now)/1000)}s`);
       } else if (this._chaseDeadline > 0 && now >= this._chaseDeadline) {
-        // Chase delay elapsed — cancel and repost at new TOB
         console.log(`[twap] Cancelling stale order — market moved from ${restingPrice} to bid=${bid} ask=${ask}`);
         this._ctx.cancelChild(this.activeChildId);
         this.activeChildId = null;
@@ -468,17 +490,21 @@ class TWAPStrategy {
     // Determine child price by urgency
     const tick = this._tickSize || 0.0001;
     let price;
-    if (this._urgency === 'passive') {
-      price = this.side === 'BUY' ? bid : ask; // post at TOB, don't cross
-    } else if (this._urgency === 'aggressive') {
+    if (this._urgency === 'aggressive') {
       // Cross spread by 1 tick to guarantee fill
       price = this.side === 'BUY' ? ask + tick : bid - tick;
     } else {
-      price = mid; // neutral
+      // Passive: post at TOB, don't cross
+      price = this.side === 'BUY' ? bid : ask;
     }
     if (!price || price <= 0) price = mid;
 
-    console.log(`[twap] emitIntent:`, { size: sliceSize, price, side: this.side, venue: this.venue, symbol: this.symbol });
+    // Reset passive slice tracking
+    this._sliceStartTs = Date.now();
+    this._sliceDeadlineTs = this._sliceStartTs + this._intervalMs * 0.8;
+    this._sliceCrossed = false;
+
+    console.log(`[twap] emitIntent:`, { size: sliceSize, price, side: this.side, venue: this.venue, symbol: this.symbol, urgency: this._urgency });
     this.activeChildId = this._ctx.submitIntent({
       symbol: this.symbol, side: this.side, quantity: sliceSize,
       limitPrice: price, orderType: 'LIMIT', algoType: 'TWAP',
@@ -632,6 +658,7 @@ class TWAPStrategy {
       elapsed, timeRemaining,
       nextSliceIn: nextIn,
       urgency: this._urgency,
+      sliceCrossed: this._sliceCrossed,
       pauseReason: this.pauseReason,
       startMode: this._startMode,
       amountMode: this._amountMode,

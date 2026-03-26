@@ -1,9 +1,11 @@
 /**
- * Sniper — waits for price to reach a target level then executes aggressively.
+ * Sniper — two execution modes:
  *
- * States: WAITING → TRIGGERED → EXECUTING → COMPLETED
- * Execution modes: all_at_once, iceberg, twap
- * Optional retrigger for accumulating at a level.
+ * Snipe:        Wait for price to touch/cross targetPrice, then fire full size as IOC.
+ * Post+Snipe:   Place a resting limit order at targetPrice, plus actively snipe
+ *               any liquidity that appears at or better than snipeLevel.
+ *
+ * States: WAITING → ACTIVE → COMPLETING → COMPLETED / EXPIRED / STOPPED
  */
 
 'use strict';
@@ -11,20 +13,18 @@
 const config = {
   name: 'SNIPER',
   displayName: 'Sniper',
-  description: 'Waits for price to reach your target level then executes aggressively',
+  description: 'Snipe at a price level, or post a passive bid with a snipe ceiling',
   params: [
-    { key: 'venue',              label: 'Exchange',            type: 'select', options: ['Deribit','Binance','Bybit','OKX','Kraken','BitMEX'] },
-    { key: 'targetPrice',        label: 'Target price',        type: 'number', default: 0 },
-    { key: 'triggerCondition',   label: 'Trigger when price',  type: 'select', options: [{value:'touches',label:'Touches target'},{value:'breaks_above',label:'Breaks above target'},{value:'breaks_below',label:'Breaks below target'}], default: 'touches' },
-    { key: 'executionMode',      label: 'Execution',           type: 'select', options: [{value:'all_at_once',label:'Full size immediately'},{value:'iceberg',label:'Iceberg after trigger'},{value:'twap',label:'TWAP after trigger'}], default: 'all_at_once' },
-    { key: 'twapMinutes',        label: 'TWAP duration (mins)', type: 'number', default: 5, min: 1, dependsOn: { executionMode: 'twap' } },
-    { key: 'icebergVisibleSize', label: 'Visible size',        type: 'number', default: 10, dependsOn: { executionMode: 'iceberg' } },
-    { key: 'urgency',            label: 'Execution urgency',   type: 'select', options: [{value:'aggressive',label:'Aggressive'},{value:'neutral',label:'Neutral'}], default: 'aggressive' },
-    { key: 'expiryMode',         label: 'Expires',             type: 'select', options: [{value:'gtc',label:'Never (GTC)'},{value:'time',label:'At time'},{value:'eod',label:'End of day'}], default: 'gtc' },
-    { key: 'expiryTime',         label: 'Expiry time',         type: 'text', default: '', dependsOn: { expiryMode: 'time' } },
-    { key: 'maxSpreadBps',       label: 'Max spread (bps)',    type: 'number', default: 50 },
-    { key: 'retriggerEnabled',   label: 'Retrigger',           type: 'select', options: [{value:'false',label:'Once only'},{value:'true',label:'Retrigger if price returns'}], default: 'false' },
-    { key: 'retriggerCooldownMs',label: 'Retrigger cooldown (ms)', type: 'number', default: 5000, dependsOn: { retriggerEnabled: 'true' } },
+    { key: 'venue',              label: 'Exchange',                       type: 'select', options: ['Deribit','Binance','Bybit','OKX','Kraken','BitMEX'] },
+    { key: 'executionMode',      label: 'Execution mode',                 type: 'select', options: [{value:'snipe',label:'Snipe — cross spread at trigger price'},{value:'post_snipe',label:'Post + Snipe — passive bid with snipe ceiling'}], default: 'snipe' },
+    { key: 'targetPrice',        label: 'Target price (trigger / post level)', type: 'number', default: 0 },
+    { key: 'triggerCondition',   label: 'Trigger when price',             type: 'select', options: [{value:'touches',label:'Touches target'},{value:'breaks_above',label:'Breaks above target'},{value:'breaks_below',label:'Breaks below target'}], default: 'touches', dependsOn: { executionMode: 'snipe' } },
+    { key: 'snipeLevel',         label: 'Snipe ceiling (for Post+Snipe)', type: 'number', default: 0, dependsOn: { executionMode: 'post_snipe' } },
+    { key: 'expiryMode',         label: 'Expires',                        type: 'select', options: [{value:'gtc',label:'Never (GTC)'},{value:'time',label:'At time'},{value:'eod',label:'End of day'}], default: 'gtc' },
+    { key: 'expiryTime',         label: 'Expiry time',                    type: 'text', default: '', dependsOn: { expiryMode: 'time' } },
+    { key: 'maxSpreadBps',       label: 'Max spread (bps)',               type: 'number', default: 50 },
+    { key: 'retriggerEnabled',   label: 'Retrigger',                      type: 'select', options: [{value:'false',label:'Once only'},{value:'true',label:'Retrigger if price returns'}], default: 'false', dependsOn: { executionMode: 'snipe' } },
+    { key: 'retriggerCooldownMs',label: 'Retrigger cooldown (ms)',        type: 'number', default: 5000, dependsOn: { retriggerEnabled: 'true' } },
   ],
 };
 
@@ -54,12 +54,10 @@ class SniperStrategy {
     this.venue     = params.venue || 'Deribit';
     this.totalSize = params.totalSize || 0;
 
+    this._executionMode     = params.executionMode || 'snipe';
     this._targetPrice       = params.targetPrice || 0;
     this._triggerCondition  = params.triggerCondition || 'touches';
-    this._executionMode     = params.executionMode || 'all_at_once';
-    this._twapMinutes       = params.twapMinutes || 5;
-    this._icebergVisible    = params.icebergVisibleSize || 10;
-    this._urgency           = params.urgency || 'aggressive';
+    this._snipeLevel        = params.snipeLevel || 0;
     this._tickSize          = params.tickSize || 0.0001;
     this._lotSize           = params.lotSize || 1;
     this._maxSpreadBps      = params.maxSpreadBps || 50;
@@ -91,7 +89,7 @@ class SniperStrategy {
     this.totalNotional   = 0;
     this.arrivalPrice    = 0;
     this.slippageVsArrival = 0;
-    this.activeChildId   = null;
+    this.activeChildId   = null;  // snipe IOC order
     this._restingPrice   = null;
     this.pauseReason     = null;
     this._prevMid        = 0;
@@ -100,12 +98,13 @@ class SniperStrategy {
     this._retryAt        = 0;
     this._retryCount     = 0;
 
-    // TWAP/Iceberg sub-execution state
-    this._subSlicesFired = 0;
-    this._subSlicesTotal = 0;
-    this._subIntervalMs  = 0;
-    this._subNextSliceAt = 0;
-    this._subRefreshAt   = 0;
+    // Post+Snipe state
+    this.restingOrderId   = null;   // the passive resting order
+    this.restingOrderSize = this.totalSize;
+    this.snipedSize       = 0;
+    this.passiveFillSize  = 0;
+    this._lastSnipeTs     = 0;
+    this._snipeChildId    = null;   // current snipe IOC in flight
 
     this._completedTs    = 0;
     this._startTs        = Date.now();
@@ -118,7 +117,12 @@ class SniperStrategy {
 
   start(ctx) {
     this._ctx = ctx;
-    console.log(`[sniper] Waiting for ${this._triggerCondition} at $${this._targetPrice} — ${this._executionMode} mode`);
+    if (this._executionMode === 'post_snipe') {
+      console.log(`[sniper] Post+Snipe: posting ${this.totalSize} at $${this._targetPrice}, snipe ceiling $${this._snipeLevel}`);
+      this._activatePostSnipe();
+    } else {
+      console.log(`[sniper] Snipe: waiting for ${this._triggerCondition} at $${this._targetPrice}`);
+    }
   }
 
   pause()  { if (this.status !== 'COMPLETED' && this.status !== 'EXPIRED') { this._prevStatus = this.status; this.status = 'PAUSED'; this.pauseReason = 'manual'; } }
@@ -128,9 +132,59 @@ class SniperStrategy {
     this._stopped = true;
     if (!this._completedTs) this._completedTs = Date.now();
     if (this.activeChildId) { this._ctx.cancelChild(this.activeChildId); this.activeChildId = null; }
+    if (this._snipeChildId) { this._ctx.cancelChild(this._snipeChildId); this._snipeChildId = null; }
+    if (this.restingOrderId) { this._ctx.cancelChild(this.restingOrderId); this.restingOrderId = null; }
     if (this.status !== 'COMPLETED' && this.status !== 'EXPIRED') this.status = 'STOPPED';
-    console.log(`[sniper] Stopped: filled=${this.filledSize.toFixed(4)} avg=${this.avgFillPrice.toFixed(4)}`);
+    console.log(`[sniper] Stopped: filled=${this.filledSize.toFixed(4)} avg=${this.avgFillPrice.toFixed(4)} (passive=${this.passiveFillSize.toFixed(4)} sniped=${this.snipedSize.toFixed(4)})`);
   }
+
+  // ── Post+Snipe activation ───────────────────────────────────────────────
+
+  _activatePostSnipe() {
+    this.status = 'ACTIVE';
+    this._triggerTs = Date.now();
+    // Place resting order at targetPrice
+    this._placeRestingOrder();
+  }
+
+  _placeRestingOrder() {
+    if (this.restingOrderId) {
+      this._ctx.cancelChild(this.restingOrderId);
+      this.restingOrderId = null;
+    }
+    this.restingOrderSize = this.remainingSize;
+    if (this.restingOrderSize <= 0.001) return;
+
+    this.restingOrderId = this._ctx.submitIntent({
+      symbol: this.symbol, side: this.side, quantity: this.restingOrderSize,
+      limitPrice: this._targetPrice, orderType: 'LIMIT', algoType: 'SNIPER-POST',
+    });
+    this._restingPrice = this._targetPrice;
+    console.log(`[sniper] Resting order placed: ${this.restingOrderSize.toFixed(4)} @ $${this._targetPrice}`);
+  }
+
+  _fireSnipe(bid, ask) {
+    if (this._snipeChildId || this.remainingSize <= this._lotSize * 0.5) return;
+    const now = Date.now();
+    if (now - this._lastSnipeTs < 200) return; // min 200ms between snipes
+
+    const tick = this._tickSize;
+    const price = this.side === 'BUY' ? ask + tick : bid - tick;
+    const qty = Math.min(this.remainingSize, this.totalSize); // full remaining
+    if (qty < this._lotSize) return;
+
+    const snipeQty = Math.round(qty / this._lotSize) * this._lotSize;
+    if (snipeQty <= 0) return;
+
+    this._snipeChildId = this._ctx.submitIntent({
+      symbol: this.symbol, side: this.side, quantity: snipeQty,
+      limitPrice: price, orderType: 'LIMIT', timeInForce: 'IOC', algoType: 'SNIPER-SNIPE',
+    });
+    this._lastSnipeTs = now;
+    console.log(`[sniper] Snipe fired: ${snipeQty.toFixed(4)} @ $${price} (ceiling $${this._snipeLevel})`);
+  }
+
+  // ── Main tick handler ───────────────────────────────────────────────────
 
   onTick(marketData) {
     this._lastMd = marketData;
@@ -156,20 +210,36 @@ class SniperStrategy {
 
     if (this._stopped || this.status === 'COMPLETED' || this.status === 'EXPIRED' || this.status === 'PAUSED') return;
 
-    // ── WAITING ─────────────────────────────────────────────────────────
-    if (this.status === 'WAITING') {
-      // Expiry check
-      if (this._expiryTs && now >= this._expiryTs) {
-        this.status = 'EXPIRED'; this._completedTs = now;
-        console.log(`[sniper] Expired — target not reached`);
-        return;
-      }
-      // Retrigger cooldown
-      if (this._retriggerAt > 0 && now < this._retriggerAt) return;
+    // ── Expiry check ─────────────────────────────────────────────────
+    if (this._expiryTs && now >= this._expiryTs) {
+      this.status = 'EXPIRED'; this._completedTs = now;
+      console.log(`[sniper] Expired`);
+      this.stop(); return;
+    }
 
+    // ── Post+Snipe mode ──────────────────────────────────────────────
+    if (this._executionMode === 'post_snipe') {
+      if (this.status === 'ACTIVE' && bid > 0 && ask > 0) {
+        // Completion check
+        if (this.filledSize >= this.totalSize - 0.001) {
+          this._completedTs = now; this.status = 'COMPLETED'; this.stop(); return;
+        }
+        // Snipe mechanism: check if price is at or within snipe level
+        const snipeTriggered = this.side === 'BUY'
+          ? (this._snipeLevel > 0 && ask <= this._snipeLevel)
+          : (this._snipeLevel > 0 && bid >= this._snipeLevel);
+        if (snipeTriggered && !this._snipeChildId && this.remainingSize > this._lotSize * 0.5) {
+          this._fireSnipe(bid, ask);
+        }
+      }
+      return;
+    }
+
+    // ── Snipe mode (pure IOC) ────────────────────────────────────────
+    if (this.status === 'WAITING') {
+      if (this._retriggerAt > 0 && now < this._retriggerAt) return;
       if (mid <= 0) { this._prevMid = mid; return; }
 
-      // Trigger evaluation
       let triggered = false;
       if (this._triggerCondition === 'touches') {
         triggered = Math.abs(mid - this._targetPrice) <= this._tickSize;
@@ -182,144 +252,57 @@ class SniperStrategy {
 
       if (triggered) {
         this._triggerTs = now;
-        console.log(`[sniper] TRIGGERED at mid=${mid} target=${this._targetPrice} condition=${this._triggerCondition}`);
+        console.log(`[sniper] TRIGGERED at mid=${mid} target=${this._targetPrice}`);
         if (marketData.spreadBps > this._maxSpreadBps) {
           this.status = 'TRIGGERED';
           this.pauseReason = `Spread ${marketData.spreadBps.toFixed(0)}bps — waiting to narrow`;
         } else {
-          this._startExecution(bid, ask, mid);
+          this._startSnipe(bid, ask, mid);
         }
       }
       return;
     }
 
-    // ── TRIGGERED (waiting for spread) ──────────────────────────────────
     if (this.status === 'TRIGGERED') {
       if (mid > 0 && marketData.spreadBps <= this._maxSpreadBps) {
         this.pauseReason = null;
-        this._startExecution(bid, ask, mid);
+        this._startSnipe(bid, ask, mid);
       }
       return;
     }
 
-    // ── EXECUTING ───────────────────────────────────────────────────────
-    if (this.status === 'EXECUTING') {
-      // Completion check
+    if (this.status === 'ACTIVE') {
       if (this.filledSize >= this.totalSize - 0.001) {
         this._completedTs = now; this.status = 'COMPLETED'; this.stop(); return;
       }
-
-      // Retry after rejection
       if (this._retryAt > 0 && now >= this._retryAt && !this.activeChildId) {
         this._retryAt = 0;
-        this._fireOrder(bid, ask, mid);
-        return;
-      }
-
-      if (this._executionMode === 'all_at_once') {
-        // Single order already placed in _startExecution
-        return;
-      }
-
-      if (this._executionMode === 'iceberg') {
-        if (!this.activeChildId && now >= this._subRefreshAt && this.remainingSize > 0.001) {
-          this._fireIcebergSlice(bid, ask, mid);
-        }
-        return;
-      }
-
-      if (this._executionMode === 'twap') {
-        if (!this.activeChildId && now >= this._subNextSliceAt && this.remainingSize > 0.001 && this._subSlicesFired < this._subSlicesTotal) {
-          this._fireTwapSlice(bid, ask, mid);
-        }
-        return;
+        this._fireSnipeOrder(bid, ask);
       }
     }
   }
 
-  _startExecution(bid, ask, mid) {
-    this.status = 'EXECUTING';
-    console.log(`[sniper] Executing: mode=${this._executionMode} size=${this.remainingSize}`);
-
-    if (this._executionMode === 'all_at_once') {
-      this._fireOrder(bid, ask, mid);
-    } else if (this._executionMode === 'twap') {
-      this._subSlicesTotal = Math.max(2, this._twapMinutes);
-      this._subIntervalMs = this._twapMinutes * 60000 / this._subSlicesTotal;
-      this._subNextSliceAt = Date.now();
-      this._fireTwapSlice(bid, ask, mid);
-    } else if (this._executionMode === 'iceberg') {
-      this._subRefreshAt = Date.now();
-      this._fireIcebergSlice(bid, ask, mid);
-    }
+  _startSnipe(bid, ask, mid) {
+    this.status = 'ACTIVE';
+    console.log(`[sniper] Snipe mode — IOC only, no resting order should exist. restingOrderId=${this.restingOrderId}`);
+    console.log(`[sniper] Executing snipe: size=${this.remainingSize}`);
+    this._fireSnipeOrder(bid, ask);
   }
 
-  _fireOrder(bid, ask, mid) {
+  _fireSnipeOrder(bid, ask) {
     const tick = this._tickSize;
-    let price;
-    if (this._urgency === 'aggressive') {
-      price = this.side === 'BUY' ? ask + tick : bid - tick;
-    } else {
-      price = mid;
-    }
-    if (!price || price <= 0) price = mid;
+    const price = this.side === 'BUY' ? ask + tick : bid - tick;
+    if (!price || price <= 0) return;
 
-    // all_at_once uses IOC — take available liquidity, cancel remainder
-    const tif = this._executionMode === 'all_at_once' ? 'IOC' : 'GTC';
     this.activeChildId = this._ctx.submitIntent({
       symbol: this.symbol, side: this.side, quantity: this.remainingSize,
-      limitPrice: price, orderType: 'LIMIT', timeInForce: tif, algoType: 'SNIPER',
+      limitPrice: price, orderType: 'LIMIT', timeInForce: 'IOC', algoType: 'SNIPER',
     });
     this._restingPrice = price;
-    console.log(`[sniper] Order: size=${this.remainingSize.toFixed(4)} price=${price} tif=${tif}`);
+    console.log(`[sniper] Snipe order: size=${this.remainingSize.toFixed(4)} price=${price} IOC`);
   }
 
-  _fireTwapSlice(bid, ask, mid) {
-    if (mid <= 0) return;
-    this._subSlicesFired++;
-    const remSlices = Math.max(1, this._subSlicesTotal - this._subSlicesFired + 1);
-    let size = this.remainingSize / remSlices;
-    size = Math.max(this._lotSize, Math.min(size, this.remainingSize));
-    size = Math.round(size / this._lotSize) * this._lotSize;
-
-    const tick = this._tickSize;
-    let price;
-    if (this._urgency === 'aggressive') price = this.side === 'BUY' ? ask + tick : bid - tick;
-    else price = mid;
-    if (!price || price <= 0) price = mid;
-
-    this.activeChildId = this._ctx.submitIntent({
-      symbol: this.symbol, side: this.side, quantity: size,
-      limitPrice: price, orderType: 'LIMIT', algoType: 'SNIPER',
-    });
-    this._restingPrice = price;
-    const variance = 0.1;
-    this._subNextSliceAt = Date.now() + this._subIntervalMs * (1 + (Math.random() * 2 - 1) * variance);
-    console.log(`[sniper] TWAP slice ${this._subSlicesFired}/${this._subSlicesTotal}: size=${size.toFixed(4)} price=${price}`);
-  }
-
-  _fireIcebergSlice(bid, ask, mid) {
-    if (mid <= 0) return;
-    const variance = this._icebergVisible * 0.2;
-    let size = this._icebergVisible + (Math.random() * 2 - 1) * variance;
-    size = Math.max(this._lotSize, Math.min(size, this.remainingSize));
-    size = Math.round(size / this._lotSize) * this._lotSize;
-    size = Math.max(this._lotSize, Math.min(size, this.remainingSize));
-
-    const tick = this._tickSize;
-    let price;
-    if (this._urgency === 'aggressive') price = this.side === 'BUY' ? ask + tick : bid - tick;
-    else price = mid;
-    if (!price || price <= 0) price = mid;
-
-    this.activeChildId = this._ctx.submitIntent({
-      symbol: this.symbol, side: this.side, quantity: size,
-      limitPrice: price, orderType: 'LIMIT', algoType: 'SNIPER',
-    });
-    this._restingPrice = price;
-    this._subSlicesFired++;
-    console.log(`[sniper] Iceberg slice ${this._subSlicesFired}: size=${size.toFixed(4)} price=${price}`);
-  }
+  // ── Fill handling ───────────────────────────────────────────────────────
 
   onFill(fill) {
     if (!fill.fillSize || fill.fillSize <= 0) return;
@@ -335,36 +318,64 @@ class SniperStrategy {
       this.slippageVsArrival = (this.avgFillPrice - this.arrivalPrice) / this.arrivalPrice * 10000 * dir;
     }
 
+    // Determine fill source
+    const isSnipeFill = fill.childId === this._snipeChildId || fill.orderId === this._snipeChildId;
+    const isRestingFill = fill.childId === this.restingOrderId || fill.orderId === this.restingOrderId;
+    const fillType = isSnipeFill ? 'snipe' : isRestingFill ? 'passive' : (this._executionMode === 'snipe' ? 'snipe' : 'unknown');
+
+    if (fillType === 'snipe' || this._executionMode === 'snipe') {
+      this.snipedSize += fill.fillSize;
+    } else {
+      this.passiveFillSize += fill.fillSize;
+    }
+
     this._chartFills.push({
       time: Date.now(), price: fill.fillPrice, size: fill.fillSize,
       side: this.side, simulated: !!fill.simulated,
+      fillType, // 'snipe' or 'passive'
     });
 
-    this.activeChildId = null; this._restingPrice = null;
+    console.log(`[sniper] Fill (${fillType}): ${fill.fillSize.toFixed(4)} @ ${fill.fillPrice} — remaining=${this.remainingSize.toFixed(4)} (passive=${this.passiveFillSize.toFixed(4)} sniped=${this.snipedSize.toFixed(4)})`);
+
+    // Clear the child that filled
+    if (isSnipeFill) this._snipeChildId = null;
+    if (isRestingFill || (!isSnipeFill && !isRestingFill)) {
+      this.activeChildId = null;
+      this._restingPrice = null;
+    }
     this._retryCount = 0;
 
-    // Iceberg refresh delay
-    if (this._executionMode === 'iceberg') {
-      this._subRefreshAt = Date.now() + 500 + Math.random() * 2500;
-    }
-
-    console.log(`[sniper] IOC fill: ${fill.fillSize.toFixed(4)} filled, ${this.remainingSize.toFixed(4)} remaining, retrigger=${this._retriggerEnabled}`);
-
     if (this.filledSize >= this.totalSize - 0.001) {
-      this._completedTs = Date.now();
-      this.status = 'COMPLETED';
+      this._completedTs = Date.now(); this.status = 'COMPLETED';
       console.log(`[sniper] COMPLETED at avg ${this.avgFillPrice.toFixed(4)}`);
       this.stop();
-    } else if (this._executionMode === 'all_at_once' && this.remainingSize > 0.001) {
-      // IOC partial fill — remaining was cancelled
+      return;
+    }
+
+    // Post+Snipe: after snipe fill, reduce resting order
+    if (this._executionMode === 'post_snipe' && isSnipeFill && this.restingOrderId) {
+      if (this.remainingSize <= this._lotSize * 0.5) {
+        // Cancel resting — nothing left
+        this._ctx.cancelChild(this.restingOrderId);
+        this.restingOrderId = null;
+        this.restingOrderSize = 0;
+        console.log(`[sniper] Resting order cancelled — fully sniped`);
+      } else {
+        // Replace resting order with reduced size
+        console.log(`[sniper] Reducing resting order: ${this.restingOrderSize.toFixed(4)} → ${this.remainingSize.toFixed(4)}`);
+        this._placeRestingOrder();
+      }
+    }
+
+    // Snipe mode: retrigger logic
+    if (this._executionMode === 'snipe' && this.remainingSize > 0.001) {
       if (this._retriggerEnabled) {
         this._retriggerAt = Date.now() + this._retriggerCooldown;
         this.status = 'WAITING';
-        this._prevMid = 0; // reset for fresh trigger detection
+        this._prevMid = 0;
         console.log(`[sniper] Partial IOC — retrigger in ${this._retriggerCooldown}ms (${this.remainingSize.toFixed(4)} remaining)`);
       } else {
-        this._completedTs = Date.now();
-        this.status = 'COMPLETED';
+        this._completedTs = Date.now(); this.status = 'COMPLETED';
         console.log(`[sniper] Partial IOC — completed (${this.filledSize.toFixed(4)} of ${this.totalSize.toFixed(4)}, no retrigger)`);
         this.stop();
       }
@@ -372,15 +383,30 @@ class SniperStrategy {
   }
 
   onOrderUpdate(order) {
-    if (order.orderId !== this.activeChildId) return;
-    if (order.state === 'REJECTED') {
-      console.log(`[sniper] Order rejected: ${order.rejectReason || 'unknown'}`);
-      this.activeChildId = null; this._restingPrice = null;
-      this._retryCount++;
-      if (this._retryCount >= 2) {
-        this.status = 'ERROR'; this.pauseReason = `Rejected: ${order.rejectReason}`;
-      } else {
-        this._retryAt = Date.now() + 1000;
+    const matchId = order.orderId || order.intentId;
+    if (matchId === this.activeChildId) {
+      if (order.state === 'REJECTED' || order.state === 'CANCELLED') {
+        console.log(`[sniper] Order ${matchId} ${order.state}`);
+        this.activeChildId = null; this._restingPrice = null;
+        this._retryCount++;
+        if (this._retryCount >= 2) {
+          this.pauseReason = `Rejected: ${order.rejectReason || order.state}`;
+        } else {
+          this._retryAt = Date.now() + 1000;
+        }
+      }
+    }
+    if (matchId === this._snipeChildId) {
+      if (order.state === 'REJECTED' || order.state === 'CANCELLED') {
+        console.log(`[sniper] Snipe order ${matchId} ${order.state}`);
+        this._snipeChildId = null;
+      }
+    }
+    if (matchId === this.restingOrderId) {
+      if (order.state === 'REJECTED' || order.state === 'CANCELLED') {
+        console.log(`[sniper] Resting order ${matchId} ${order.state}`);
+        this.restingOrderId = null;
+        this._restingPrice = null;
       }
     }
   }
@@ -391,7 +417,7 @@ class SniperStrategy {
     const elapsed = this._startTs ? (isDone && this._completedTs ? this._completedTs - this._startTs : now - this._startTs) : 0;
     const mid = this._lastMd?.midPrice || 0;
     const distanceBps = mid > 0 && this._targetPrice > 0 ? (mid - this._targetPrice) / this._targetPrice * 10000 : 0;
-    const distancePct = mid > 0 && this._targetPrice > 0 ? Math.max(0, 100 - Math.abs(distanceBps) / 2) : 0; // 0-100 proximity
+    const distancePct = mid > 0 && this._targetPrice > 0 ? Math.max(0, 100 - Math.abs(distanceBps) / 2) : 0;
 
     return {
       type: 'SNIPER', symbol: this.symbol, side: this.side, venue: this.venue,
@@ -400,28 +426,36 @@ class SniperStrategy {
       avgFillPrice: this.avgFillPrice, arrivalPrice: this.arrivalPrice,
       slippageVsArrival: this.slippageVsArrival,
       targetPrice: this._targetPrice, triggerCondition: this._triggerCondition,
-      executionMode: this._executionMode, retriggerEnabled: this._retriggerEnabled,
-      distanceBps: distanceBps, distancePct: distancePct,
+      executionMode: this._executionMode,
+      snipeLevel: this._snipeLevel,
+      retriggerEnabled: this._retriggerEnabled,
+      distanceBps, distancePct,
       triggered: this._triggerTs > 0, triggerTs: this._triggerTs,
       expiryTs: this._expiryTs,
       activeOrderPrice: this._restingPrice,
-      urgency: this._urgency,
+      restingOrderSize: this.restingOrderSize,
+      snipedSize: this.snipedSize,
+      passiveFillSize: this.passiveFillSize,
       pauseReason: this.pauseReason,
       elapsed, timeRemaining: this._expiryTs ? Math.max(0, this._expiryTs - now) : null,
       tickSize: this._tickSize,
-      childCount: this._subSlicesFired,
       maxChartPoints: this._chartMaxPts,
-      chartBids: this._chartBids, chartAsks: this._chartAsks,
-      chartOrder: this._chartOrder, chartTimes: this._chartTimes,
-      chartFills: this._chartFills,
-      // Target price for chart horizontal line
+      chartBids: [...this._chartBids], chartAsks: [...this._chartAsks],
+      chartOrder: [...this._chartOrder], chartTimes: [...this._chartTimes],
+      chartFills: [...this._chartFills],
       chartTargetPrice: this._targetPrice,
+      chartSnipeLevel: this._executionMode === 'post_snipe' ? this._snipeLevel : null,
     };
   }
 }
 
 function estimateDuration(params) {
   const price = params.targetPrice || '?';
+  const mode = params.executionMode || 'snipe';
+  if (mode === 'post_snipe') {
+    const snipe = params.snipeLevel || '?';
+    return `Post @ $${price} + snipe ceiling $${snipe}`;
+  }
   const cond = params.triggerCondition || 'touches';
   const condLabel = cond === 'touches' ? 'touches' : cond === 'breaks_above' ? 'breaks above' : 'breaks below';
   return `Waiting for price ${condLabel} $${price}`;

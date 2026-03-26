@@ -795,6 +795,7 @@ function spawnAlgoWorker() {
       case 'STRATEGY_STOPPED':
         if (_algoStrategies.has(msg.strategyId)) _algoStrategies.get(msg.strategyId).state = 'STOPPED';
         console.log(`[algo] Strategy ${msg.strategyId} stopped`);
+        _cleanupOpenOrders(msg.strategyId);
         _resolveCallback(msg.strategyId, msg);
         break;
 
@@ -816,28 +817,68 @@ function spawnAlgoWorker() {
         _resolveCallback('_status', msg);
         break;
 
-      case 'ALGO_PROGRESS':
+      case 'ALGO_PROGRESS': {
         if (_algoStrategies.has(msg.strategyId)) Object.assign(_algoStrategies.get(msg.strategyId), msg);
+        // Cleanup open orders when strategy completes
+        const progState = (msg.state || msg.status || '').toUpperCase();
+        if (progState === 'COMPLETED' || progState === 'STOPPED') _cleanupOpenOrders(msg.strategyId);
         publish('system.algo_progress', msg, msg.strategyId).catch(() => {});
         break;
+      }
 
       case 'ORDER_INTENT':
         _handleOrderIntent(msg);
         break;
 
-      case 'CANCEL_INTENT':
-        // TODO: wire to orderService.cancel() when child order tracking is implemented
+      case 'CANCEL_INTENT': {
+        const cid = msg.childId;
+        const cancelledOrder = _openSimOrders.get(cid);
+        if (cancelledOrder) {
+          _openSimOrders.delete(cid);
+          publish(Topics.ORDERS, {
+            orderId: cid, venueOrderId: cid,
+            venue: cancelledOrder.venue, symbol: cancelledOrder.symbol,
+            side: cancelledOrder.side, quantity: cancelledOrder.quantity,
+            filledQuantity: 0, remainingQuantity: 0,
+            limitPrice: cancelledOrder.limitPrice, orderType: 'LIMIT',
+            state: 'CANCELLED', updatedTs: Date.now(), algoType: 'ALGO',
+            parentOrderId: cancelledOrder.parentOrderId,
+            metadata: { source: 'algo', strategyId: cancelledOrder.strategyId, intentId: cid, simulated: true },
+          }, cancelledOrder.symbol).catch(() => {});
+        }
         break;
+      }
 
       case 'SIMULATED_FILL': {
         // Publish simulated fill to blotter — normalise venue to uppercase
         const venue = (msg.venue || 'UNKNOWN').toUpperCase();
+        const fillTs = Date.now();
         console.log(`[algo] Simulated fill: ${msg.symbol} ${msg.side} ${msg.fillSize} @ ${msg.fillPrice}`);
+        console.log(`[sim] publishing FILLED for orderId: ${msg.intentId}`);
+        _openSimOrders.delete(msg.intentId);
+        // Publish FILLED order update so blotter/child order table shows filled state
+        // Note: do not set parentOrderId here — the OPEN event already set it correctly
+        // and blotterService merge preserves existing fields via spread
+        publish(Topics.ORDERS, {
+          orderId:           msg.intentId,
+          venueOrderId:      msg.intentId,
+          venue, symbol:     msg.symbol,
+          side:              msg.side,
+          quantity:          msg.fillSize,
+          filledQuantity:    msg.fillSize,
+          remainingQuantity: 0,
+          limitPrice:        msg.fillPrice,
+          orderType:         'LIMIT',
+          state:             'FILLED',
+          updatedTs:         fillTs,
+          algoType:          'ALGO',
+          metadata:          { source: 'algo', strategyId: msg.strategyId, intentId: msg.intentId, simulated: true },
+        }, msg.symbol).catch(() => {});
         publish(Topics.FILLS, {
           fillId: 'sim-' + msg.intentId, orderId: msg.intentId,
           venue, symbol: msg.symbol,
           side: msg.side, fillPrice: msg.fillPrice, fillSize: msg.fillSize,
-          fillTs: Date.now(), receivedTs: Date.now(),
+          fillTs, receivedTs: fillTs,
           commission: 0, commissionAsset: '', slippageBps: 0, arrivalMid: 0,
           simulated: true,
         }, msg.symbol).catch(() => {});
@@ -898,6 +939,38 @@ function spawnAlgoWorker() {
 /** Map exchange orderId → intentId so order state updates reach the correct strategy */
 const _orderIdToIntentId = new Map();
 
+/** Track open sim orders for cleanup on strategy completion */
+const _openSimOrders = new Map(); // intentId → { strategyId, symbol, venue, side, quantity, limitPrice, parentOrderId }
+
+function _cleanupOpenOrders(strategyId) {
+  let cancelled = 0;
+  for (const [intentId, order] of _openSimOrders) {
+    if (order.strategyId === strategyId) {
+      console.log(`[algo] Cancelling open sim order ${intentId} for completed strategy ${strategyId.substring(strategyId.length - 6)}`);
+      publish(Topics.ORDERS, {
+        orderId:           intentId,
+        venueOrderId:      intentId,
+        venue:             order.venue,
+        symbol:            order.symbol,
+        side:              order.side,
+        quantity:          order.quantity,
+        filledQuantity:    0,
+        remainingQuantity: 0,
+        limitPrice:        order.limitPrice,
+        orderType:         'LIMIT',
+        state:             'CANCELLED',
+        updatedTs:         Date.now(),
+        algoType:          'ALGO',
+        parentOrderId:     order.parentOrderId,
+        metadata:          { source: 'algo', strategyId, intentId, simulated: true },
+      }, order.symbol).catch(() => {});
+      _openSimOrders.delete(intentId);
+      cancelled++;
+    }
+  }
+  if (cancelled) console.log(`[algo] Cleaned up ${cancelled} open sim orders for strategy ${strategyId.substring(strategyId.length - 6)}`);
+}
+
 /** Venues where fills are simulated — skip real exchange submission */
 let _simFillVenueSet = new Set();
 {
@@ -913,6 +986,35 @@ async function _handleOrderIntent(intent) {
   // For sim-fill venues, skip real exchange — the worker's sim fill system handles it
   if (_simFillVenueSet.has(venue)) {
     console.log(`[algo] ORDER_INTENT ${intent.intentId} — sim-fill venue ${venue}, skipping exchange submission`);
+    // Publish synthetic OPEN order so it appears in blotter and child order tables
+    const now = Date.now();
+    publish(Topics.ORDERS, {
+      orderId:           intent.intentId,
+      venueOrderId:      intent.intentId,
+      clientOrderId:     intent.intentId,
+      venue:             venue,
+      symbol:            intent.symbol,
+      side:              intent.side,
+      quantity:          intent.quantity,
+      filledQuantity:    0,
+      remainingQuantity: intent.quantity,
+      limitPrice:        intent.limitPrice,
+      orderType:         intent.orderType || 'LIMIT',
+      state:             'OPEN',
+      createdTs:         now,
+      updatedTs:         now,
+      submittedTs:       now,
+      acknowledgedTs:    now,
+      algoType:          intent.algoType || 'ALGO',
+      parentOrderId:     intent.parentOrderId || intent.strategyId,
+      metadata:          { source: 'algo', strategyId: intent.strategyId, intentId: intent.intentId, simulated: true },
+    }, intent.symbol).catch(() => {});
+    // Track open order for cleanup on strategy completion
+    _openSimOrders.set(intent.intentId, {
+      strategyId: intent.strategyId, symbol: intent.symbol, venue,
+      side: intent.side, quantity: intent.quantity, limitPrice: intent.limitPrice,
+      parentOrderId: intent.parentOrderId || intent.strategyId,
+    });
     return;
   }
 
