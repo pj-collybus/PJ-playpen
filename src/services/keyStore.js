@@ -317,16 +317,50 @@ async function _testDeribit(f, testnet) {
 }
 
 async function _testBinance(f, testnet) {
-  const base = testnet ? 'https://testnet.binance.vision' : 'https://api.binance.com';
-  const ts   = Date.now();
-  const qs   = `timestamp=${ts}`;
-  const sig  = crypto.createHmac('sha256', f.secretKey).update(qs).digest('hex');
-  const r    = await fetch(`${base}/api/v3/account?${qs}&signature=${sig}`, {
-    headers: { 'X-MBX-APIKEY': f.apiKey },
-  });
-  const j = await r.json();
-  if (j.code) throw new Error(j.msg || `Binance error ${j.code}`);
-  return `Connected to Binance${testnet ? ' (testnet)' : ''} — ${j.balances?.length ?? 0} assets`;
+  // Try multiple testnet endpoints: spot testnet, futures testnet, demo trading
+  const endpoints = testnet
+    ? [
+        { base: 'https://testnet.binance.vision',    path: '/api/v3/account',    label: 'spot-testnet' },
+        { base: 'https://testnet.binancefuture.com', path: '/fapi/v2/account',   label: 'futures-testnet' },
+      ]
+    : [{ base: 'https://api.binance.com', path: '/api/v3/account', label: 'mainnet' }];
+
+  const errors = [];
+  for (const ep of endpoints) {
+    const ts  = Date.now();
+    const qs  = `timestamp=${ts}`;
+    const sig = crypto.createHmac('sha256', f.secretKey).update(qs).digest('hex');
+    const url = `${ep.base}${ep.path}?${qs}&signature=${sig}`;
+    console.log(`[Binance API test] ── REQUEST (${ep.label}) ──`);
+    console.log(`  URL:       ${url}`);
+    console.log(`  API Key:   ${f.apiKey?.slice(0, 6)}... (len=${f.apiKey?.length})`);
+    console.log(`  Timestamp: ${ts}`);
+    try {
+      const r = await fetch(url, { headers: { 'X-MBX-APIKEY': f.apiKey } });
+      const raw = await r.text();
+      console.log(`[Binance API test] ── RESPONSE (${ep.label}) ──`);
+      console.log(`  HTTP ${r.status} ${r.statusText}`);
+      console.log(`  Raw body: ${raw}`);
+      const j = JSON.parse(raw);
+      if (!j.code) {
+        const assets = j.balances?.length ?? j.assets?.length ?? 0;
+        return `Connected to Binance ${ep.label}${testnet ? ' (testnet)' : ''} — ${assets} assets`;
+      }
+      errors.push(`${ep.label}: ${j.msg || `error ${j.code}`}`);
+    } catch (e) {
+      console.log(`[Binance API test] ── ERROR (${ep.label}) ── ${e.message}`);
+      errors.push(`${ep.label}: ${e.message}`);
+    }
+  }
+  const msg = errors.join(' | ');
+  // Detect regional restrictions (common in Australia, some Asian countries)
+  const geoBlocked = msg.match(/restricted|forbidden|blocked|451|403|Service unavailable/i);
+  if (testnet && geoBlocked) {
+    throw new Error('Binance testnet may have regional restrictions (common in Australia). ' +
+      'Try: (1) use a VPN, (2) test with mainnet read-only API keys, or (3) use Binance spot testnet keys from testnet.binance.vision. ' +
+      'Public market data endpoints are not affected. Details: ' + msg);
+  }
+  throw new Error(msg);
 }
 
 async function _testOKX(f, testnet) {
@@ -348,21 +382,60 @@ async function _testOKX(f, testnet) {
 
 async function _testBybit(f, testnet) {
   const base       = testnet ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
-  const ts         = Date.now().toString();
   const recvWindow = '5000';
-  const qs         = 'accountType=UNIFIED';
-  const toSign     = `${ts}${f.apiKey}${recvWindow}${qs}`;
-  const sig        = crypto.createHmac('sha256', f.secretKey).update(toSign).digest('hex');
-  const r = await fetch(`${base}/v5/account/wallet-balance?${qs}`, {
-    headers: {
+
+  function makeHeaders(ts, sig) {
+    return {
       'X-BAPI-API-KEY': f.apiKey, 'X-BAPI-SIGN': sig,
-      'X-BAPI-SIGN-METHOD': 'HMAC-SHA256', 'X-BAPI-TIMESTAMP': ts,
+      'X-BAPI-SIGN-TYPE': '2', 'X-BAPI-TIMESTAMP': ts,
       'X-BAPI-RECV-WINDOW': recvWindow,
-    },
-  });
-  const j = await r.json();
-  if (j.retCode !== 0) throw new Error(j.retMsg || `Bybit error ${j.retCode}`);
-  return `Connected to Bybit${testnet ? ' (testnet)' : ''}`;
+    };
+  }
+
+  // ── Test 1: /v5/user/query-api (no account type needed) ──
+  const ts1  = Date.now().toString();
+  const qs1  = '';
+  const toSign1 = `${ts1}${f.apiKey}${recvWindow}${qs1}`;
+  const sig1 = crypto.createHmac('sha256', f.secretKey).update(toSign1).digest('hex');
+  const url1 = `${base}/v5/user/query-api`;
+  console.log(`[Bybit API test] ── REQUEST 1: query-api ──`);
+  console.log(`  URL:        ${url1}`);
+  console.log(`  Timestamp:  ${ts1}`);
+  console.log(`  API Key:    ${f.apiKey?.slice(0, 6)}... (len=${f.apiKey?.length})`);
+  console.log(`  SecretKey:  present=${!!f.secretKey} len=${f.secretKey?.length}`);
+  console.log(`  StringToSign: "${toSign1}"`);
+  console.log(`  Signature:  ${sig1}`);
+  const r1 = await fetch(url1, { headers: makeHeaders(ts1, sig1) });
+  const raw1 = await r1.text();
+  console.log(`[Bybit API test] ── RESPONSE 1: query-api ──`);
+  console.log(`  HTTP ${r1.status} ${r1.statusText}`);
+  console.log(`  Raw body: ${raw1}`);
+
+  // ── Test 2: /v5/account/wallet-balance?accountType=CONTRACT ──
+  const ts2  = Date.now().toString();
+  const qs2  = 'accountType=CONTRACT';
+  const toSign2 = `${ts2}${f.apiKey}${recvWindow}${qs2}`;
+  const sig2 = crypto.createHmac('sha256', f.secretKey).update(toSign2).digest('hex');
+  const url2 = `${base}/v5/account/wallet-balance?${qs2}`;
+  console.log(`[Bybit API test] ── REQUEST 2: wallet-balance CONTRACT ──`);
+  console.log(`  URL:        ${url2}`);
+  console.log(`  Timestamp:  ${ts2}`);
+  console.log(`  StringToSign: "${toSign2}"`);
+  console.log(`  Signature:  ${sig2}`);
+  const r2 = await fetch(url2, { headers: makeHeaders(ts2, sig2) });
+  const raw2 = await r2.text();
+  console.log(`[Bybit API test] ── RESPONSE 2: wallet-balance CONTRACT ──`);
+  console.log(`  HTTP ${r2.status} ${r2.statusText}`);
+  console.log(`  Raw body: ${raw2}`);
+
+  // Use query-api result if it succeeded, otherwise fall back to wallet-balance
+  let j1, j2;
+  try { j1 = JSON.parse(raw1); } catch { j1 = { retCode: -1 }; }
+  try { j2 = JSON.parse(raw2); } catch { j2 = { retCode: -1 }; }
+
+  if (j1.retCode === 0) return `Connected to Bybit${testnet ? ' (testnet)' : ''} — key: ${j1.result?.note || 'ok'}`;
+  if (j2.retCode === 0) return `Connected to Bybit${testnet ? ' (testnet)' : ''}`;
+  throw new Error(j1.retMsg || j2.retMsg || `Bybit error ${j1.retCode}`);
 }
 
 async function _testGateio(f) {

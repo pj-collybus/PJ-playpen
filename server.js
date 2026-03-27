@@ -551,7 +551,7 @@ async function fetchExchangeHistory(type, exchange, startTime, endTime, creds) {
     if (isTradesReq) {
       const qs = `category=linear&startTime=${startTime}&endTime=${endTime}&limit=50`;
       const sig = hmacSha256Hex(creds.fields.secretKey, ts + creds.fields.apiKey + recv + qs);
-      const r = await fetch(`${base}/v5/execution/list?${qs}`, { headers: { 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-METHOD': 'HMAC-SHA256', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv } });
+      const r = await fetch(`${base}/v5/execution/list?${qs}`, { headers: { 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-TYPE': '2', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv } });
       const j = await r.json();
       return (j.result?.list || []).map(t => ({
         venue: 'BYBIT', tradeId: t.execId, orderId: t.orderId, symbol: t.symbol,
@@ -561,7 +561,7 @@ async function fetchExchangeHistory(type, exchange, startTime, endTime, creds) {
     } else {
       const qs = `category=linear&limit=50`;
       const sig = hmacSha256Hex(creds.fields.secretKey, ts + creds.fields.apiKey + recv + qs);
-      const r = await fetch(`${base}/v5/order/history?${qs}`, { headers: { 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-METHOD': 'HMAC-SHA256', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv } });
+      const r = await fetch(`${base}/v5/order/history?${qs}`, { headers: { 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-TYPE': '2', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv } });
       const j = await r.json();
       return (j.result?.list || []).filter(o => {
         const ts = parseInt(o.updatedTime) || 0;

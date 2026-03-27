@@ -154,7 +154,7 @@ class BybitAdapter extends EventEmitter {
     const ts  = String(Date.now()), recv = '5000';
     const body = JSON.stringify({ category: 'linear', symbol: sym, side: order.side === 'BUY' ? 'Buy' : 'Sell', orderType: 'Limit', qty: String(order.quantity), price: String(order.limitPrice), timeInForce: tif, orderLinkId: cid });
     const sig = hmacSha256Hex(creds.fields.secretKey, ts + creds.fields.apiKey + recv + body);
-    const r = await fetch(`${base}/v5/order/create`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-METHOD': 'HMAC-SHA256', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv }, body });
+    const r = await fetch(`${base}/v5/order/create`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-TYPE': '2', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv }, body });
     const j = await r.json();
     if (j.retCode !== 0) {
       console.debug('[DEBUG] BYBIT rejection raw:', r.status, JSON.stringify(j));
@@ -171,7 +171,7 @@ class BybitAdapter extends EventEmitter {
     const ts = String(Date.now()), recv = '5000';
     const body = JSON.stringify({ category: 'linear', orderId: venueOrderId });
     const sig = hmacSha256Hex(creds.fields.secretKey, ts + creds.fields.apiKey + recv + body);
-    const r = await fetch(`${base}/v5/order/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-METHOD': 'HMAC-SHA256', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv }, body });
+    const r = await fetch(`${base}/v5/order/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-TYPE': '2', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv }, body });
     const j = await r.json();
     if (j.retCode !== 0) throw new Error(j.retMsg || `Error ${j.retCode}`);
     return orderResponse({ venueOrderId, clientOrderId: null, status: OrderStatus.ACKNOWLEDGED });
@@ -186,7 +186,7 @@ class BybitAdapter extends EventEmitter {
     if (changes.price)    patch.price = String(changes.price);
     const body = JSON.stringify(patch);
     const sig = hmacSha256Hex(creds.fields.secretKey, ts + creds.fields.apiKey + recv + body);
-    const r = await fetch(`${base}/v5/order/amend`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-METHOD': 'HMAC-SHA256', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv }, body });
+    const r = await fetch(`${base}/v5/order/amend`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-TYPE': '2', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv }, body });
     const j = await r.json();
     if (j.retCode !== 0) throw new Error(j.retMsg || `Error ${j.retCode}`);
     return orderResponse({ venueOrderId, clientOrderId: null, status: OrderStatus.ACKNOWLEDGED });
@@ -198,7 +198,7 @@ class BybitAdapter extends EventEmitter {
     const ts = String(Date.now()), recv = '5000';
     const qs = `category=linear&orderId=${venueOrderId}`;
     const sig = hmacSha256Hex(creds.fields.secretKey, ts + creds.fields.apiKey + recv + qs);
-    const r = await fetch(`${base}/v5/order/realtime?${qs}`, { headers: { 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-METHOD': 'HMAC-SHA256', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv } });
+    const r = await fetch(`${base}/v5/order/realtime?${qs}`, { headers: { 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-TYPE': '2', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv } });
     const j = await r.json();
     if (j.retCode !== 0) throw new Error(j.retMsg || `Error ${j.retCode}`);
     const o = j.result?.list?.[0] || {};
@@ -274,7 +274,7 @@ class BybitAdapter extends EventEmitter {
     const ts = String(Date.now()), recv = '5000';
     const qs = 'category=linear&settleCoin=USDT';
     const sig = hmacSha256Hex(creds.fields.secretKey, ts + creds.fields.apiKey + recv + qs);
-    const r = await fetch(`${base}/v5/position/list?${qs}`, { headers: { 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-METHOD': 'HMAC-SHA256', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv } });
+    const r = await fetch(`${base}/v5/position/list?${qs}`, { headers: { 'X-BAPI-API-KEY': creds.fields.apiKey, 'X-BAPI-SIGN': sig, 'X-BAPI-SIGN-TYPE': '2', 'X-BAPI-TIMESTAMP': ts, 'X-BAPI-RECV-WINDOW': recv } });
     const j = await r.json();
     if (j.retCode !== 0) { console.error('[bybit] Position fetch error:', j.retMsg); return; }
     for (const p of (j.result?.list || [])) {

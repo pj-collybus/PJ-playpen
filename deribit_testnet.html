@@ -1459,7 +1459,7 @@ const fmtK = n => {
 };
 const pDec = p => {
   if (!p) return 2;
-  if (p >= 10000) return 0; if (p >= 100) return 1; if (p >= 1) return 2;
+  if (p >= 10000) return 1; if (p >= 1) return 2;
   if (p >= 0.01) return 4; return 6;
 };
 // Derive decimal places from tick size: 0.0001 → 4, 0.01 → 2, 0.5 → 1, 1 → 0
@@ -2344,15 +2344,49 @@ async function ipGetInstruments(exch) {
 }
 
 // ── Panel placement ───────────────────────────────────────────────────────────
-function nextPanelPos() {
-  if (!panels.length) return { x: 10, y: 10 };
-  let maxBottom = 0;
+const GRID_SNAP = 10;   // snap-to-grid resolution in px
+const PLACE_GAP = 8;    // gap between panels when placing
+
+function _snapToGrid(v) { return Math.round(v / GRID_SNAP) * GRID_SNAP; }
+
+function nextPanelPos(panelW, panelH) {
+  const area = document.getElementById('panels-area');
+  const areaW = area ? area.clientWidth : 1200;
+  const pw = panelW || 480;
+  const ph = panelH || 230;
+
+  // Build list of occupied rectangles from existing panels
+  const rects = [];
   for (const p of panels) {
     const el = document.getElementById(`panel-${p.id}`);
-    if (el) maxBottom = Math.max(maxBottom, p.y + el.offsetHeight);
-    else maxBottom = Math.max(maxBottom, p.y + 180);
+    if (!el) continue;
+    rects.push({ x: p.x, y: p.y, w: el.offsetWidth, h: el.offsetHeight });
   }
-  return { x: 10, y: maxBottom + 10 };
+
+  if (!rects.length) return { x: PLACE_GAP, y: PLACE_GAP };
+
+  // Scan grid positions left-to-right, top-to-bottom for first fit
+  const stepX = GRID_SNAP, stepY = GRID_SNAP;
+  const maxY = rects.reduce((m, r) => Math.max(m, r.y + r.h), 0) + ph + PLACE_GAP;
+
+  for (let y = PLACE_GAP; y < maxY; y += stepY) {
+    for (let x = PLACE_GAP; x + pw <= areaW; x += stepX) {
+      const candidate = { x, y, w: pw, h: ph };
+      let fits = true;
+      for (const r of rects) {
+        if (candidate.x < r.x + r.w + PLACE_GAP && candidate.x + candidate.w + PLACE_GAP > r.x &&
+            candidate.y < r.y + r.h + PLACE_GAP && candidate.y + candidate.h + PLACE_GAP > r.y) {
+          fits = false;
+          break;
+        }
+      }
+      if (fits) return { x: _snapToGrid(x), y: _snapToGrid(y) };
+    }
+  }
+
+  // Fallback: place below all existing panels
+  const bottom = rects.reduce((m, r) => Math.max(m, r.y + r.h), 0);
+  return { x: PLACE_GAP, y: _snapToGrid(bottom + PLACE_GAP) };
 }
 
 function updateAreaSize() {
@@ -2508,11 +2542,14 @@ function restoreLayoutPanels(layout) {
         if (inp) inp.value = p.qty;
       }
       if (p.priceTick) s.priceTick = p.priceTick;
-      console.log('[tile restore] instrument:', s.instrument, 'exchange:', s.exchange, 'priceTick:', s.priceTick);
-      // Re-fetch tick size if missing or looks wrong for the instrument
-      if (s.exchange !== 'Deribit' && (!s.priceTick || s.priceTick > 0.01)) {
-        fetchTickSize(s.exchange, s.instrument).then(ts => { if (ts) { s.priceTick = ts; persistLayouts(); } });
-      }
+      // Always fetch spec to ensure correct tickSize (handles stale/missing saved values)
+      fetchInstrumentSpec(s.exchange || 'Deribit', s.instrument).then(spec => {
+        if (spec) {
+          s._spec = spec;
+          if (spec.tickSize) { s.priceTick = spec.tickSize; renderPanel(s); updateCentre(s); persistLayouts(); }
+          console.log(`[tile restore] ${s.instrument} tickSize:`, spec.tickSize, 'priceTick:', s.priceTick);
+        }
+      });
       } catch (e) {
         console.error('[tile restore] Failed to restore panel:', p.instrument, p.exchange, e.message);
       }
@@ -2679,6 +2716,14 @@ function createPanel(defInstr = 'BTC-PERPETUAL', { skipSubscribe = false } = {})
     priceTick: null,
   };
   s.priceTick = priceStep(defInstr, 'Deribit');
+  // Async fetch spec to get accurate tickSize (covers case where instruments haven't loaded yet)
+  fetchInstrumentSpec('Deribit', defInstr).then(spec => {
+    if (spec) {
+      s._spec = spec;
+      if (spec.tickSize) { s.priceTick = spec.tickSize; renderPanel(s); updateCentre(s); }
+      console.log(`[tile] ${defInstr} tickSize:`, spec.tickSize, 'priceTick:', s.priceTick);
+    }
+  });
   panels.push(s);
 
   const granBtns = GRAN_OPTS.map(g =>
@@ -2910,14 +2955,9 @@ function createSpreadPanel(opts = {}) {
   document.getElementById('panels-canvas').appendChild(el);
 
   // ── Drag ──
-  let _dx, _dy;
   document.getElementById(`sp-drag-${id}`).addEventListener('mousedown', e => {
     if (e.target.tagName === 'BUTTON') return;
-    _dx = e.clientX - el.getBoundingClientRect().left;
-    _dy = e.clientY - el.getBoundingClientRect().top;
-    const mv = ev => { s.x = ev.clientX - _dx; s.y = ev.clientY - _dy; el.style.left = s.x + 'px'; el.style.top = s.y + 'px'; };
-    const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); persistLayouts(); };
-    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+    startDrag(el, s, e);
   });
 
   // ── Close ──
@@ -3166,8 +3206,9 @@ function changeInstrument(s, instr) {
   fetchInstrumentSpec(s.exchange, instr).then(spec => {
     if (spec) {
       s._spec = spec;
-      if (spec.tickSize) { s.priceTick = spec.tickSize; persistLayouts(); }
+      if (spec.tickSize) { s.priceTick = spec.tickSize; renderPanel(s); updateCentre(s); persistLayouts(); }
       updateQuantoHint(s);
+      console.log(`[tile] ${instr} tickSize:`, spec.tickSize, 'priceTick:', s.priceTick);
     }
   });
   const selBtn = document.getElementById(`sel-${s.id}`);
@@ -3927,22 +3968,59 @@ function drawSide(canvas, rawLevels, side, priceTick) {
 
 // ── Drag panels (free absolute position) ─────────────────────────────────────
 
+const SETTLE_GAP = 8;
+
+function _panelRect(p) {
+  const el = document.getElementById(`panel-${p.id}`);
+  if (!el) return null;
+  return { x: p.x, y: p.y, w: el.offsetWidth, h: el.offsetHeight };
+}
+
+function _rectsOverlap(a, b) {
+  return a.x < b.x + b.w + SETTLE_GAP && a.x + a.w + SETTLE_GAP > b.x &&
+         a.y < b.y + b.h + SETTLE_GAP && a.y + a.h + SETTLE_GAP > b.y;
+}
+
+function _applyPos(p, x, y) {
+  p.x = _snapToGrid(Math.max(0, x));
+  p.y = _snapToGrid(Math.max(0, y));
+  const el = document.getElementById(`panel-${p.id}`);
+  if (el) { el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; }
+}
+
+// Enable CSS transition for smooth push animation on a panel
+function _enableTransition(p) {
+  const el = document.getElementById(`panel-${p.id}`);
+  if (el) el.style.transition = 'left 0.15s ease, top 0.15s ease';
+}
+function _disableTransition(p) {
+  const el = document.getElementById(`panel-${p.id}`);
+  if (el) el.style.transition = '';
+}
+
 // Push all panels away from 'anchor' until no overlaps remain.
-function settleLayout(anchor) {
-  const GAP  = 8;
+// dragDir = { dx, dy } hint for directional push during drag (optional).
+// skipPersist = true during drag moves (persist only on mouseup).
+function settleLayout(anchor, dragDir, skipPersist) {
   const area = document.getElementById('panels-area');
   if (!area) return;
   const areaW = area.clientWidth;
+  const anchorRect = _panelRect(anchor);
 
-  function rect(p) {
-    const el = document.getElementById(`panel-${p.id}`);
-    if (!el) return null;
-    return { x: p.x, y: p.y, w: el.offsetWidth, h: el.offsetHeight };
-  }
-
-  function overlaps(a, b) {
-    return a.x < b.x + b.w + GAP && a.x + a.w + GAP > b.x &&
-           a.y < b.y + b.h + GAP && a.y + a.h + GAP > b.y;
+  // During drag: reset non-overlapping panels to pre-push positions first
+  if (skipPersist && anchorRect) {
+    for (const p of panels) {
+      if (p === anchor || p._prePushX == null) continue;
+      // Test if this panel at its original position overlaps the anchor
+      const el = document.getElementById(`panel-${p.id}`);
+      if (!el) continue;
+      const origRect = { x: p._prePushX, y: p._prePushY, w: el.offsetWidth, h: el.offsetHeight };
+      if (!_rectsOverlap(origRect, anchorRect)) {
+        // No longer overlapping anchor at original pos — snap back
+        _applyPos(p, p._prePushX, p._prePushY);
+        delete p._prePushX; delete p._prePushY;
+      }
+    }
   }
 
   for (let iter = 0; iter < 80; iter++) {
@@ -3950,40 +4028,55 @@ function settleLayout(anchor) {
 
     for (const p of panels) {
       if (p === anchor) continue;
-      const pr = rect(p);
+      const pr = _panelRect(p);
       if (!pr) continue;
 
-      for (const other of panels) {
-        if (other === p) continue;
-        const or_ = rect(other);
-        if (!or_ || !overlaps(pr, or_)) continue;
+      // Check against anchor first, then other panels
+      const others = [anchor, ...panels.filter(o => o !== p && o !== anchor)];
+      for (const other of others) {
+        if (!other) continue;
+        const or_ = _panelRect(other);
+        if (!or_ || !_rectsOverlap(pr, or_)) continue;
 
-        // Minimum push amounts in each cardinal direction
-        const pushR = or_.x + or_.w + GAP - pr.x;  // move p right
-        const pushL = pr.x + pr.w  + GAP - or_.x;  // move p left
-        const pushD = or_.y + or_.h + GAP - pr.y;  // move p down
-        const pushU = pr.y + pr.h  + GAP - or_.y;  // move p up
+        // Save pre-push position before first push
+        if (p._prePushX == null) { p._prePushX = p.x; p._prePushY = p.y; }
 
-        // Build valid candidates (stay in-bounds)
-        const candidates = [
-          { dx: pushR,  dy: 0,      cost: pushR, valid: p.x + pushR + pr.w <= areaW },
-          { dx: -pushL, dy: 0,      cost: pushL, valid: p.x - pushL >= 0 },
-          { dx: 0,      dy: pushD,  cost: pushD, valid: true },
-          { dx: 0,      dy: -pushU, cost: pushU, valid: p.y - pushU >= 0 },
-        ].filter(c => c.valid);
+        const pushR = or_.x + or_.w + SETTLE_GAP - pr.x;
+        const pushL = pr.x + pr.w  + SETTLE_GAP - or_.x;
+        const pushD = or_.y + or_.h + SETTLE_GAP - pr.y;
+        const pushU = pr.y + pr.h  + SETTLE_GAP - or_.y;
 
-        let dx = 0, dy = pushD; // fallback: push down
-        if (candidates.length) {
-          const best = candidates.reduce((a, b) => a.cost < b.cost ? a : b);
-          dx = best.dx; dy = best.dy;
+        let dx = 0, dy = 0;
+
+        // If we have a drag direction hint, prefer pushing in that direction
+        if (dragDir && (dragDir.dx !== 0 || dragDir.dy !== 0)) {
+          if (dragDir.dx > 0 && p.x + pushR + pr.w <= areaW)      dx = pushR;
+          else if (dragDir.dx < 0 && p.x - pushL >= 0)             dx = -pushL;
+          else if (dragDir.dy > 0)                                   dy = pushD;
+          else if (dragDir.dy < 0 && p.y - pushU >= 0)             dy = -pushU;
+          else dy = pushD; // fallback
         }
 
-        p.x = Math.max(0, Math.min(areaW - pr.w, p.x + dx));
-        p.y = Math.max(0, p.y + dy);
-        const pEl = document.getElementById(`panel-${p.id}`);
-        if (pEl) { pEl.style.left = p.x + 'px'; pEl.style.top = p.y + 'px'; }
+        if (dx === 0 && dy === 0) {
+          // No drag hint or hint direction invalid — pick minimum cost
+          const candidates = [
+            { dx: pushR,  dy: 0,      cost: pushR, valid: p.x + pushR + pr.w <= areaW },
+            { dx: -pushL, dy: 0,      cost: pushL, valid: p.x - pushL >= 0 },
+            { dx: 0,      dy: pushD,  cost: pushD, valid: true },
+            { dx: 0,      dy: -pushU, cost: pushU, valid: p.y - pushU >= 0 },
+          ].filter(c => c.valid);
+
+          if (candidates.length) {
+            const best = candidates.reduce((a, b) => a.cost < b.cost ? a : b);
+            dx = best.dx; dy = best.dy;
+          } else {
+            dy = pushD;
+          }
+        }
+
+        _applyPos(p, p.x + dx, p.y + dy);
         anyMoved = true;
-        break; // re-evaluate this panel from scratch
+        break;
       }
     }
 
@@ -3991,14 +4084,14 @@ function settleLayout(anchor) {
   }
 
   updateAreaSize();
-  persistLayouts();
+  if (!skipPersist) persistLayouts();
 }
 
 function snapPanel(s, panelEl) {
   const area = document.getElementById('panels-area');
   const maxX = Math.max(0, area.clientWidth - panelEl.offsetWidth);
-  s.x = Math.max(0, Math.min(maxX, s.x));
-  s.y = Math.max(0, s.y);
+  s.x = _snapToGrid(Math.max(0, Math.min(maxX, s.x)));
+  s.y = _snapToGrid(Math.max(0, s.y));
   panelEl.style.left = s.x + 'px';
   panelEl.style.top  = s.y + 'px';
   updateAreaSize();
@@ -4008,27 +4101,46 @@ function snapPanel(s, panelEl) {
 function startDrag(panelEl, s, e) {
   if (e.button !== 0) return;
   e.preventDefault();
-  const area    = document.getElementById('panels-area');
+  const area     = document.getElementById('panels-area');
   const areaRect = area.getBoundingClientRect();
   const scrollTop = area.scrollTop;
   const ox = e.clientX - panelEl.getBoundingClientRect().left;
   const oy = e.clientY - panelEl.getBoundingClientRect().top + scrollTop;
 
+  let prevX = s.x, prevY = s.y;
+
+  // Disable transition on dragged panel, enable on others for smooth push
+  panelEl.style.transition = '';
+  for (const p of panels) { if (p !== s) _enableTransition(p); }
+
+  // Bring dragged panel to front
+  panelEl.style.zIndex = '10';
+
   function onMove(ev) {
     const maxX = Math.max(0, area.clientWidth - panelEl.offsetWidth);
     const rawX = ev.clientX - areaRect.left - ox;
     const rawY = ev.clientY - areaRect.top  + area.scrollTop - oy;
-    s.x = Math.max(0, Math.min(maxX, Math.round(rawX)));
-    s.y = Math.max(0, Math.round(rawY));
+    s.x = _snapToGrid(Math.max(0, Math.min(maxX, Math.round(rawX))));
+    s.y = _snapToGrid(Math.max(0, Math.round(rawY)));
     panelEl.style.left = s.x + 'px';
     panelEl.style.top  = s.y + 'px';
-    updateAreaSize();
+
+    // Compute drag direction and push overlapping panels in real time
+    const dragDir = { dx: s.x - prevX, dy: s.y - prevY };
+    prevX = s.x; prevY = s.y;
+    settleLayout(s, dragDir, true);
   }
 
   function onUp() {
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup',   onUp);
+    panelEl.style.zIndex = '';
+    // Clear all pre-push positions — final positions are now permanent
+    for (const p of panels) { delete p._prePushX; delete p._prePushY; }
+    // Final settle with no direction bias
     settleLayout(s);
+    // Remove transitions after settle animation completes
+    setTimeout(() => { for (const p of panels) _disableTransition(p); }, 200);
   }
 
   document.addEventListener('mousemove', onMove);
@@ -5730,26 +5842,8 @@ async function akTestExchange(exchange, fields, testnet) {
       if (j.error) throw new Error(j.error.message);
       return `Connected to Deribit${testnet?' (testnet)':''}`;
     }
-    case 'Binance': {
-      const base = testnet ? 'https://testnet.binance.vision' : 'https://api.binance.com';
-      const ts   = Date.now();
-      const sig  = await akHmacHex(fields.secretKey, `timestamp=${ts}`);
-      const r    = await fetch(`${base}/api/v3/account?timestamp=${ts}&signature=${sig}`, { headers:{'X-MBX-APIKEY':fields.apiKey} });
-      const j    = await r.json();
-      if (j.code) throw new Error(j.msg||`Error ${j.code}`);
-      return `Connected to Binance${testnet?' (testnet)':''}`;
-    }
-    case 'Bybit': {
-      const base = testnet ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
-      const ts   = String(Date.now()), recv='5000', qs='accountType=UNIFIED';
-      const sig  = await akHmacHex(fields.secretKey, `${ts}${fields.apiKey}${recv}${qs}`);
-      const r    = await fetch(`${base}/v5/account/wallet-balance?${qs}`, { headers:{'X-BAPI-API-KEY':fields.apiKey,'X-BAPI-SIGN':sig,'X-BAPI-SIGN-METHOD':'HMAC-SHA256','X-BAPI-TIMESTAMP':ts,'X-BAPI-RECV-WINDOW':recv} });
-      const j    = await r.json();
-      if (j.retCode!==0) throw new Error(j.retMsg||`Error ${j.retCode}`);
-      return `Connected to Bybit${testnet?' (testnet)':''}`;
-    }
     default: {
-      // Route through server to avoid CORS — covers BitMEX, OKX, Gate.io, KuCoin, Kraken
+      // Route through server to avoid CORS — covers BitMEX, Binance, OKX, Gate.io, KuCoin, Kraken
       const r = await fetch(TCA_BASE + '/api/keys/test-direct', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ exchange, fields, testnet }),
@@ -5795,6 +5889,8 @@ function buildSessionCredentials() {
       sessionCredentials[e.exchange.toUpperCase()] = { fields: e.fields, testnet: e.testnet, exchange: e.exchange, label: e.label };
     }
   }
+  window.sessionCredentials = sessionCredentials;
+  window._akEntries = akEntries;
 }
 
 // Called on vault lock/reset — clears session
