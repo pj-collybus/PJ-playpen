@@ -17,9 +17,9 @@ const config = {
   params: [
     { key: 'venue',              label: 'Exchange',                       type: 'select', options: ['Deribit','Binance','Bybit','OKX','Kraken','BitMEX'] },
     { key: 'executionMode',      label: 'Execution mode',                 type: 'select', options: [{value:'snipe',label:'Snipe — cross spread at trigger price'},{value:'post_snipe',label:'Post + Snipe — passive bid with snipe ceiling'}], default: 'snipe' },
-    { key: 'targetPrice',        label: 'Target price (trigger / post level)', type: 'number', default: 0 },
-    { key: 'triggerCondition',   label: 'Trigger when price',             type: 'select', options: [{value:'touches',label:'Touches target'},{value:'breaks_above',label:'Breaks above target'},{value:'breaks_below',label:'Breaks below target'}], default: 'touches', dependsOn: { executionMode: 'snipe' } },
-    { key: 'snipeLevel',         label: 'Snipe ceiling (for Post+Snipe)', type: 'number', default: 0, dependsOn: { executionMode: 'post_snipe' } },
+    { key: 'targetPrice',        label: 'Snipe price / Limit price', type: 'number', default: 0 },
+    { key: 'triggerCondition',   label: 'Trigger override (default: Below for BUY, Above for SELL)', type: 'select', options: [{value:'breaks_below',label:'Breaks below target'},{value:'breaks_above',label:'Breaks above target'},{value:'touches',label:'Touches target'}], default: 'breaks_below', dependsOn: { executionMode: 'snipe' } },
+    { key: 'snipeLevel',         label: 'Snipe price (for Post+Snipe)', type: 'number', default: 0, dependsOn: { executionMode: 'post_snipe' } },
     { key: 'expiryMode',         label: 'Expires',                        type: 'select', options: [{value:'gtc',label:'Never (GTC)'},{value:'time',label:'At time'},{value:'eod',label:'End of day'}], default: 'gtc' },
     { key: 'expiryTime',         label: 'Expiry time',                    type: 'text', default: '', dependsOn: { expiryMode: 'time' } },
     { key: 'maxSpreadBps',       label: 'Max spread (bps)',               type: 'number', default: 50 },

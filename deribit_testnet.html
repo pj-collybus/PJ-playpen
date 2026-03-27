@@ -1162,6 +1162,16 @@ canvas.clickable { cursor: crosshair; }
           <button class="bl-period-pill" data-urg="aggressive" style="flex:1" title="Crosses the spread immediately at each slice time. Guaranteed fill, pays the spread.">Aggressive</button>
         </div>
       </div>
+      <!-- Sniper simple fields -->
+      <div id="algo-sniper-fields" style="display:none">
+        <div style="font-size:10px;color:#555;margin-bottom:2px">Execution mode</div>
+        <div id="algo-sniper-mode-pills" style="display:flex;gap:4px;margin-bottom:8px">
+          <button class="bl-period-pill active" data-smode="snipe" style="flex:1">Snipe</button>
+          <button class="bl-period-pill" data-smode="post_snipe" style="flex:1">Post + Snipe</button>
+        </div>
+        <label style="font-size:10px;color:#555"><span id="algo-targetPrice-label">Snipe price</span><input id="algo-f-targetPrice" type="number" min="0" step="any" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="0"></label>
+        <label id="algo-snipe-level-field" style="font-size:10px;color:#555;display:none;margin-top:4px">Snipe price<input id="algo-f-snipeLevel" type="number" min="0" step="any" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="0"></label>
+      </div>
       <!-- Estimate + summary -->
       <div id="algo-estimate" style="font-size:10px;color:#555"></div>
       <div id="algo-review" class="algo-review"></div>
@@ -7003,8 +7013,8 @@ function initBlotter() {
   });
 
   // Side toggle
-  document.getElementById('algo-f-buy').addEventListener('click', () => { _algoSide = 'BUY'; document.getElementById('algo-f-buy').className = 'buy-active'; document.getElementById('algo-f-sell').className = ''; _updateSummary(); });
-  document.getElementById('algo-f-sell').addEventListener('click', () => { _algoSide = 'SELL'; document.getElementById('algo-f-sell').className = 'sell-active'; document.getElementById('algo-f-buy').className = ''; _updateSummary(); });
+  document.getElementById('algo-f-buy').addEventListener('click', () => { _algoSide = 'BUY'; document.getElementById('algo-f-buy').className = 'buy-active'; document.getElementById('algo-f-sell').className = ''; _updateSummary(); _updateSniperTriggerDefault(); });
+  document.getElementById('algo-f-sell').addEventListener('click', () => { _algoSide = 'SELL'; document.getElementById('algo-f-sell').className = 'sell-active'; document.getElementById('algo-f-buy').className = ''; _updateSummary(); _updateSniperTriggerDefault(); });
 
   // Urgency pills
   let _algoUrgency = 'passive';
@@ -7015,6 +7025,35 @@ function initBlotter() {
       _algoUrgency = btn.dataset.urg;
     });
   });
+
+  // Sniper execution mode pills
+  let _sniperMode = 'snipe';
+  document.querySelectorAll('#algo-sniper-mode-pills .bl-period-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#algo-sniper-mode-pills .bl-period-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _sniperMode = btn.dataset.smode;
+      // Show/hide snipe level field and update labels
+      const sl = document.getElementById('algo-snipe-level-field');
+      if (sl) sl.style.display = _sniperMode === 'post_snipe' ? '' : 'none';
+      const tpLabel = document.getElementById('algo-targetPrice-label');
+      if (tpLabel) tpLabel.textContent = _sniperMode === 'post_snipe' ? 'Limit price' : 'Snipe price';
+      _updateEstimate();
+    });
+  });
+
+  // Target price / snipe level inputs
+  document.getElementById('algo-f-targetPrice')?.addEventListener('input', _updateEstimate);
+  document.getElementById('algo-f-snipeLevel')?.addEventListener('input', _updateEstimate);
+
+  // Side toggle → auto-set trigger condition for Sniper
+  function _updateSniperTriggerDefault() {
+    // BUY → breaks_below (waiting for price to fall), SELL → breaks_above
+    const trigEl = document.getElementById('algo-dp-triggerCondition');
+    if (trigEl && _algoType === 'SNIPER') {
+      trigEl.value = _algoSide === 'BUY' ? 'breaks_below' : 'breaks_above';
+    }
+  }
 
   // Advanced toggle
   document.getElementById('algo-adv-toggle').addEventListener('click', e => {
@@ -7051,7 +7090,7 @@ function initBlotter() {
   }
 
   // Params handled by simple view — skip in advanced panel
-  const SIMPLE_KEYS = new Set(['venue','startMode','startScheduled','durationMode','durationMinutes','endTime','urgency','visibleSize','visibleVariancePct','vwapMode','duration','urgencyBias']);
+  const SIMPLE_KEYS = new Set(['venue','startMode','startScheduled','durationMode','durationMinutes','endTime','urgency','visibleSize','visibleVariancePct','vwapMode','duration','urgencyBias','executionMode','targetPrice','snipeLevel','triggerCondition']);
 
   function _renderParams() {
     const container = document.getElementById('algo-dynamic-params');
@@ -7066,6 +7105,9 @@ function initBlotter() {
     // Show urgency for strategies that use it — not Sniper (has its own execution mode)
     const urgSection = document.getElementById('algo-urgency-section');
     if (urgSection) urgSection.style.display = _algoType === 'SNIPER' ? 'none' : '';
+    // Show Sniper-specific fields
+    const sniperFields = document.getElementById('algo-sniper-fields');
+    if (sniperFields) sniperFields.style.display = _algoType === 'SNIPER' ? '' : 'none';
     const iceFields = document.getElementById('algo-iceberg-fields');
     if (iceFields) iceFields.style.display = _algoType === 'ICEBERG' ? 'flex' : 'none';
     const vwapFields = document.getElementById('algo-vwap-fields');
@@ -7116,6 +7158,8 @@ function initBlotter() {
       el.addEventListener('change', () => { _applyDependsOn(); _updateEstimate(); });
       el.addEventListener('input', _updateEstimate);
     });
+    // Set trigger condition default based on current side
+    _updateSniperTriggerDefault();
     _updateSummary();
     _updateEstimate();
   }
@@ -7147,6 +7191,18 @@ function initBlotter() {
     if (_algoType === 'ICEBERG') {
       out.visibleSize = parseFloat(document.getElementById('algo-f-visibleSize')?.value) || 10;
       out.visibleVariancePct = parseFloat(document.getElementById('algo-f-visibleVariancePct')?.value) || 20;
+    }
+
+    // Sniper simple fields
+    if (_algoType === 'SNIPER') {
+      out.executionMode = _sniperMode;
+      out.targetPrice = parseFloat(document.getElementById('algo-f-targetPrice')?.value) || 0;
+      if (_sniperMode === 'post_snipe') {
+        out.snipeLevel = parseFloat(document.getElementById('algo-f-snipeLevel')?.value) || 0;
+      }
+      // Auto-derive triggerCondition from side (override available in Advanced)
+      const trigOverride = document.getElementById('algo-dp-triggerCondition');
+      out.triggerCondition = trigOverride?.value || (_algoSide === 'BUY' ? 'breaks_below' : 'breaks_above');
     }
 
     // Parse duration field — auto-detect minutes vs HH:MM
@@ -7514,8 +7570,11 @@ function initBlotter() {
             ? `<span style="color:#555">VWAP: <span style="color:#ccc">$${s.rollingVwap?s.rollingVwap.toFixed(pxD):'—'} <span style="font-size:8px;color:#7F77DD">${s.vwapMode||'realtime'}</span></span></span>
                <span style="color:#555">Dev: <span style="color:${Math.abs(s.deviationFromVwap||0)<10?'#00c896':'#ccaa44'}">${(s.deviationFromVwap||0).toFixed(1)}bps ${s.inParticipationBand?'✓ in band':'outside band'}</span></span>`
             : s.type === 'SNIPER'
-            ? `<span style="color:#555">Target: <span style="color:${s.triggered?'#00c896':'#ccaa44'}">$${s.targetPrice?.toFixed(pxD)||'—'} ${s.triggered?'TRIGGERED':'waiting'}</span></span>
-               <span style="color:#555">Distance: <span style="color:${Math.abs(s.distanceBps||0)<5?'#00c896':'#ccc'}">${(s.distanceBps||0).toFixed(1)} bps ${s.triggerCondition||''}</span></span>`
+            ? (s.executionMode === 'post_snipe'
+              ? `<span style="color:#555">Limit: <span style="color:#ccaa44">$${s.targetPrice?.toFixed(pxD)||'—'}</span> | Snipe: <span style="color:#7F77DD">$${s.snipeLevel?.toFixed(pxD)||'—'}</span></span>
+                 <span style="color:#555">Passive: <span style="color:#ccc">${(s.passiveFillSize||0).toFixed(2)}</span> | Sniped: <span style="color:#00e5ff">${(s.snipedSize||0).toFixed(2)}</span> | Resting: <span style="color:#ccc">${(s.restingOrderSize||0).toFixed(2)}</span></span>`
+              : `<span style="color:#555">Snipe price: <span style="color:${s.triggered?'#00c896':'#ccaa44'}">$${s.targetPrice?.toFixed(pxD)||'—'} ${s.triggered?'TRIGGERED':'waiting'}</span></span>
+                 <span style="color:#555">Distance: <span style="color:${Math.abs(s.distanceBps||0)<5?'#00c896':'#ccc'}">${(s.distanceBps||0).toFixed(1)} bps</span></span>`)
             : s.type === 'IS'
             ? `<span style="color:#555">IS cost: <span style="color:${(s.totalIsCost||0)<=0?'#00c896':'#e05252'};font-weight:700">${(s.totalIsCost||0).toFixed(1)} bps</span> <span style="font-size:8px;color:#666">(timing ${(s.timingCost||0).toFixed(1)} + impact ${(s.marketImpactCost||0).toFixed(1)})</span></span>
                <span style="color:#555">Rate: <span style="color:#ccc">${((s.optimalRate||0)*100).toFixed(0)}% ${s.currentUrgency||''}</span> · Vol: <span style="color:#ccc">${((s.estimatedVolatility||0)*100).toFixed(2)}%</span></span>`
@@ -7664,6 +7723,7 @@ function initBlotter() {
             backgroundColor: 'rgba(55,138,221,0.15)', borderWidth: 0, barThickness: 2, maxBarThickness: 3 },
           { label: 'VWAP', data: [], borderColor: '#7F77DD', borderWidth: 1, borderDash: [3,3], pointRadius: 0, tension: 0 },
           { label: 'Target', data: [], borderColor: '#ccaa44', borderWidth: 1, borderDash: [5,3], pointRadius: 0, tension: 0 },
+          { label: 'Snipe', data: [], borderColor: '#7F77DD', borderWidth: 1, borderDash: [3,5], pointRadius: 0, tension: 0 },
         ],
       },
       options: {
@@ -7725,14 +7785,23 @@ function initBlotter() {
         const tp = s.chartTargetPrice;
         chart.data.datasets[6].data = [{ x: times[0], y: tp }, { x: times[times.length-1], y: tp }];
         chart.data.datasets[6].borderColor = s.triggered ? '#00c896' : '#ccaa44';
+        // Label: 'Limit' for Post+Snipe, 'Snipe' for Snipe mode, 'Target' otherwise
+        chart.data.datasets[6].label = s.executionMode === 'post_snipe' ? 'Limit' : s.type === 'SNIPER' ? 'Snipe' : 'Target';
+      }
+      // Snipe level line (dataset index 7) — purple, Post+Snipe only
+      if (chart.data.datasets[7] && s.chartSnipeLevel && times.length >= 2) {
+        const sl = s.chartSnipeLevel;
+        chart.data.datasets[7].data = [{ x: times[0], y: sl }, { x: times[times.length-1], y: sl }];
+      } else if (chart.data.datasets[7]) {
+        chart.data.datasets[7].data = [];
       }
 
       // Fills as scatter points — always render ALL fills
       if (fills.length) console.log('[chart] rendering fills:', fills.length, 'for strategy:', sid);
       const fillPts = fills.map(f => ({ x: f.time, y: f.price, _fill: f }));
       chart.data.datasets[3].data = fillPts;
-      const bgColors = fills.map(f => f.side === 'BUY' ? '#00c896' : '#e05252');
-      const bdColors = fills.map(f => f.simulated ? '#ccaa44' : (f.side === 'BUY' ? '#00c896' : '#e05252'));
+      const bgColors = fills.map(f => f.fillType === 'snipe' ? '#00e5ff' : (f.side === 'BUY' ? '#00c896' : '#e05252'));
+      const bdColors = fills.map(f => f.fillType === 'snipe' ? '#00e5ff' : f.simulated ? '#ccaa44' : (f.side === 'BUY' ? '#00c896' : '#e05252'));
       const styles = fills.map(() => 'triangle');
       const rotations = fills.map(f => f.side === 'BUY' ? 0 : 180); // ▲ buy, ▽ sell
       const radii = fills.map(() => 8);
