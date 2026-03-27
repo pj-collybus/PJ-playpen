@@ -539,6 +539,28 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 .qty-input:focus { border-color: #2a2a40; }
 .qty-unit { font-size: 10px; color: #383848; white-space: nowrap; }
 
+/* ── Spread Panel — same structure as .panel ── */
+.spread-panel { position: absolute; border: 1px solid #1a1a24; border-radius: 8px; overflow: visible; display: flex; flex-direction: column; width: 480px; min-width: 200px; }
+.spread-panel .panel-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: #0f0f14; border-bottom: 1px solid #1a1a24; flex-shrink: 0; height: 26px; cursor: grab; user-select: none; border-radius: 8px 8px 0 0; }
+.spread-panel .panel-header:active { cursor: grabbing; }
+.spread-panel .panel-body { display: flex; overflow: hidden; border-radius: 0 0 8px 8px; min-height: 0; height: 190px; }
+.spread-panel .sp-depth { flex: 1 1 0; min-width: 0; overflow: hidden; }
+.spread-panel .sp-depth canvas { display: block; }
+.spread-panel .sp-centre { width: 230px; flex-shrink: 0; display: flex; flex-direction: column; padding: 4px 8px; gap: 4px; border-left: 1px solid #1a1a22; border-right: 1px solid #1a1a22; justify-content: center; }
+.spread-panel .sp-legs-row { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.spread-panel .sp-leg-sel { display: flex; flex-direction: column; gap: 1px; }
+.spread-panel .sp-leg-exch { font-size: 8px; color: #555; cursor: pointer; text-align: center; }
+.spread-panel .sp-leg-exch:hover { color: #ccc; }
+.spread-panel .sp-leg-instr { font-size: 9px; font-weight: 600; color: #ccc; cursor: pointer; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #0a0a10; border: 1px solid #1e1e28; border-radius: 3px; padding: 2px 3px; }
+.spread-panel .sp-leg-instr:hover { border-color: #3a3a5c; color: #fff; }
+.spread-panel .sp-info-row { display: flex; justify-content: space-between; align-items: center; }
+.spread-panel .sp-hl { font-size: 9px; color: #444; }
+.spread-panel .sp-type-badge { font-size: 7px; color: #8866cc; border: 1px solid #443388; padding: 1px 4px; border-radius: 2px; }
+.spread-panel .sp-status { font-size: 8px; text-align: center; padding: 1px 4px; border-radius: 3px; display: none; }
+.spread-panel .sp-status.legged { background: #2a1a00; color: #ffaa33; display: block; }
+.spread-panel .sp-status.complete { background: #0a1a10; color: #00c896; display: block; }
+.spread-panel .sp-status.error { background: #1a0a0a; color: #e05252; display: block; }
+
 /* ── Gran column — LEFT of centre ── */
 .gran-col {
   width: 32px; flex-shrink: 0;
@@ -1786,6 +1808,27 @@ function ipToggleStar(name, exch, type, e) {
 }
 
 function selectInstrument(name, type, exch) {
+  // Handle spread panel leg selection
+  if (window._spreadPickerTarget) {
+    const { panel, leg, legKey } = window._spreadPickerTarget;
+    closeInstrPicker();
+    // Unsubscribe old
+    unsubscribePanel(leg);
+    leg.exchange = exch;
+    leg.instrType = type;
+    leg.instrument = name; leg.bids = []; leg.asks = []; leg.ticker = {};
+    leg.priceTick = priceStep(name, exch);
+    fetchInstrumentSpec(exch, name).then(spec => {
+      if (spec) { leg._spec = spec; if (spec.tickSize) leg.priceTick = spec.tickSize; }
+    });
+    document.getElementById(`sp-sel${legKey}-${panel.id}`).textContent = name;
+    document.getElementById(`sp-ex${legKey}-${panel.id}`).textContent = exch;
+    subscribePanel(leg);
+    _detectSpreadType(panel);
+    persistLayouts();
+    window._spreadPickerTarget = null;
+    return;
+  }
   if (!pickerTargetPanel) return;
   const s = pickerTargetPanel;
   closeInstrPicker();
@@ -2354,6 +2397,14 @@ function loadPersistedLayouts() {
 }
 
 function panelSnapshot(s) {
+  if (s.panelType === 'spread') {
+    const el = document.getElementById(`panel-${s.id}`);
+    return { panelType: 'spread',
+      legA: { instrument: s.legA.instrument, exchange: s.legA.exchange, instrType: s.legA.instrType },
+      legB: { instrument: s.legB.instrument, exchange: s.legB.exchange, instrType: s.legB.instrType },
+      x: s.x, y: s.y, width: el ? el.offsetWidth : 420, qty: s.qty,
+    };
+  }
   const el = document.getElementById(`panel-${s.id}`);
   return { instrument: s.instrument, exchange: s.exchange, instrType: s.instrType,
     x: s.x, y: s.y, width: el ? el.offsetWidth : 480, gran: s.gran, qty: s.qty,
@@ -2363,18 +2414,25 @@ function panelSnapshot(s) {
 
 function saveCurrentLayout() {
   const layout = layouts.find(l => l.id === activeLayoutId);
-  if (layout) layout.panels = panels.map(panelSnapshot);
+  // Filter out spread leg entries — they're saved as part of their parent spread panel
+  if (layout) layout.panels = panels.filter(p => !p._isSpreadLeg).map(panelSnapshot);
 }
 
 function destroyAllPanels() {
   // Collect all Deribit channels and unsubscribe in one call
-  const chs = [...new Set(panels.filter(p => p.exchange === 'Deribit').flatMap(s => [s.bookCh, s.tickCh].filter(Boolean)))];
+  // Collect all Deribit channels from all panels and legs
+  const chs = [...new Set(panels.filter(p => (p.exchange === 'Deribit' || p._isSpreadLeg) && !p.panelType).flatMap(s => [s.bookCh, s.tickCh].filter(Boolean)))];
   if (chs.length && ws?.readyState === WebSocket.OPEN)
     ws.send(JSON.stringify({ jsonrpc:'2.0', id:idCounter++, method:'public/unsubscribe', params:{ channels:chs } }));
   for (const s of [...panels]) {
-    disconnectPanelExch(s);
-    s.ro?.disconnect();
-    s.bookCh = s.tickCh = null;
+    if (s._isSpreadLeg) continue; // legs cleaned up by their parent
+    if (s.panelType === 'spread') {
+      unsubscribePanel(s.legA); unsubscribePanel(s.legB);
+    } else {
+      disconnectPanelExch(s);
+      s.ro?.disconnect();
+      s.bookCh = s.tickCh = null;
+    }
     document.getElementById(`panel-${s.id}`)?.remove();
   }
   panels = [];
@@ -2384,6 +2442,13 @@ function restoreLayoutPanels(layout) {
   if (layout.panels.length > 0) {
     for (const p of layout.panels) {
       try {
+      // Spread panel restore
+      if (p.panelType === 'spread') {
+        const sp = createSpreadPanel({ legA: p.legA, legB: p.legB, qty: p.qty, x: p.x, y: p.y });
+        const el = document.getElementById(`panel-${sp.id}`);
+        if (p.width && el) el.style.width = p.width + 'px';
+        continue;
+      }
       const isNonDeribit = p.exchange && p.exchange !== 'Deribit';
       // Always skipSubscribe — subscribe only after instrument + exchange are fully set
       const s = createPanel('BTC-PERPETUAL', { skipSubscribe: true });
@@ -2763,12 +2828,330 @@ function createPanel(defInstr = 'BTC-PERPETUAL', { skipSubscribe = false } = {})
   return s;
 }
 
+// ── Spread Panel ──────────────────────────────────────────────────────────────
+
+function createSpreadPanel(opts = {}) {
+  const pos = nextPanelPos();
+  const id = nextId++;
+  // Each leg is a panel-compatible state object — works with subscribePanel, openInstrPicker, route(), calcVWAP
+  const mkLeg = (def) => ({
+    id: nextId++, // unique ID for picker/subscribe compatibility
+    instrument: def?.instrument || 'BTC-PERPETUAL', exchange: def?.exchange || 'Deribit',
+    instrType: def?.instrType || 'perp', gran: 'none', ticker: {}, bids: [], asks: [],
+    bookCh: null, tickCh: null, ro: null, qty: 0,
+    locked: false, testnet: true,
+    exchWs: null, exchWsRetries: 0, exchWsBackoff: null,
+    connStatus: 'disconnected', bxBook: null, okxPingTimer: null,
+    priceTick: null, _spec: null,
+    _isSpreadLeg: true, _spreadPanelId: id, // marker for route() to detect spread legs
+  });
+  const s = {
+    id, panelType: 'spread',
+    legA: mkLeg(opts.legA), legB: mkLeg(opts.legB),
+    spreadType: '', qty: opts.qty || 0,
+    x: opts.x ?? pos.x, y: opts.y ?? pos.y,
+    locked: false, testnet: true,
+    _history: [], _executing: false, _status: '',
+  };
+  panels.push(s);
+  // Also register legs in panels array for route() to find them
+  panels.push(s.legA); panels.push(s.legB);
+
+  const el = document.createElement('div');
+  el.id = `panel-${id}`;
+  el.className = 'spread-panel';
+  el.style.left = s.x + 'px'; el.style.top = s.y + 'px';
+  el.innerHTML = `
+    <div class="panel-header" id="sp-drag-${id}">
+      <span class="tile-dot" id="sp-dot-${id}" title="Spread"></span>
+      <button class="panel-close" id="sp-close-${id}" title="Remove">×</button>
+    </div>
+    <div class="panel-body">
+      <div class="sp-depth" id="sp-bdepth-${id}"><canvas id="sp-bcanv-${id}"></canvas></div>
+      <div class="sp-centre">
+        <div class="sp-legs-row">
+          <div class="sp-leg-sel">
+            <span class="sp-leg-exch" id="sp-exA-${id}">${s.legA.exchange}</span>
+            <span class="sp-leg-instr" id="sp-selA-${id}">${s.legA.instrument}</span>
+          </div>
+          <div class="sp-leg-sel">
+            <span class="sp-leg-exch" id="sp-exB-${id}">${s.legB.exchange}</span>
+            <span class="sp-leg-instr" id="sp-selB-${id}">${s.legB.instrument}</span>
+          </div>
+        </div>
+        <div class="sp-info-row">
+          <span class="sp-hl" id="sp-hl-${id}">—</span>
+          <span class="sp-type-badge" id="sp-type-${id}">—</span>
+        </div>
+        <div class="trade-row">
+          <button class="trade-btn sell-btn" id="sp-sellsp-${id}" title="Sell spread">
+            <span class="btn-label">Sell Spread</span>
+            <span class="btn-price" id="sp-sbid-${id}">—</span>
+          </button>
+          <div class="spread-mid" id="sp-mid-${id}">—</div>
+          <button class="trade-btn buy-btn" id="sp-buysp-${id}" title="Buy spread">
+            <span class="btn-label">Buy Spread</span>
+            <span class="btn-price" id="sp-bask-${id}">—</span>
+          </button>
+        </div>
+        <div class="qty-row">
+          <input class="qty-input" id="sp-qty-${id}" type="number" placeholder="Qty…" min="0" step="any" value="${s.qty||''}">
+          <div style="display:flex;flex-direction:column;gap:1px;text-align:right">
+            <span class="qty-unit" id="sp-qunit-${id}">${base(s.legA.instrument)}</span>
+            <span id="sp-leg2sz-${id}" style="font-size:8px;color:#2a2a3a;white-space:nowrap"></span>
+          </div>
+        </div>
+        <div style="font-size:7px;color:#333;text-align:center" id="sp-desc-${id}"></div>
+        <div class="sp-status" id="sp-status-${id}"></div>
+      </div>
+      <div class="sp-depth" id="sp-adepth-${id}"><canvas id="sp-acanv-${id}"></canvas></div>
+    </div>
+    <div class="panel-resize" id="sp-resize-${id}"></div>`;
+  document.getElementById('panels-canvas').appendChild(el);
+
+  // ── Drag ──
+  let _dx, _dy;
+  document.getElementById(`sp-drag-${id}`).addEventListener('mousedown', e => {
+    if (e.target.tagName === 'BUTTON') return;
+    _dx = e.clientX - el.getBoundingClientRect().left;
+    _dy = e.clientY - el.getBoundingClientRect().top;
+    const mv = ev => { s.x = ev.clientX - _dx; s.y = ev.clientY - _dy; el.style.left = s.x + 'px'; el.style.top = s.y + 'px'; };
+    const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); persistLayouts(); };
+    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+  });
+
+  // ── Close ──
+  document.getElementById(`sp-close-${id}`).addEventListener('click', () => removePanel(id));
+
+  // ── Qty input ──
+  const qtyInput = document.getElementById(`sp-qty-${id}`);
+  qtyInput.addEventListener('input', () => { s.qty = parseFloat(qtyInput.value) || 0; _updateSpreadDisplay(s); });
+
+  // ── Instrument pickers — reuse openInstrPicker by passing leg state ──
+  document.getElementById(`sp-selA-${id}`).addEventListener('click', function() {
+    window._spreadPickerTarget = { panel: s, leg: s.legA, legKey: 'A' };
+    openInstrPicker(s.legA, this);
+  });
+  document.getElementById(`sp-selB-${id}`).addEventListener('click', function() {
+    window._spreadPickerTarget = { panel: s, leg: s.legB, legKey: 'B' };
+    openInstrPicker(s.legB, this);
+  });
+
+  // ── Exchange selectors — cycle on click ──
+  const exchList = ['Deribit','Binance','Bybit','OKX','Kraken','BitMEX'];
+  function cycleExch(leg, elId) {
+    const cur = exchList.indexOf(leg.exchange);
+    unsubscribePanel(leg);
+    leg.exchange = exchList[(cur + 1) % exchList.length];
+    leg.instrument = ''; leg.bids = []; leg.asks = []; leg.ticker = {};
+    document.getElementById(elId).textContent = leg.exchange;
+    const key = leg === s.legA ? 'A' : 'B';
+    document.getElementById(`sp-sel${key}-${s.id}`).textContent = 'Select…';
+    _detectSpreadType(s);
+    persistLayouts();
+  }
+  document.getElementById(`sp-exA-${id}`).addEventListener('click', () => cycleExch(s.legA, `sp-exA-${id}`));
+  document.getElementById(`sp-exB-${id}`).addEventListener('click', () => cycleExch(s.legB, `sp-exB-${id}`));
+
+  // ── Execution ──
+  document.getElementById(`sp-sellsp-${id}`).addEventListener('click', () => _executeSpread(s, 'SELL'));
+  document.getElementById(`sp-buysp-${id}`).addEventListener('click', () => _executeSpread(s, 'BUY'));
+
+  // ── Resize handle ──
+  const resH = document.getElementById(`sp-resize-${id}`);
+  resH.addEventListener('mousedown', e => {
+    e.preventDefault();
+    resH.classList.add('resizing');
+    const startW = el.offsetWidth, startX = e.clientX;
+    const mv = ev => { el.style.width = Math.max(300, startW + (ev.clientX - startX)) + 'px'; };
+    const up = () => { resH.classList.remove('resizing'); document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); persistLayouts(); };
+    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+  });
+
+  // Subscribe both legs using existing subscribePanel
+  s.legA.priceTick = priceStep(s.legA.instrument, s.legA.exchange);
+  s.legB.priceTick = priceStep(s.legB.instrument, s.legB.exchange);
+  subscribePanel(s.legA);
+  subscribePanel(s.legB);
+  _detectSpreadType(s);
+  updateAreaSize();
+  persistLayouts();
+  return s;
+}
+
+// Spread type detection
+function _detectSpreadType(s) {
+  const a = s.legA, b = s.legB;
+  const baseA = (a.instrument || '').split('-')[0], baseB = (b.instrument || '').split('-')[0];
+  let type = '';
+  if (a.exchange !== b.exchange && a.instrument === b.instrument) type = 'Inter-Exchange';
+  else if (a.exchange !== b.exchange) type = 'Cross-Exchange';
+  else if (baseA === baseB && a.instrType !== b.instrType && (a.instrType === 'spot' || b.instrType === 'spot')) type = 'Basis';
+  else if (baseA === baseB && a.instrument !== b.instrument) type = 'Calendar';
+  else if (baseA !== baseB) type = 'Cross-Asset';
+  else type = 'Spread';
+  s.spreadType = type;
+  const badge = document.getElementById(`sp-type-${s.id}`);
+  if (badge) badge.textContent = type;
+}
+
+// Live spread display update — called from route() when either leg's data updates
+function _updateSpreadDisplay(s) {
+  const la = s.legA, lb = s.legB;
+  const bidA = la.ticker.best_bid_price || la.bids?.[0]?.[0] || 0;
+  const askA = la.ticker.best_ask_price || la.asks?.[0]?.[0] || 0;
+  const bidB = lb.ticker.best_bid_price || lb.bids?.[0]?.[0] || 0;
+  const askB = lb.ticker.best_ask_price || lb.asks?.[0]?.[0] || 0;
+  const midA = bidA && askA ? (bidA + askA) / 2 : 0;
+  const midB = bidB && askB ? (bidB + askB) / 2 : 0;
+
+  // Spread VWAP prices: sell spread = sell L1 + buy L2, buy spread = buy L1 + sell L2
+  const qty = s.qty || 0;
+  const invA = isInverse(la.instrument), invB = isInverse(lb.instrument);
+  const sellA = qty > 0 ? calcVWAP(la.bids, qty, invA) : bidA;
+  const buyA  = qty > 0 ? calcVWAP(la.asks, qty, invA) : askA;
+  const sellB = qty > 0 ? calcVWAP(lb.bids, qty, invB) : bidB;
+  const buyB  = qty > 0 ? calcVWAP(lb.asks, qty, invB) : askB;
+
+  // Spread bid (what you receive selling the spread) = sell L1 - buy L2
+  const spreadBid = (sellA && buyB) ? sellA - buyB : null;
+  // Spread ask (what you pay buying the spread) = buy L1 - sell L2
+  const spreadAsk = (buyA && sellB) ? buyA - sellB : null;
+  const spreadMid = (spreadBid != null && spreadAsk != null) ? (spreadBid + spreadAsk) / 2 : null;
+
+  const d = 4; // spread decimal places
+  const sbidEl = document.getElementById(`sp-sbid-${s.id}`);
+  const baskEl = document.getElementById(`sp-bask-${s.id}`);
+  const midEl  = document.getElementById(`sp-mid-${s.id}`);
+  sbidEl.textContent = spreadBid != null ? spreadBid.toFixed(d) : '—';
+  baskEl.textContent = spreadAsk != null ? spreadAsk.toFixed(d) : '—';
+  midEl.textContent  = (spreadBid != null && spreadAsk != null) ? (spreadAsk - spreadBid).toFixed(d) : '—';
+
+  // Info row: spread in bps
+  const hlEl = document.getElementById(`sp-hl-${s.id}`);
+  if (midA > 0 && midB > 0 && spreadMid != null) {
+    const avgMid = (midA + midB) / 2;
+    const spreadBps = avgMid > 0 ? (spreadMid / avgMid) * 10000 : 0;
+    hlEl.textContent = `${spreadMid >= 0 ? '+' : ''}${spreadMid.toFixed(4)} (${spreadBps.toFixed(1)} bps)`;
+    hlEl.style.color = spreadMid >= 0 ? '#00c896' : '#e05252';
+  }
+
+  // Description
+  const descEl = document.getElementById(`sp-desc-${s.id}`);
+  if (descEl) descEl.innerHTML = `BUY: L1↑ L2↓ · SELL: L1↓ L2↑`;
+
+  // Leg 2 size
+  const baseA = (la.instrument || '').split('-')[0], baseB = (lb.instrument || '').split('-')[0];
+  const leg2El = document.getElementById(`sp-leg2sz-${s.id}`);
+  if (qty > 0 && baseA !== baseB && midA > 0 && midB > 0) {
+    const leg2Qty = (qty * midA) / midB;
+    leg2El.textContent = `L2: ~${leg2Qty.toFixed(2)} ${baseB}`;
+  } else if (leg2El) {
+    leg2El.textContent = qty > 0 ? base(la.instrument) : '';
+  }
+
+  // Unit label
+  const qunitEl = document.getElementById(`sp-qunit-${s.id}`);
+  if (qunitEl) qunitEl.textContent = base(la.instrument);
+
+  // Draw synthetic spread depth histograms
+  _drawSpreadDepth(s);
+}
+
+function _drawSpreadDepth(s) {
+  const bCanv = document.getElementById(`sp-bcanv-${s.id}`);
+  const aCanv = document.getElementById(`sp-acanv-${s.id}`);
+  if (!bCanv || !aCanv) return;
+  const bCont = bCanv.parentElement, aCont = aCanv.parentElement;
+
+  // Bid depth: spread sell levels = L1 bid[i] - L2 bestAsk
+  const l2Ask = s.legB.asks?.[0]?.[0] || 0;
+  const l2Bid = s.legB.bids?.[0]?.[0] || 0;
+  const bidLevels = l2Ask > 0 ? s.legA.bids.slice(0, 15).map(([p, sz]) => [p - l2Ask, sz]) : [];
+  const askLevels = l2Bid > 0 ? s.legA.asks.slice(0, 15).map(([p, sz]) => [p - l2Bid, sz]) : [];
+
+  // Use same drawSide function as price tiles
+  if (typeof drawSide === 'function') {
+    drawSide(bCanv, bidLevels, 'bid', null);
+    drawSide(aCanv, askLevels, 'ask', null);
+  }
+}
+
+// Spread execution using same order path as price tiles
+async function _executeSpread(s, spreadSide) {
+  if (s._executing) return;
+  const qty = s.qty || parseFloat(document.getElementById(`sp-qty-${s.id}`).value) || 0;
+  if (!qty) return;
+
+  s._executing = true;
+  const statusEl = document.getElementById(`sp-status-${s.id}`);
+  statusEl.style.display = 'block'; statusEl.className = 'sp-status legged';
+
+  const leg1Side = spreadSide === 'BUY' ? 'BUY' : 'SELL';
+  const leg2Side = spreadSide === 'BUY' ? 'SELL' : 'BUY';
+
+  // Calculate leg 2 qty (may differ for cross-asset)
+  const baseA = (s.legA.instrument || '').split('-')[0], baseB = (s.legB.instrument || '').split('-')[0];
+  const midA = s.legA.ticker.best_bid_price && s.legA.ticker.best_ask_price ? (s.legA.ticker.best_bid_price + s.legA.ticker.best_ask_price) / 2 : 0;
+  const midB = s.legB.ticker.best_bid_price && s.legB.ticker.best_ask_price ? (s.legB.ticker.best_bid_price + s.legB.ticker.best_ask_price) / 2 : 0;
+  let leg2Qty = qty;
+  if (baseA !== baseB && midA > 0 && midB > 0) leg2Qty = (qty * midA) / midB;
+
+  statusEl.textContent = `Leg 1: ${leg1Side} ${qty.toFixed(4)} ${s.legA.instrument}…`;
+
+  // Submit via same path as price tiles
+  const submitLeg = async (leg, side, size) => {
+    const bid = leg.ticker.best_bid_price || leg.bids?.[0]?.[0] || 0;
+    const ask = leg.ticker.best_ask_price || leg.asks?.[0]?.[0] || 0;
+    const tick = leg.priceTick || 0.0001;
+    const price = side === 'BUY' ? ask + tick : bid - tick;
+    if (!price || price <= 0) return { ok: false, error: 'No market data' };
+    try {
+      const r = await fetch(TCA_BASE + '/api/order/submit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venue: leg.exchange, symbol: leg.instrument, side, quantity: size, limitPrice: price, orderType: 'LIMIT', timeInForce: 'IOC' }),
+      });
+      return await r.json();
+    } catch (e) { return { ok: false, error: e.message }; }
+  };
+
+  const r1 = await submitLeg(s.legA, leg1Side, qty);
+  if (!r1?.ok) {
+    statusEl.className = 'sp-status error'; statusEl.textContent = `Leg 1 failed: ${r1?.error || 'unknown'}`;
+    s._executing = false; return;
+  }
+  statusEl.textContent = `Leg 1 filled — Leg 2: ${leg2Side} ${leg2Qty.toFixed(4)} ${s.legB.instrument}…`;
+
+  let r2;
+  for (let i = 1; i <= 3; i++) {
+    r2 = await submitLeg(s.legB, leg2Side, leg2Qty);
+    if (r2?.ok) break;
+    if (i < 3) { statusEl.textContent = `Leg 2 failed — retrying (${i}/3)…`; await new Promise(r => setTimeout(r, 1000)); }
+  }
+
+  if (r2?.ok) {
+    statusEl.className = 'sp-status complete';
+    statusEl.textContent = `COMPLETE — ${leg1Side} ${s.legA.instrument} | ${leg2Side} ${s.legB.instrument}`;
+  } else {
+    statusEl.className = 'sp-status error';
+    statusEl.textContent = `⚠ LEGGED — Leg 2 failed. You hold ${s.legA.instrument}. Manual action required.`;
+  }
+  s._executing = false;
+  setTimeout(() => { if (statusEl.className.includes('complete')) statusEl.style.display = 'none'; }, 5000);
+}
+
 function removePanel(id) {
-  if (panels.length <= 1) return;
   const s = panels.find(p => p.id === id);
   if (!s) return;
-  s.ro?.disconnect();
-  unsubscribePanel(s);
+  if (panels.length <= 1 && !s.panelType) return; // keep at least one price tile
+  if (s.panelType === 'spread') {
+    unsubscribePanel(s.legA); unsubscribePanel(s.legB);
+    // Remove leg entries from panels array
+    panels = panels.filter(p => p !== s.legA && p !== s.legB);
+  } else {
+    s.ro?.disconnect();
+    unsubscribePanel(s);
+  }
   panels = panels.filter(p => p.id !== id);
   document.getElementById(`panel-${id}`)?.remove();
   updateAreaSize();
@@ -2799,10 +3182,28 @@ function changeInstrument(s, instr) {
   updateOrderButtonsForExchange(s);
 }
 
-document.getElementById('add-panel-btn').addEventListener('click', () => {
-  const used = new Set(panels.map(p => p.instrument));
-  const next = instruments.find(i => !used.has(i.instrument_name) && i.instrument_name.includes('PERPETUAL'));
-  createPanel(next?.instrument_name || instruments[0]?.instrument_name || 'BTC-PERPETUAL');
+document.getElementById('add-panel-btn').addEventListener('click', (e) => {
+  // Show dropdown: Price Tile or Spread Panel
+  let menu = document.getElementById('add-panel-menu');
+  if (menu) { menu.remove(); return; }
+  menu = document.createElement('div');
+  menu.id = 'add-panel-menu';
+  menu.style.cssText = 'position:absolute;z-index:9999;background:#0f0f14;border:1px solid #1e1e28;border-radius:6px;padding:4px 0;box-shadow:0 4px 12px rgba(0,0,0,.5)';
+  const r = e.currentTarget.getBoundingClientRect();
+  menu.style.left = r.left + 'px'; menu.style.top = r.bottom + 4 + 'px';
+  const items = [
+    { label: 'Price Tile', action: () => { const used = new Set(panels.filter(p=>!p.panelType||p.panelType==='price').map(p=>p.instrument)); const next = instruments.find(i=>!used.has(i.instrument_name)&&i.instrument_name.includes('PERPETUAL')); createPanel(next?.instrument_name||instruments[0]?.instrument_name||'BTC-PERPETUAL'); }},
+    { label: 'Spread Panel', action: () => { createSpreadPanel({ legA: { instrument: 'BTC-PERPETUAL', exchange: 'Deribit' }, legB: { instrument: 'ETH-PERPETUAL', exchange: 'Deribit' } }); }},
+  ];
+  menu.innerHTML = items.map(i => `<div style="padding:6px 16px;font-size:11px;color:#ccc;cursor:pointer;white-space:nowrap" class="add-menu-item">${i.label}</div>`).join('');
+  menu.querySelectorAll('.add-menu-item').forEach((el, idx) => {
+    el.addEventListener('mouseenter', () => { el.style.background = '#1a1a2e'; });
+    el.addEventListener('mouseleave', () => { el.style.background = ''; });
+    el.addEventListener('click', () => { items[idx].action(); menu.remove(); });
+  });
+  document.body.appendChild(menu);
+  const close = (ev) => { if (!menu.contains(ev.target) && ev.target !== e.currentTarget) { menu.remove(); document.removeEventListener('click', close); } };
+  setTimeout(() => document.addEventListener('click', close), 0);
 });
 
 // ── Subscribe ─────────────────────────────────────────────────────────────────
@@ -3330,6 +3731,14 @@ function route(ch, data) {
       s.ticker = data; updateCentre(s);
     }
   }
+  // Spread legs: route() already updates leg states via the main panels loop above
+  // (legs are registered in panels[]). Trigger spread display refresh.
+  for (const s of panels) {
+    if (s.panelType !== 'spread') continue;
+    if (ch === s.legA.bookCh || ch === s.legA.tickCh || ch === s.legB.bookCh || ch === s.legB.tickCh) {
+      _updateSpreadDisplay(s);
+    }
+  }
   // Block RFQ quote channel
   if (rfqState && rfqState.blockRfqId && ch === `user.block_rfq.${rfqState.blockRfqId}`) {
     handleRFQMessage(data);
@@ -3364,6 +3773,7 @@ function setDot(s) {
 
 // ── Centre UI ─────────────────────────────────────────────────────────────────
 function updateCentre(s) {
+  if (s._isSpreadLeg) return; // spread legs update via _updateSpreadDisplay
   try {
     const d = s.priceTick ? tickDecimals(s.priceTick) : pDec(s.ticker.best_bid_price ?? s.bids[0]?.[0]);
     // spread — raw price difference, formatted to tick-size precision
@@ -3447,6 +3857,7 @@ function resizeAndRender(s) {
   renderPanel(s);
 }
 function renderPanel(s) {
+  if (s._isSpreadLeg) return; // spread legs don't have their own canvases
   try {
     s.bidMeta = drawSide(document.getElementById(`bcanv-${s.id}`), s.bids, 'bid', s.priceTick) || null;
     s.askMeta = drawSide(document.getElementById(`acanv-${s.id}`), s.asks, 'ask', s.priceTick) || null;
