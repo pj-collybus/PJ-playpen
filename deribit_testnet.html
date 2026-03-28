@@ -1235,8 +1235,20 @@ canvas.clickable { cursor: crosshair; }
           <button class="bl-period-pill active" data-smode="snipe" style="flex:1">Snipe</button>
           <button class="bl-period-pill" data-smode="post_snipe" style="flex:1">Post + Snipe</button>
         </div>
-        <label style="font-size:10px;color:#555"><span id="algo-targetPrice-label">Snipe price</span><input id="algo-f-targetPrice" type="number" min="0" step="any" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="0"></label>
-        <label id="algo-snipe-level-field" style="font-size:10px;color:#555;display:none;margin-top:4px">Snipe price<input id="algo-f-snipeLevel" type="number" min="0" step="any" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="0"></label>
+        <!-- Post+Snipe fields -->
+        <div id="algo-postsnipe-fields" style="display:none">
+          <label style="font-size:10px;color:#555">Limit price<input id="algo-f-targetPrice" type="number" min="0" step="any" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="0"></label>
+          <label style="font-size:10px;color:#555;margin-top:4px">Snipe price<input id="algo-f-snipeLevel" type="number" min="0" step="any" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="0"></label>
+        </div>
+        <!-- Snipe ladder -->
+        <div id="algo-ladder-fields">
+          <div style="font-size:10px;color:#555;margin-bottom:4px">Price levels</div>
+          <div id="algo-ladder-rows" style="display:flex;flex-direction:column;gap:3px"></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px">
+            <button id="algo-ladder-add" style="font-size:9px;color:#6666cc;background:none;border:1px solid #1e1e28;border-radius:4px;padding:2px 8px;cursor:pointer;font-family:inherit">+ Add level</button>
+            <span id="algo-ladder-total" style="font-size:9px;color:#555"></span>
+          </div>
+        </div>
       </div>
       <!-- Estimate + summary -->
       <div id="algo-estimate" style="font-size:10px;color:#555"></div>
@@ -8133,18 +8145,79 @@ function initBlotter() {
 
   // Sniper execution mode pills
   let _sniperMode = 'snipe';
+  let _sniperLadder = [{ price: 0, pct: 100, enabled: true }];
+
+  function _updateSniperModeVisibility() {
+    const postFields = document.getElementById('algo-postsnipe-fields');
+    const ladderFields = document.getElementById('algo-ladder-fields');
+    if (postFields) postFields.style.display = _sniperMode === 'post_snipe' ? '' : 'none';
+    if (ladderFields) ladderFields.style.display = _sniperMode === 'snipe' ? '' : 'none';
+  }
+
   document.querySelectorAll('#algo-sniper-mode-pills .bl-period-pill').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('#algo-sniper-mode-pills .bl-period-pill').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       _sniperMode = btn.dataset.smode;
-      // Show/hide snipe level field and update labels
-      const sl = document.getElementById('algo-snipe-level-field');
-      if (sl) sl.style.display = _sniperMode === 'post_snipe' ? '' : 'none';
-      const tpLabel = document.getElementById('algo-targetPrice-label');
-      if (tpLabel) tpLabel.textContent = _sniperMode === 'post_snipe' ? 'Limit price' : 'Snipe price';
+      _updateSniperModeVisibility();
       _updateEstimate();
     });
+  });
+
+  // ── Ladder UI ──
+  function _renderLadder() {
+    const container = document.getElementById('algo-ladder-rows');
+    const totalEl = document.getElementById('algo-ladder-total');
+    if (!container) return;
+    container.innerHTML = '';
+    _sniperLadder.forEach((lvl, i) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:4px;align-items:center';
+      row.innerHTML = `
+        <span style="font-size:8px;color:#555;width:16px">L${i+1}</span>
+        <input type="number" step="any" placeholder="Price" value="${lvl.price||''}" data-ladder-idx="${i}" data-ladder-field="price"
+          style="flex:2;font-size:10px;padding:3px 5px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;min-width:0">
+        <input type="number" min="1" max="100" placeholder="%" value="${lvl.pct||''}" data-ladder-idx="${i}" data-ladder-field="pct"
+          style="flex:1;font-size:10px;padding:3px 5px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;width:40px;min-width:0">
+        <span style="font-size:9px;color:#555">%</span>
+        <input type="checkbox" ${lvl.enabled!==false?'checked':''} data-ladder-idx="${i}" data-ladder-field="enabled" style="accent-color:#00c896">
+        ${_sniperLadder.length > 1 ? `<button data-ladder-del="${i}" style="background:none;border:1px solid #1e1e28;border-radius:3px;color:#555;cursor:pointer;font-size:9px;padding:1px 4px;font-family:inherit">&times;</button>` : ''}
+      `;
+      container.appendChild(row);
+    });
+    // Wire events
+    container.querySelectorAll('input[data-ladder-field]').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const idx = parseInt(inp.dataset.ladderIdx);
+        const field = inp.dataset.ladderField;
+        if (field === 'enabled') _sniperLadder[idx].enabled = inp.checked;
+        else if (field === 'price') _sniperLadder[idx].price = parseFloat(inp.value) || 0;
+        else if (field === 'pct') _sniperLadder[idx].pct = parseFloat(inp.value) || 0;
+        _updateLadderTotal();
+      });
+      if (inp.type === 'number') attachShorthandInput(inp);
+    });
+    container.querySelectorAll('button[data-ladder-del]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _sniperLadder.splice(parseInt(btn.dataset.ladderDel), 1);
+        _renderLadder();
+      });
+    });
+    _updateLadderTotal();
+  }
+
+  function _updateLadderTotal() {
+    const totalEl = document.getElementById('algo-ladder-total');
+    if (!totalEl) return;
+    const sum = _sniperLadder.filter(l => l.enabled !== false).reduce((s, l) => s + (l.pct || 0), 0);
+    totalEl.textContent = `Total: ${sum}%`;
+    totalEl.style.color = Math.abs(sum - 100) < 0.1 ? '#00c896' : '#e05252';
+  }
+
+  document.getElementById('algo-ladder-add')?.addEventListener('click', () => {
+    if (_sniperLadder.length >= 5) return;
+    _sniperLadder.push({ price: 0, pct: 0, enabled: true });
+    _renderLadder();
   });
 
   // Target price / snipe level inputs
@@ -8153,7 +8226,6 @@ function initBlotter() {
 
   // Side toggle → auto-set trigger condition for Sniper
   function _updateSniperTriggerDefault() {
-    // BUY → breaks_below (waiting for price to fall), SELL → breaks_above
     const trigEl = document.getElementById('algo-dp-triggerCondition');
     if (trigEl && _algoType === 'SNIPER') {
       trigEl.value = _algoSide === 'BUY' ? 'breaks_below' : 'breaks_above';
@@ -8195,7 +8267,7 @@ function initBlotter() {
   }
 
   // Params handled by simple view — skip in advanced panel
-  const SIMPLE_KEYS = new Set(['venue','startMode','startScheduled','durationMode','durationMinutes','endTime','urgency','visibleSize','visibleVariancePct','vwapMode','duration','urgencyBias','executionMode','targetPrice','snipeLevel','triggerCondition']);
+  const SIMPLE_KEYS = new Set(['venue','startMode','startScheduled','durationMode','durationMinutes','endTime','urgency','visibleSize','visibleVariancePct','vwapMode','duration','urgencyBias','executionMode','targetPrice','snipeLevel','triggerCondition','levels']);
 
   function _renderParams() {
     const container = document.getElementById('algo-dynamic-params');
@@ -8212,14 +8284,17 @@ function initBlotter() {
     if (urgSection) urgSection.style.display = _algoType === 'SNIPER' ? 'none' : '';
     // Show Sniper-specific fields
     const sniperFields = document.getElementById('algo-sniper-fields');
-    if (sniperFields) sniperFields.style.display = _algoType === 'SNIPER' ? '' : 'none';
+    if (sniperFields) {
+      sniperFields.style.display = _algoType === 'SNIPER' ? '' : 'none';
+      if (_algoType === 'SNIPER') { _updateSniperModeVisibility(); _renderLadder(); }
+    }
     const iceFields = document.getElementById('algo-iceberg-fields');
     if (iceFields) iceFields.style.display = _algoType === 'ICEBERG' ? 'flex' : 'none';
     const vwapFields = document.getElementById('algo-vwap-fields');
     if (vwapFields) vwapFields.style.display = _algoType === 'VWAP' ? '' : 'none';
     const inputStyle = 'font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;width:100%';
     // Only render advanced params (not handled by simple fields)
-    const advParams = cfg.params.filter(p => !SIMPLE_KEYS.has(p.key));
+    const advParams = cfg.params.filter(p => !SIMPLE_KEYS.has(p.key) && p.type !== 'ladder');
     container.innerHTML = advParams.map(p => {
       const depAttr = p.dependsOn ? ` data-depends-key="${Object.keys(p.dependsOn)[0]}" data-depends-val="${Object.values(p.dependsOn)[0]}"` : '';
       const wrap = `<label class="algo-dp-wrap" id="algo-wrap-${p.key}" style="font-size:10px;color:#555;display:flex;flex-direction:column;gap:2px;transition:opacity 0.2s"${depAttr}>`;
@@ -8301,11 +8376,13 @@ function initBlotter() {
     // Sniper simple fields
     if (_algoType === 'SNIPER') {
       out.executionMode = _sniperMode;
-      out.targetPrice = parseFloat(document.getElementById('algo-f-targetPrice')?.value) || 0;
       if (_sniperMode === 'post_snipe') {
+        out.targetPrice = parseFloat(document.getElementById('algo-f-targetPrice')?.value) || 0;
         out.snipeLevel = parseFloat(document.getElementById('algo-f-snipeLevel')?.value) || 0;
+      } else {
+        // Ladder levels
+        out.levels = _sniperLadder.filter(l => l.enabled !== false && l.price > 0);
       }
-      // Auto-derive triggerCondition from side (override available in Advanced)
       const trigOverride = document.getElementById('algo-dp-triggerCondition');
       out.triggerCondition = trigOverride?.value || (_algoSide === 'BUY' ? 'breaks_below' : 'breaks_above');
     }
@@ -8649,6 +8726,14 @@ function initBlotter() {
         }).join('') + '</tbody></table>';
     }
 
+    // Order summary header — static line showing original order params
+    const _startTimeStr = s.startTime ? new Date(s.startTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+    const _durStr = s.type === 'SNIPER' || s.type === 'POV' || s.type === 'ICEBERG'
+      ? '' : s.timeRemaining != null
+        ? ` | Duration: ${Math.ceil((s.elapsed + (s.timeRemaining||0)) / 60000)} min` : '';
+    const _sniperExtra = s.type === 'SNIPER' && s.levels?.length > 1 ? ` | ${s.levels.length} levels` : '';
+    const _orderSummary = `${s.side||''} ${formatNum(s.totalSize,4)} ${s.symbol||''} on ${s.venue||'Deribit'} via ${s.type||'?'}${_sniperExtra} | Started: ${_startTimeStr}${_durStr}`;
+
     body.innerHTML = `${pauseBar}
       <div class="amon-section">
         <div class="amon-market">
@@ -8657,6 +8742,7 @@ function initBlotter() {
           <span class="amon-ask">${ask?'$'+ask.toFixed(pxD):'—'}</span>
           <span style="color:#555;margin-left:auto;font-size:9px">${urgCtx}</span>
         </div>
+        <div style="font-size:8px;color:#aaa;padding:2px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_orderSummary}</div>
       </div>
       <div class="amon-section">
         <div class="algo-progress-bar" style="margin-bottom:4px"><div class="algo-progress-fill" style="width:${pct}%"></div></div>
@@ -8678,8 +8764,19 @@ function initBlotter() {
             ? (s.executionMode === 'post_snipe'
               ? `<span style="color:#555">Limit: <span style="color:#ccaa44">$${s.targetPrice?.toFixed(pxD)||'—'}</span> | Snipe: <span style="color:#7F77DD">$${s.snipeLevel?.toFixed(pxD)||'—'}</span></span>
                  <span style="color:#555">Passive: <span style="color:#ccc">${(s.passiveFillSize||0).toFixed(2)}</span> | Sniped: <span style="color:#00e5ff">${(s.snipedSize||0).toFixed(2)}</span> | Resting: <span style="color:#ccc">${(s.restingOrderSize||0).toFixed(2)}</span></span>`
-              : `<span style="color:#555">Snipe price: <span style="color:${s.triggered?'#00c896':'#ccaa44'}">$${s.targetPrice?.toFixed(pxD)||'—'} ${s.triggered?'TRIGGERED':'waiting'}</span></span>
-                 <span style="color:#555">Distance: <span style="color:${Math.abs(s.distanceBps||0)<5?'#00c896':'#ccc'}">${(s.distanceBps||0).toFixed(1)} bps</span></span>`)
+              : (s.levels && s.levels.length > 0
+                ? s.levels.map((lv, li) => {
+                    const pct = lv.allocatedSize > 0 ? Math.min(100, lv.filledSize / lv.allocatedSize * 100) : 0;
+                    const barW = 8; const filled = Math.round(pct / 100 * barW);
+                    const bar = '\u2588'.repeat(filled) + '\u2591'.repeat(barW - filled);
+                    const colors = ['#00e5ff','#ccaa44','#cc44cc','#44cc88','#cc8844'];
+                    const c = colors[li % colors.length];
+                    const st = lv.active ? lv.status : lv.status === 'COMPLETED' ? 'DONE' : '';
+                    return `<span style="color:${c};font-size:8px;font-family:monospace">L${li+1} $${lv.price?.toFixed(pxD)} ${lv.pct}% ${bar} ${st} ${lv.filledSize?.toFixed(2)}/${lv.allocatedSize?.toFixed(2)}</span>`;
+                  }).join('')
+                  + (s.volumeConfirmEnabled ? `<span style="color:#555;font-size:8px">Vol: ${(s.levels[s.activeLevelIndex]?.volumeAtLevel||0).toFixed(0)}/${s.volumeConfirmSize}</span>` : '')
+                  + (s.momentumFilterEnabled ? `<span style="color:#555;font-size:8px">Mom: ${(s.momentumBps||0).toFixed(1)} bps/s</span>` : '')
+                : `<span style="color:#555">Snipe: <span style="color:${s.triggered?'#00c896':'#ccaa44'}">$${s.targetPrice?.toFixed(pxD)||'—'}</span> Distance: ${(s.distanceBps||0).toFixed(1)}bps</span>`))
             : s.type === 'IS'
             ? `<span style="color:#555">IS cost: <span style="color:${(s.totalIsCost||0)<=0?'#00c896':'#e05252'};font-weight:700">${(s.totalIsCost||0).toFixed(1)} bps</span> <span style="font-size:8px;color:#666">(timing ${(s.timingCost||0).toFixed(1)} + impact ${(s.marketImpactCost||0).toFixed(1)})</span></span>
                <span style="color:#555">Rate: <span style="color:#ccc">${((s.optimalRate||0)*100).toFixed(0)}% ${s.currentUrgency||''}</span> · Vol: <span style="color:#ccc">${((s.estimatedVolatility||0)*100).toFixed(2)}%</span></span>`
@@ -8901,24 +8998,62 @@ function initBlotter() {
         chart.data.datasets[7].data = [];
       }
 
+      // Sniper ladder level lines (datasets 8+)
+      const levelPrices = s.chartLevelPrices || [];
+      const levelColors = ['#00BFFF', '#FFD700', '#FF00FF', '#00FF88', '#FF6600'];
+      if (levelPrices.length && times.length >= 2) {
+        // Ensure we have enough datasets
+        while (chart.data.datasets.length < 8 + levelPrices.length) {
+          chart.data.datasets.push({
+            label: '', data: [], borderColor: '#555', borderWidth: 1,
+            borderDash: [4, 4], pointRadius: 0, tension: 0, fill: false,
+          });
+        }
+        for (let li = 0; li < levelPrices.length; li++) {
+          const ds = chart.data.datasets[8 + li];
+          const lp = levelPrices[li];
+          const price = lp?.price || lp;
+          const completed = lp?.status === 'COMPLETED';
+          if (price > 0) {
+            ds.label = `L${li + 1}`;
+            ds.data = [{ x: times[0], y: price }, { x: times[times.length - 1], y: price }];
+            ds.borderColor = levelColors[li % levelColors.length];
+            ds.borderDash = [6, 3];
+            ds.borderWidth = 1.5;
+          } else {
+            ds.data = [];
+          }
+        }
+        // Clear excess level datasets
+        for (let li = levelPrices.length; li < chart.data.datasets.length - 8; li++) {
+          chart.data.datasets[8 + li].data = [];
+        }
+      }
+
       // Fills as scatter points — always render ALL fills
       if (fills.length) console.log('[chart] rendering fills:', fills.length, 'for strategy:', sid);
       const fillPts = fills.map(f => ({ x: f.time, y: f.price, _fill: f }));
       chart.data.datasets[3].data = fillPts;
-      const bgColors = fills.map(f => f.fillType === 'snipe' ? '#00e5ff' : (f.side === 'BUY' ? '#00c896' : '#e05252'));
-      const bdColors = fills.map(f => f.fillType === 'snipe' ? '#00e5ff' : f.simulated ? '#ccaa44' : (f.side === 'BUY' ? '#00c896' : '#e05252'));
+      const _levelFillColors = { 'snipe-L1': '#00BFFF', 'snipe-L2': '#FFD700', 'snipe-L3': '#FF00FF', 'snipe-L4': '#00FF88', 'snipe-L5': '#FF6600' };
+      const bgColors = fills.map(f => _levelFillColors[f.fillType] || (f.fillType === 'snipe' ? '#00e5ff' : (f.side === 'BUY' ? '#00c896' : '#e05252')));
+      const bdColors = fills.map(f => _levelFillColors[f.fillType] || (f.fillType === 'snipe' ? '#00e5ff' : f.simulated ? '#ccaa44' : (f.side === 'BUY' ? '#00c896' : '#e05252')));
       const styles = fills.map(() => 'triangle');
       const rotations = fills.map(f => f.side === 'BUY' ? 0 : 180); // ▲ buy, ▽ sell
       const radii = fills.map(() => 8);
-      // Last fill marker: blue square on completion
-      const sState = s.state || s.status;
-      if ((sState === 'COMPLETED' || sState === 'STOPPED') && styles.length > 0) {
+      // Last fill marker: completion square — colour matches last level for Sniper, blue for others
+      const sState = s.status || s.state;
+      if ((sState === 'COMPLETED' || sState === 'STOPPED' || s.state === 'COMPLETED' || s.state === 'STOPPED') && styles.length > 0) {
         const last = styles.length - 1;
         styles[last] = 'rect';
-        bgColors[last] = '#378ADD';
-        bdColors[last] = '#378ADD';
         rotations[last] = 0;
         radii[last] = 6;
+        let completeColor = '#378ADD';
+        if (s.type === 'SNIPER' && s.levels?.length) {
+          const lastLevelIdx = Math.max(0, (s.activeLevelIndex ?? s.levels.length) - 1);
+          completeColor = levelColors[lastLevelIdx % levelColors.length];
+        }
+        bgColors[last] = completeColor;
+        bdColors[last] = completeColor;
       }
       chart.data.datasets[3].backgroundColor = bgColors;
       chart.data.datasets[3].borderColor = bdColors;
@@ -8926,9 +9061,10 @@ function initBlotter() {
       chart.data.datasets[3].rotation = rotations;
       chart.data.datasets[3].pointRadius = radii;
 
-      // Auto-scale Y with 10% padding — include fill prices
+      // Auto-scale Y with 10% padding — include fill prices and level lines
       const fillPrices = fills.map(f => f.price).filter(v => v > 0);
-      const allPrices = [...bids, ...asks, ...fillPrices].filter(v => v > 0);
+      const lvlPrices = (s.chartLevelPrices || []).map(lp => lp?.price || lp).filter(v => v > 0);
+      const allPrices = [...bids, ...asks, ...fillPrices, ...lvlPrices].filter(v => v > 0);
       if (allPrices.length) {
         const mn = Math.min(...allPrices), mx = Math.max(...allPrices);
         const pad = (mx - mn) * 0.1 || 0.001;

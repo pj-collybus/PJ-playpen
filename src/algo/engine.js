@@ -117,10 +117,12 @@ setInterval(() => {
       // Publish simulated fill to main process — it will publish to FILLS bus
       // which feeds back to the worker via _wireAlgoDataFeeds → _onFillData
       // Do NOT call _onFillData directly here to avoid double-counting
+      // Cap sim fill to the original order quantity — never fill more than requested
+      const simFillSize = Math.max(0, pend.qty);
       _send('SIMULATED_FILL', {
         intentId, strategyId: pend.strategyId,
         symbol: pend.symbol, venue: pend.venue,
-        side: pend.side, fillSize: pend.qty, fillPrice: pend.price,
+        side: pend.side, fillSize: simFillSize, fillPrice: pend.price,
       });
       _pendingSimFills.delete(intentId);
     }
