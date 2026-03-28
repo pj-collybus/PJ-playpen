@@ -137,6 +137,41 @@ app.get('/api/instrument-spec-cache/stats', (req, res) => {
   res.json(instrumentSpecService.stats());
 });
 
+// ── Options Matrix API ───────────────────────────────────────────────────────
+const optionsService = require('./src/services/optionsService');
+const { OptionsService } = require('./src/services/optionsService');
+
+app.get('/api/options/matrix', async (req, res) => {
+  try {
+    const { instrument, type, minStrike, maxStrike, fromExpiry, toExpiry, atmOnly, testnet } = req.query;
+    const instr = instrument || 'BTC_USDC';
+    const isTestnet = testnet !== 'false';
+    const filter = {};
+    if (type && type !== 'both') filter.type = type === 'calls' ? 'call' : type === 'puts' ? 'put' : type;
+    if (minStrike) filter.minStrike = parseFloat(minStrike);
+    if (maxStrike) filter.maxStrike = parseFloat(maxStrike);
+    if (fromExpiry) filter.fromDays = OptionsService.parseDurationToDays(fromExpiry);
+    if (toExpiry) filter.toDays = OptionsService.parseDurationToDays(toExpiry);
+    if (atmOnly === 'true') filter.atmOnly = true;
+    const matrix = await optionsService.getMatrix(instr, filter, isTestnet);
+    res.json(matrix);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/options/index-price', async (req, res) => {
+  try {
+    const { index, testnet } = req.query;
+    const indexName = index || 'btc_usd';
+    const isTestnet = testnet !== 'false';
+    const price = await optionsService.fetchIndexPrice(indexName, isTestnet);
+    res.json({ indexName, price });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Venue colours — single source of truth from venues.js ────────────────────
 
 app.get('/api/config/exchange-colors', (req, res) => {
