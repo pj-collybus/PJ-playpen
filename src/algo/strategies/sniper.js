@@ -174,7 +174,8 @@ class SniperStrategy {
     this._minSnipePct     = Math.min(20, Math.max(1, parseFloat(params.minSnipePct) || 5));
     this._maxSnipeTotal   = this.totalSize * this._snipePct / 100;
     this._minSnipeSize    = this.totalSize * this._minSnipePct / 100;
-    console.log(`[sniper] constructor: totalSize=${this.totalSize} snipePct=${this._snipePct} maxSnipeTotal=${this._maxSnipeTotal} minSnipePct=${this._minSnipePct} minSnipeSize=${this._minSnipeSize} raw.snipePct=${params.snipePct} raw.minSnipePct=${params.minSnipePct}`);
+    console.log(`[sniper] constructor: mode=${this._executionMode} levelMode=${this._levelMode} totalSize=${this.totalSize} levels=${this._levels.length} snipePct=${this._snipePct} maxSnipeTotal=${this._maxSnipeTotal}`);
+    if (this._levels.length > 1) console.log(`[sniper] levels:`, this._levels.map((l,i) => `L${i+1}: $${l.price} ${l.pct}% alloc=${l.allocatedSize}`).join(', '));
     this._postSnipePhase  = 'ACTIVE';  // ACTIVE | REST_ONLY
     this._currentRoundTotal = 0;
     this._currentPostSize = 0;
@@ -244,6 +245,30 @@ class SniperStrategy {
     this._snipeChildId = null;
     this._cancellingForSnipe = false;
     this._roundNumber++;
+
+    // Simultaneous mode: resting order = (100 - snipePct)%, levels handle snipe independently
+    if (this._levelMode === 'simultaneous' && this._levels.length > 1) {
+      this._postSnipePhase = 'ACTIVE';
+      this._currentRoundTotal = remaining;
+      // Post size = total - sum of level allocations
+      const totalSnipeAlloc = this._levels.reduce((s, l) => s + l.allocatedSize, 0);
+      this._currentPostSize = Math.max(0, this.totalSize - totalSnipeAlloc) - this.passiveFillSize;
+      if (this._currentPostSize < this._lotSize) this._currentPostSize = 0;
+      this._currentSnipeSize = totalSnipeAlloc;
+      console.log(`[post+snipe] Round ${this._roundNumber} SIMULTANEOUS: ${this._levels.length} levels, post=${this._currentPostSize.toFixed(4)}, snipeAlloc=${totalSnipeAlloc.toFixed(4)}`);
+      console.log('[sniper] simultaneous mode: activating', this._levels.length, 'levels simultaneously');
+      // Place resting order for post portion
+      if (this._currentPostSize >= this._lotSize) {
+        const postQty = Math.floor(this._currentPostSize / this._lotSize) * this._lotSize;
+        this._postOrderId = this._ctx.submitIntent({
+          symbol: this.symbol, side: this.side, quantity: postQty,
+          limitPrice: this._targetPrice, orderType: 'LIMIT', algoType: 'SNIPER-POST',
+        });
+        this.restingOrderSize = postQty;
+        this._restingPrice = this._targetPrice;
+      }
+      return;
+    }
 
     const remainingSnipeAllowance = Math.max(0, this._maxSnipeTotal - this.snipedSize);
 
@@ -333,23 +358,50 @@ class SniperStrategy {
       // REST_ONLY: just wait for passive fills
       if (this._postSnipePhase === 'REST_ONLY') return;
 
-      // ACTIVE: check snipe trigger
-      if (this._snipeChildId || this._cancellingForSnipe) return; // order in flight or cancelling
+      // ── Simultaneous mode: each level fires independently, resting stays ──
+      if (this._levelMode === 'simultaneous' && this._levels.length > 0) {
+        for (let li = 0; li < this._levels.length; li++) {
+          const lvl = this._levels[li];
+          const lvlTol = Math.max(0.001, lvl.allocatedSize * 0.01);
+          if (lvl.filledSize >= lvl.allocatedSize - lvlTol) { lvl.status = 'COMPLETED'; continue; }
+          if (lvl.retriggerCount >= this._maxRetriggers) { lvl.status = 'COMPLETED'; continue; }
+          if (lvl.activeChildId) continue;
+          if (lvl._retriggerAt && now < lvl._retriggerAt) continue;
+
+          const triggered = this.side === 'BUY' ? (ask <= lvl.currentSnipePrice) : (bid >= lvl.currentSnipePrice);
+          if (!triggered) { lvl.status = 'WAITING'; continue; }
+          if (marketData.spreadBps > this._maxSpreadBps) continue;
+
+          lvl.status = 'FIRING';
+          const lvlRemaining = Math.max(0, lvl.allocatedSize - lvl.filledSize);
+          if (lvlRemaining < this._lotSize * 0.01) { lvl.status = 'COMPLETED'; continue; }
+          const qty = lvlRemaining < this._lotSize ? lvlRemaining : Math.floor(lvlRemaining / this._lotSize) * this._lotSize;
+          if (qty <= 0) { lvl.status = 'COMPLETED'; continue; }
+          const price = this.side === 'BUY' ? ask + this._tickSize : bid - this._tickSize;
+          lvl.activeChildId = this._ctx.submitIntent({
+            symbol: this.symbol, side: this.side, quantity: qty,
+            limitPrice: price, orderType: 'LIMIT', timeInForce: 'IOC', algoType: 'SNIPER-SNIPE',
+          });
+          console.log(`[post+snipe] Simultaneous L${li+1} firing: ${qty.toFixed(4)} @ $${price} (level price=${lvl.currentSnipePrice})`);
+        }
+        return;
+      }
+
+      // ── Sequential mode: single snipe IOC per round ──
+      if (this._snipeChildId || this._cancellingForSnipe) return;
 
       const snipeTriggered = this.side === 'BUY'
         ? (this._snipeLevel > 0 && ask <= this._snipeLevel)
         : (this._snipeLevel > 0 && bid >= this._snipeLevel);
 
       if (snipeTriggered && this._currentSnipeSize > 0) {
-        // Cancel resting order FIRST, then snipe
         this._cancellingForSnipe = true;
         if (this._postOrderId) {
           this._ctx.cancelChild(this._postOrderId);
           console.log(`[post+snipe] Snipe triggered — cancelling resting ${this._currentPostSize.toFixed(4)}`);
         }
-        // Fire snipe after brief delay for cancel to propagate
         setTimeout(() => {
-          if (!this._cancellingForSnipe) return; // already handled
+          if (!this._cancellingForSnipe) return;
           this._cancellingForSnipe = false;
           this._postOrderId = null;
           this.restingOrderSize = 0;
@@ -589,36 +641,62 @@ class SniperStrategy {
 
     // ── Post+Snipe fill handling — round-based ──
     if (this._executionMode === 'post_snipe') {
-      const isSnipeFill = fill.childId === this._snipeChildId || fill.orderId === this._snipeChildId;
       const isPostFill = fill.childId === this._postOrderId || fill.orderId === this._postOrderId;
+      const isSeqSnipe = fill.childId === this._snipeChildId || fill.orderId === this._snipeChildId;
+
+      // Simultaneous mode: match fill to level by activeChildId
+      let levelFillIdx = -1;
+      if (this._levelMode === 'simultaneous') {
+        levelFillIdx = this._levels.findIndex(l => l.activeChildId && (fill.childId === l.activeChildId || fill.orderId === l.activeChildId));
+      }
+      const isLevelFill = levelFillIdx >= 0;
+      const isSnipeFill = isSeqSnipe || isLevelFill;
       const fillType = isSnipeFill ? 'snipe' : isPostFill ? 'passive' : 'unknown';
 
-      if (fillType === 'snipe') this.snipedSize += cappedFill;
+      if (isSnipeFill) this.snipedSize += cappedFill;
       else this.passiveFillSize += cappedFill;
-
       if (isPostFill) this._postFilled += cappedFill;
 
-      this._chartFills.push({ time: Date.now(), price: fill.fillPrice, size: cappedFill, side: this.side, simulated: !!fill.simulated, fillType });
-      console.log(`[post+snipe] Fill (${fillType}): ${cappedFill.toFixed(4)} @ ${fill.fillPrice} — passive=${this.passiveFillSize.toFixed(4)} sniped=${this.snipedSize.toFixed(4)} total=${this.filledSize.toFixed(4)}/${this.totalSize.toFixed(4)}`);
+      // Update level fill tracking for simultaneous mode
+      if (isLevelFill) {
+        const lvl = this._levels[levelFillIdx];
+        const lvlCapped = Math.min(cappedFill, Math.max(0, lvl.allocatedSize - lvl.filledSize));
+        lvl.filledSize += lvlCapped;
+        lvl.activeChildId = null;
+        const levelColors = ['snipe-L1', 'snipe-L2', 'snipe-L3', 'snipe-L4', 'snipe-L5'];
+        this._chartFills.push({ time: Date.now(), price: fill.fillPrice, size: lvlCapped, side: this.side, simulated: !!fill.simulated, fillType: levelColors[levelFillIdx] || 'snipe' });
+        console.log(`[post+snipe] L${levelFillIdx+1} Fill: ${lvlCapped.toFixed(4)} @ ${fill.fillPrice} — level ${lvl.filledSize.toFixed(4)}/${lvl.allocatedSize.toFixed(4)}`);
+        // Retrigger for level partial fill
+        if (lvl.filledSize < lvl.allocatedSize - Math.max(0.001, lvl.allocatedSize * 0.01)) {
+          lvl.retriggerCount++;
+          lvl._retriggerAt = Date.now() + this._retriggerCooldownMs;
+          lvl.status = 'WAITING';
+        } else {
+          lvl.status = 'COMPLETED';
+        }
+      } else {
+        this._chartFills.push({ time: Date.now(), price: fill.fillPrice, size: cappedFill, side: this.side, simulated: !!fill.simulated, fillType });
+      }
 
-      if (isSnipeFill) this._snipeChildId = null;
+      if (isSeqSnipe) this._snipeChildId = null;
+      console.log(`[post+snipe] Fill (${fillType}): ${cappedFill.toFixed(4)} @ ${fill.fillPrice} — passive=${this.passiveFillSize.toFixed(4)} sniped=${this.snipedSize.toFixed(4)} total=${this.filledSize.toFixed(4)}/${this.totalSize.toFixed(4)}`);
 
       // Completion check
       if (this.filledSize >= this.totalSize - 0.001) {
         this._completedTs = Date.now(); this.status = 'COMPLETED'; this.stop(); return;
       }
 
-      // After snipe fill: start new round with remaining
-      if (isSnipeFill) {
+      // Sequential mode: after snipe fill start new round
+      if (isSeqSnipe && this._levelMode !== 'simultaneous') {
         this._startRound();
         return;
       }
 
-      // After passive fill: check if resting fully filled → start new round
+      // After passive fill: check if resting fully filled
       if (isPostFill && this._postFilled >= this._currentPostSize - Math.max(0.001, this._lotSize * 0.01)) {
         this._postOrderId = null;
         this.restingOrderSize = 0;
-        this._startRound();
+        if (this._levelMode !== 'simultaneous') this._startRound();
       }
       return;
     }

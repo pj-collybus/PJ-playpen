@@ -1213,7 +1213,7 @@ canvas.clickable { cursor: crosshair; }
       </div>
       <div id="algo-iceberg-fields" style="display:none;gap:8px">
         <label style="flex:1;font-size:10px;color:#555">Visible size (per slice)<input id="algo-f-visibleSize" type="text" inputmode="decimal" value="10" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
-        <label style="flex:1;font-size:10px;color:#555">Size variance %<input id="algo-f-visibleVariancePct" type="number" value="20" min="0" max="50" step="1" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
+        <label style="flex:1;font-size:10px;color:#555">Size variance %<input id="algo-f-visibleVariancePct" type="text" inputmode="decimal" value="20" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
       </div>
       <div style="display:flex;gap:8px">
         <label id="algo-duration-field" style="flex:1;font-size:10px;color:#555">Duration (mins or end time e.g. 16:00)<input id="algo-f-duration" type="text" value="30" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="30"></label>
@@ -1344,6 +1344,12 @@ canvas.clickable { cursor: crosshair; }
     <!-- ── API Keys pane ── -->
     <div id="admin-pane-apikeys" class="ak-pane" style="display:none">
       <div class="ak-ex-bar" id="ak-ex-bar"></div>
+      <div style="display:flex;gap:6px;padding:4px 10px;border-bottom:1px solid #1a1a24;align-items:center">
+        <button id="ak-export-btn" style="font-size:9px;color:#6666cc;background:none;border:1px solid #1e1e28;border-radius:4px;padding:2px 8px;cursor:pointer;font-family:inherit" title="Download encrypted vault backup">Export vault</button>
+        <button id="ak-import-btn" style="font-size:9px;color:#6666cc;background:none;border:1px solid #1e1e28;border-radius:4px;padding:2px 8px;cursor:pointer;font-family:inherit" title="Restore vault from backup file">Import vault</button>
+        <input type="file" id="ak-import-file" accept=".json" style="display:none">
+        <span id="ak-backup-msg" style="font-size:8px;color:#555"></span>
+      </div>
       <div class="ak-body" id="ak-body">
         <div class="ak-placeholder">Select an exchange above to configure API keys.</div>
       </div>
@@ -1395,16 +1401,7 @@ canvas.clickable { cursor: crosshair; }
       <button class="order-cancel-btn" id="order-cancel-btn">Cancel</button>
       <button class="order-submit-btn sell" id="order-submit-btn">Place Sell Order</button>
     </div>
-    <div class="order-auth">
-      <div class="order-auth-title">Deribit Testnet API Credentials</div>
-      <div class="order-auth-row">
-        <span class="order-auth-label">Client ID</span>
-        <input class="order-auth-input" id="auth-client-id" placeholder="client_id…" autocomplete="off">
-        <span class="order-auth-label">Secret</span>
-        <input class="order-auth-input" id="auth-client-secret" type="password" placeholder="client_secret…" autocomplete="off">
-        <span class="order-auth-status" id="auth-status">–</span>
-      </div>
-    </div>
+    <!-- API credentials managed via vault (API Keys tab) -->
   </div>
 </div>
 
@@ -5179,43 +5176,28 @@ function qtyStep(instr, panel) {
   return 1;
 }
 
-// ── Credentials ───────────────────────────────────────────────────────────────
-function loadAuthCreds() {
-  document.getElementById('auth-client-id').value     = localStorage.getItem('deribit_cid')  || '';
-  document.getElementById('auth-client-secret').value = localStorage.getItem('deribit_csec') || '';
-}
-function saveAuthCreds() {
-  localStorage.setItem('deribit_cid',  document.getElementById('auth-client-id').value.trim());
-  localStorage.setItem('deribit_csec', document.getElementById('auth-client-secret').value.trim());
-}
+// ── Credentials — resolved from vault (sessionCredentials) or localStorage ──
+function loadAuthCreds() { /* no-op: credentials managed via vault */ }
+function saveAuthCreds() { /* no-op: credentials managed via vault */ }
 async function ensureAuth() {
   const now = Date.now() / 1000;
   if (authToken && now < authExpiry - 30) return authToken;
-  let cid  = document.getElementById('auth-client-id').value.trim();
-  let csec = document.getElementById('auth-client-secret').value.trim();
-  // Fall back to vault / localStorage if order-modal inputs are empty
-  if (!cid || !csec) {
-    const vaultCreds = blotterGetCreds();
-    if (vaultCreds) { cid = vaultCreds.cid; csec = vaultCreds.csec; }
-  } else {
-    saveAuthCreds();
-  }
-  if (!cid || !csec) throw new Error('Enter API credentials (bottom of modal)');
-  setAuthStatus('…', '');
+  // Read from vault (sessionCredentials) or localStorage fallback
+  let cid, csec;
+  const vaultCreds = blotterGetCreds();
+  if (vaultCreds) { cid = vaultCreds.cid; csec = vaultCreds.csec; }
+  if (!cid) cid = localStorage.getItem('deribit_cid') || '';
+  if (!csec) csec = localStorage.getItem('deribit_csec') || '';
+  if (!cid || !csec) throw new Error('Unlock the vault first (API Keys tab)');
   const r = await fetch('https://test.deribit.com/api/v2/public/auth?' +
     new URLSearchParams({ grant_type:'client_credentials', client_id:cid, client_secret:csec }));
   const j = await r.json();
   if (j.error) throw new Error(j.error.message || 'Auth failed');
   authToken  = j.result.access_token;
   authExpiry = now + (j.result.expires_in || 900);
-  setAuthStatus('Authenticated ✓', 'ok');
   return authToken;
 }
-function setAuthStatus(txt, cls) {
-  const el = document.getElementById('auth-status');
-  el.textContent = txt;
-  el.className = 'order-auth-status' + (cls ? ' ' + cls : '');
-}
+function setAuthStatus() { /* no-op: auth status shown via vault indicator */ }
 
 // ── Draggable modal ───────────────────────────────────────────────────────────
 (function initModalDrag() {
@@ -5245,12 +5227,22 @@ function setAuthStatus(txt, cls) {
 // ── Open / close ──────────────────────────────────────────────────────────────
 function openOrderModal(instrument, side, price, qty, exchange, tab) {
   // Capture TCA arrival anchors from the panel's live ticker data
-  const ps = panels.find(p => p.instrument === instrument);
+  const ps = panels.find(p => p.instrument === instrument && p.exchange === (exchange || 'Deribit'));
   const aBid = ps?.ticker?.best_bid_price || 0;
   const aAsk = ps?.ticker?.best_ask_price || 0;
   const aMid = (aBid && aAsk) ? (aBid + aAsk) / 2 : (aBid || aAsk || price || 0);
   const aSpread = aMid > 0 ? (aAsk - aBid) / aMid * 10000 : 0;
-  orderState = { instrument, side, tab: tab || 'limit', price, qty: qty || null, exchange: exchange || 'Deribit', arrivalBid: aBid, arrivalAsk: aAsk, arrivalMid: aMid, arrivalSpreadBps: aSpread };
+  // Round price to tick size to avoid floating point display artifacts
+  let roundedPrice = price;
+  if (price != null) {
+    const ts = ps?.priceTick || priceStep(instrument, exchange || 'Deribit') || 0;
+    if (ts > 0) {
+      roundedPrice = Math.round(price / ts) * ts;
+      const dec = tickDecimals(ts);
+      roundedPrice = parseFloat(roundedPrice.toFixed(dec));
+    }
+  }
+  orderState = { instrument, side, tab: tab || 'limit', price: roundedPrice, qty: qty || null, exchange: exchange || 'Deribit', arrivalBid: aBid, arrivalAsk: aAsk, arrivalMid: aMid, arrivalSpreadBps: aSpread };
   // Reset to centre on each fresh open
   const box = document.querySelector('.order-box');
   box.style.left = 'calc(50vw - 170px)';
@@ -5332,26 +5324,32 @@ function renderOrderBody() {
         <span class="order-label" style="display:block;margin-bottom:5px">Time in Force</span>
         <div class="order-tif">
           <button class="order-tif-btn active" data-tif="good_til_cancelled">GTC</button>
-          <button class="order-tif-btn" data-tif="immediate_or_cancel">IOC</button>
-          <button class="order-tif-btn${!isFokSupported(orderState.exchange) ? ' disabled' : ''}" data-tif="fill_or_kill" ${!isFokSupported(orderState.exchange) ? 'disabled title="FOK not supported on ' + orderState.exchange + '"' : ''}>FOK</button>
+          <button class="order-tif-btn" data-tif="day">Day</button>
+          <button class="order-tif-btn" data-tif="good_til_date">GTD</button>
+        </div>
+        <div id="om-gtd-fields" style="display:none;margin-top:6px;gap:6px;align-items:center">
+          <input class="order-input om-exp-input" id="om-gtd-date" type="text" placeholder="DD/MM/YY" style="width:70px;cursor:pointer" readonly>
+          <input class="order-input" id="om-gtd-time" type="text" placeholder="HH:MM" value="23:59" style="width:50px">
+        </div>
+      </div>
+      <div style="margin-top:4px;padding:4px 0;border-top:1px solid #1a1a24">
+        <label class="order-check" style="margin-bottom:2px"><input type="checkbox" id="om-disc-chk"><span>Discretion</span></label>
+        <div id="om-disc-fields" style="display:none;padding:4px 0">
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:3px">
+            <span class="order-label" style="width:70px;flex-shrink:0">Limit (bps)</span>
+            <input class="order-input" id="om-disc-bps" type="text" inputmode="decimal" value="20" style="width:50px">
+            <span id="om-disc-calc" style="font-size:9px;color:#888"></span>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span class="order-label" style="width:70px;flex-shrink:0">Amount (%)</span>
+            <input class="order-input" id="om-disc-pct" type="text" inputmode="decimal" value="50" style="width:50px">
+            <span style="font-size:9px;color:#555">via snipe layers</span>
+          </div>
         </div>
       </div>
       <div class="order-checks">
         <label class="order-check"><input type="checkbox" id="om-postonly"><span>Post-Only</span></label>
         <label class="order-check"><input type="checkbox" id="om-reduceonly"><span>Reduce-Only</span></label>
-        <label class="order-check"><input type="checkbox" id="om-disc-chk"><span>Discretion</span></label>
-      </div>
-      <div id="om-disc-fields" style="display:none;margin-top:4px;padding:6px;background:#0a0a12;border:1px solid #1a1a28;border-radius:6px">
-        <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-          <span class="order-label" style="width:80px;flex-shrink:0">Limit (bps)</span>
-          <input class="order-input" id="om-disc-bps" type="text" inputmode="decimal" value="20" style="width:50px">
-          <span id="om-disc-calc" style="font-size:9px;color:#888"></span>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center">
-          <span class="order-label" style="width:80px;flex-shrink:0">Amount (%)</span>
-          <input class="order-input" id="om-disc-pct" type="text" inputmode="decimal" value="50" style="width:50px">
-          <span style="font-size:9px;color:#555">of total via snipe layers</span>
-        </div>
       </div>`;
 
   } else if (tab === 'stop') {
@@ -5379,6 +5377,18 @@ function renderOrderBody() {
         <span class="order-label">Quantity (${ba})</span>
         ${stepperHTML('om-stop-qty', qv, ba)}
       </div>
+      <div>
+        <span class="order-label" style="display:block;margin-bottom:5px">Time in Force</span>
+        <div class="order-tif">
+          <button class="order-tif-btn active" data-tif="good_til_cancelled">GTC</button>
+          <button class="order-tif-btn" data-tif="day">Day</button>
+          <button class="order-tif-btn" data-tif="good_til_date">GTD</button>
+        </div>
+        <div id="om-gtd-fields" style="display:none;margin-top:6px;gap:6px;align-items:center">
+          <input class="order-input om-exp-input" id="om-gtd-date" type="text" placeholder="DD/MM/YY" style="width:70px;cursor:pointer" readonly>
+          <input class="order-input" id="om-gtd-time" type="text" placeholder="HH:MM" value="23:59" style="width:50px">
+        </div>
+      </div>
       <label class="order-check"><input type="checkbox" id="om-stop-reduce"><span>Reduce-Only</span></label>`;
     body.querySelectorAll('input[name="stop-type"]').forEach(r =>
       r.addEventListener('change', () => {
@@ -5403,10 +5413,26 @@ function renderOrderBody() {
         b.classList.toggle('active', b.dataset.side === orderState.side));
       syncSubmitBtn();
     }));
-  // TIF toggle
+  // TIF toggle + GTD fields
+  const gtdFields = document.getElementById('om-gtd-fields');
   body.querySelectorAll('.order-tif-btn').forEach(btn =>
-    btn.addEventListener('click', () =>
-      body.querySelectorAll('.order-tif-btn').forEach(b => b.classList.toggle('active', b === btn))));
+    btn.addEventListener('click', () => {
+      body.querySelectorAll('.order-tif-btn').forEach(b => b.classList.toggle('active', b === btn));
+      if (gtdFields) gtdFields.style.display = btn.dataset.tif === 'good_til_date' ? 'flex' : 'none';
+    }));
+
+  // GTD date picker
+  const gtdDateEl = document.getElementById('om-gtd-date');
+  if (gtdDateEl) {
+    // Default: today
+    const today = new Date();
+    gtdDateEl.value = `${String(today.getDate()).padStart(2,'0')}/${String(today.getMonth()+1).padStart(2,'0')}/${String(today.getFullYear()).slice(-2)}`;
+    gtdDateEl.addEventListener('click', e => {
+      e.stopPropagation();
+      _omShowCalendar(gtdDateEl, {});
+    });
+  }
+
   // Stepper arrows
   wireSteppers(body, instrument);
 
@@ -5414,7 +5440,6 @@ function renderOrderBody() {
   const discChk = document.getElementById('om-disc-chk');
   const discFields = document.getElementById('om-disc-fields');
   if (discChk && discFields) {
-    // Restore saved state
     const savedDisc = localStorage.getItem('order-disc-enabled');
     if (savedDisc === 'true') { discChk.checked = true; discFields.style.display = ''; }
 
@@ -5443,7 +5468,7 @@ function renderOrderBody() {
           });
           const j = await r.json();
           if (j.discretionPrice) calcEl.textContent = `→ $${j.discretionPrice.toFixed(4)}`;
-        } catch { /* fallback client-side */
+        } catch {
           const dir = orderState.side === 'buy' ? 1 : -1;
           calcEl.textContent = `→ $${(lp + lp * bps / 10000 * dir).toFixed(4)}`;
         }
@@ -5475,7 +5500,26 @@ async function placeOrder() {
     if (tab === 'limit') {
       _price = parseFloat(String(document.getElementById('om-price').value).replace(/,/g, ''));
       _qty   = parseFloat(String(document.getElementById('om-qty').value).replace(/,/g, ''));
-      _tif   = document.querySelector('#order-body .order-tif-btn.active')?.dataset.tif || 'good_til_cancelled';
+      const _tifRaw = document.querySelector('#order-body .order-tif-btn.active')?.dataset.tif || 'good_til_cancelled';
+      if (_tifRaw === 'day') {
+        // Day = GTD until end of today (23:59:59 UTC)
+        const eod = new Date(); eod.setUTCHours(23, 59, 59, 999);
+        _tif = 'good_til_date';
+        orderState._gtdTimestamp = eod.getTime();
+      } else if (_tifRaw === 'good_til_date') {
+        // Parse GTD date + time
+        const gtdDateVal = document.getElementById('om-gtd-date')?.value || '';
+        const gtdTimeVal = document.getElementById('om-gtd-time')?.value || '23:59';
+        const dm = gtdDateVal.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+        if (!dm) throw new Error('GTD date required (DD/MM/YY)');
+        const tm = gtdTimeVal.match(/^(\d{1,2}):(\d{2})$/);
+        const yr = dm[3].length === 2 ? 2000 + parseInt(dm[3]) : parseInt(dm[3]);
+        const gtdDate = new Date(yr, parseInt(dm[2]) - 1, parseInt(dm[1]), tm ? parseInt(tm[1]) : 23, tm ? parseInt(tm[2]) : 59);
+        _tif = 'good_til_date';
+        orderState._gtdTimestamp = gtdDate.getTime();
+      } else {
+        _tif = _tifRaw;
+      }
       if (!_price || !_qty) throw new Error('Price and quantity required');
 
       // ── Discretion: calculate levels server-side, launch Sniper ──
@@ -5678,8 +5722,7 @@ async function openRFQModal(panelState) {
   document.getElementById('rfq-overlay').style.display = 'block';
 
   const hasCredentials = !!(
-    document.getElementById('auth-client-id')?.value.trim() ||
-    localStorage.getItem('deribit_cid')
+    localStorage.getItem('deribit_cid') || isVaultUnlocked()
   );
   if (!hasCredentials) {
     document.getElementById('rfq-body').innerHTML = `
@@ -6356,6 +6399,51 @@ function akRenderVaultUnlock() {
   });
 }
 
+// ── Vault export / import ────────────────────────────────────────────────────
+document.getElementById('ak-export-btn').addEventListener('click', () => {
+  const raw = localStorage.getItem(AK_VAULT_LSKEY);
+  if (!raw) { document.getElementById('ak-backup-msg').textContent = 'No vault data to export'; return; }
+  const blob = new Blob([raw], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `vault-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  document.getElementById('ak-backup-msg').textContent = 'Vault exported';
+  setTimeout(() => { document.getElementById('ak-backup-msg').textContent = ''; }, 3000);
+});
+
+document.getElementById('ak-import-btn').addEventListener('click', () => {
+  document.getElementById('ak-import-file').click();
+});
+
+document.getElementById('ak-import-file').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const msgEl = document.getElementById('ak-backup-msg');
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    // Validate: must have salt and entries array
+    if (!parsed.salt || !Array.isArray(parsed.entries)) throw new Error('Invalid vault file');
+    if (!confirm('Import vault backup? This will REPLACE your current vault. You will need to re-enter your vault password.')) return;
+    localStorage.setItem(AK_VAULT_LSKEY, text);
+    // Reset state and show unlock screen
+    akVaultKey = null; akEntries = []; akExchange = null; akEntryId = null;
+    clearSessionCredentials(); updateVaultIndicator();
+    akRenderVaultUnlock();
+    msgEl.textContent = 'Vault imported — enter password to unlock';
+    msgEl.style.color = '#00c896';
+    setTimeout(() => { msgEl.textContent = ''; msgEl.style.color = ''; }, 5000);
+  } catch (err) {
+    msgEl.textContent = 'Import failed: ' + err.message;
+    msgEl.style.color = '#e05252';
+    setTimeout(() => { msgEl.textContent = ''; msgEl.style.color = ''; }, 5000);
+  }
+  e.target.value = ''; // reset file input
+});
+
 // ── Exchange bar & body ───────────────────────────────────────────────────────
 
 function akStatusDotClass(s) { return s==='ok'?'ak-sdot-green':s==='error'?'ak-sdot-red':'ak-sdot-grey'; }
@@ -6620,6 +6708,7 @@ function buildSessionCredentials() {
   }
   window.sessionCredentials = sessionCredentials;
   window._akEntries = akEntries;
+  console.log('[vault] sessionCredentials populated:', Object.keys(sessionCredentials || {}));
 }
 
 // Called on vault lock/reset — clears session
@@ -6835,9 +6924,13 @@ function blotterGetCreds() {
     if (e?.fields?.clientId && e?.fields?.clientSecret)
       return { cid: e.fields.clientId, csec: e.fields.clientSecret };
   }
-  // Fall back to order-modal stored credentials
-  const cid  = localStorage.getItem('deribit_cid')  || document.getElementById('auth-client-id')?.value?.trim();
-  const csec = localStorage.getItem('deribit_csec') || document.getElementById('auth-client-secret')?.value?.trim();
+  // Read from vault sessionCredentials or localStorage
+  const vCreds = typeof getVaultCredentials === 'function' ? getVaultCredentials('Deribit') : null;
+  if (vCreds?.fields?.clientId && vCreds?.fields?.clientSecret) {
+    return { cid: vCreds.fields.clientId, csec: vCreds.fields.clientSecret };
+  }
+  const cid  = localStorage.getItem('deribit_cid');
+  const csec = localStorage.getItem('deribit_csec');
   return (cid && csec) ? { cid, csec } : null;
 }
 
@@ -8306,9 +8399,9 @@ function initBlotter() {
       row.style.cssText = 'display:flex;gap:4px;align-items:center';
       row.innerHTML = `
         <span style="font-size:8px;color:#555;width:16px">L${i+1}</span>
-        <input type="number" step="any" placeholder="Price" value="${lvl.price||''}" data-ladder-idx="${i}" data-ladder-field="price"
+        <input type="text" inputmode="decimal" placeholder="Price" value="${lvl.price||''}" data-ladder-idx="${i}" data-ladder-field="price"
           style="flex:2;font-size:10px;padding:3px 5px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;min-width:0">
-        <input type="number" min="1" max="100" placeholder="%" value="${lvl.pct||''}" data-ladder-idx="${i}" data-ladder-field="pct"
+        <input type="text" inputmode="decimal" placeholder="%" value="${lvl.pct||''}" data-ladder-idx="${i}" data-ladder-field="pct"
           style="flex:1;font-size:10px;padding:3px 5px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;width:40px;min-width:0">
         <span style="font-size:9px;color:#555">%</span>
         <input type="checkbox" ${lvl.enabled!==false?'checked':''} data-ladder-idx="${i}" data-ladder-field="enabled" style="accent-color:#00c896">
@@ -8792,7 +8885,7 @@ function initBlotter() {
   // Accelerate handler
   window._algoAccelerate = async function(sid) {
     const inp = document.getElementById('amon-accel-qty-' + sid);
-    const qty = parseFloat(inp?.value) || 0;
+    const qty = parseFloat(String(inp?.value || '').replace(/,/g, '')) || 0;
     if (qty <= 0) return;
     if (!confirm(`Execute ${qty.toFixed(4)} aggressively now?`)) return;
     try {
@@ -8897,10 +8990,20 @@ function initBlotter() {
                <span style="color:#555">Dev: <span style="color:${Math.abs(s.deviationFromVwap||0)<10?'#00c896':'#ccaa44'}">${(s.deviationFromVwap||0).toFixed(1)}bps ${s.inParticipationBand?'✓ in band':'outside band'}</span></span>`
             : s.type === 'SNIPER'
             ? (s.executionMode === 'post_snipe'
-              ? `<span style="color:#555;font-size:8px">Round ${s.roundNumber||1} — Post+Snipe | Phase: <span style="color:#ccc">${s.postSnipePhase||'?'}</span></span>
-                 <span style="color:#555">Resting: <span style="color:#ccaa44">${formatNum(s.currentPostSize,2)} @ $${s.targetPrice?.toFixed(pxD)||'—'}</span> | Snipe: <span style="color:#7F77DD">${formatNum(s.currentSnipeSize,2)} @ $${s.snipeLevel?.toFixed(pxD)||'—'}</span></span>
-                 <span style="color:#555">Snipe cap: <span style="color:#00e5ff">${formatNum(s.snipeCapUsed||0,2)}/${formatNum(s.maxSnipeTotal||0,2)}</span> (${s.snipePct||50}%)</span>
-                 <span style="color:#555">Passive: <span style="color:#00c896">${formatNum(s.passiveFillSize,2)}</span> | Sniped: <span style="color:#00e5ff">${formatNum(s.snipedSize,2)}</span></span>`
+              ? (s.levelMode === 'simultaneous' && s.levels?.length > 1
+                ? `<span style="color:#555;font-size:8px">Discretion | Resting: ${formatNum(s.currentPostSize,2)} @ $${s.targetPrice?.toFixed(pxD)||'—'} | ${s.levels.length} snipe levels</span>
+                   ${s.levels.map((lv, li) => {
+                     const pctFill = lv.allocatedSize > 0 ? Math.min(100, lv.filledSize / lv.allocatedSize * 100) : 0;
+                     const barW = 6; const filled = Math.round(pctFill / 100 * barW);
+                     const bar = '\u2588'.repeat(filled) + '\u2591'.repeat(barW - filled);
+                     const colors = ['#00BFFF','#FFD700','#FF00FF'];
+                     return `<span style="color:${colors[li%3]};font-size:8px;font-family:monospace">L${li+1} $${lv.price?.toFixed(pxD)} ${bar} ${lv.filledSize?.toFixed(1)}/${lv.allocatedSize?.toFixed(1)} ${lv.status||''}</span>`;
+                   }).join('')}
+                   <span style="color:#555">Passive: <span style="color:#00c896">${formatNum(s.passiveFillSize,2)}</span> | Sniped: <span style="color:#00e5ff">${formatNum(s.snipedSize,2)}</span></span>`
+                : `<span style="color:#555;font-size:8px">Round ${s.roundNumber||1} — Post+Snipe | Phase: <span style="color:#ccc">${s.postSnipePhase||'?'}</span></span>
+                   <span style="color:#555">Resting: <span style="color:#ccaa44">${formatNum(s.currentPostSize,2)} @ $${s.targetPrice?.toFixed(pxD)||'—'}</span> | Snipe: <span style="color:#7F77DD">${formatNum(s.currentSnipeSize,2)} @ $${s.snipeLevel?.toFixed(pxD)||'—'}</span></span>
+                   <span style="color:#555">Snipe cap: <span style="color:#00e5ff">${formatNum(s.snipeCapUsed||0,2)}/${formatNum(s.maxSnipeTotal||0,2)}</span> (${s.snipePct||50}%)</span>
+                   <span style="color:#555">Passive: <span style="color:#00c896">${formatNum(s.passiveFillSize,2)}</span> | Sniped: <span style="color:#00e5ff">${formatNum(s.snipedSize,2)}</span></span>`)
               : (s.levels && s.levels.length > 0
                 ? s.levels.map((lv, li) => {
                     const pct = lv.allocatedSize > 0 ? Math.min(100, lv.filledSize / lv.allocatedSize * 100) : 0;
@@ -8948,7 +9051,7 @@ function initBlotter() {
           <button class="algo-stop-btn" onclick="_algoStop('${sid}')" style="flex:1;min-width:55px">Stop</button>
           <div class="amon-accel">
             <span style="color:#555;font-size:9px">Accel:</span>
-            <input id="amon-accel-qty-${sid}" type="number" value="${formatNum(remQty,2)}" step="any">
+            <input id="amon-accel-qty-${sid}" type="text" inputmode="decimal" value="${remQty > 0 ? remQty.toFixed(2) : ''}">
             <button class="amon-accel-btn" onclick="_algoAccelerate('${sid}')">Execute Now</button>
           </div>
         `}
