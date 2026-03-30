@@ -1196,7 +1196,7 @@ canvas.clickable { cursor: crosshair; }
         <label style="flex:1;font-size:10px;color:#555">Symbol<input id="algo-f-symbol" type="text" readonly style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#666;font-family:inherit;margin-top:2px"></label>
         <label style="flex:1;font-size:10px;color:#555">Exchange<input id="algo-f-exchange" type="text" readonly style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#666;font-family:inherit;margin-top:2px"></label>
       </div>
-      <label style="font-size:10px;color:#555">Total Size<input id="algo-f-size" type="number" min="0" step="any" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
+      <label style="font-size:10px;color:#555">Total Size<input id="algo-f-size" type="text" inputmode="decimal" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
       <div id="algo-qty-presets" style="display:flex;gap:4px;flex-wrap:wrap"></div>
       <div class="algo-side-toggle">
         <button id="algo-f-buy" class="buy-active">BUY</button>
@@ -1212,7 +1212,7 @@ canvas.clickable { cursor: crosshair; }
         </label>
       </div>
       <div id="algo-iceberg-fields" style="display:none;gap:8px">
-        <label style="flex:1;font-size:10px;color:#555">Visible size (per slice)<input id="algo-f-visibleSize" type="number" value="10" min="0.001" step="any" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
+        <label style="flex:1;font-size:10px;color:#555">Visible size (per slice)<input id="algo-f-visibleSize" type="text" inputmode="decimal" value="10" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
         <label style="flex:1;font-size:10px;color:#555">Size variance %<input id="algo-f-visibleVariancePct" type="number" value="20" min="0" max="50" step="1" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px"></label>
       </div>
       <div style="display:flex;gap:8px">
@@ -1232,13 +1232,17 @@ canvas.clickable { cursor: crosshair; }
       <div id="algo-sniper-fields" style="display:none">
         <div style="font-size:10px;color:#555;margin-bottom:2px">Execution mode</div>
         <div id="algo-sniper-mode-pills" style="display:flex;gap:4px;margin-bottom:8px">
-          <button class="bl-period-pill active" data-smode="snipe" style="flex:1">Snipe</button>
-          <button class="bl-period-pill" data-smode="post_snipe" style="flex:1">Post + Snipe</button>
+          <button class="bl-period-pill active" data-smode="snipe" style="flex:1" title="Waits for price to reach target then fires full size as IOC. No visible order in the book.">Snipe <span class="algo-tip" style="font-size:9px;color:#666">&#x24D8;</span></button>
+          <button class="bl-period-pill" data-smode="post_snipe" style="flex:1" title="Places a passive resting order while monitoring for an aggressive snipe level. Splits order into rounds to prevent overfill.">Post + Snipe <span class="algo-tip" style="font-size:9px;color:#666">&#x24D8;</span></button>
         </div>
         <!-- Post+Snipe fields -->
         <div id="algo-postsnipe-fields" style="display:none">
-          <label style="font-size:10px;color:#555">Limit price<input id="algo-f-targetPrice" type="number" min="0" step="any" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="0"></label>
-          <label style="font-size:10px;color:#555;margin-top:4px">Snipe price<input id="algo-f-snipeLevel" type="number" min="0" step="any" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="0"></label>
+          <label style="font-size:10px;color:#555">Limit price (passive rest)<input id="algo-f-targetPrice" type="text" inputmode="decimal" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="0"></label>
+          <label style="font-size:10px;color:#555;margin-top:4px">Snipe price (aggressive ceiling)<input id="algo-f-snipeLevel" type="text" inputmode="decimal" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="0"></label>
+          <div style="display:flex;gap:8px;margin-top:4px">
+            <label style="flex:1;font-size:10px;color:#555">Snipe % <span class="algo-tip" title="Maximum % of total order that can be executed aggressively. e.g. 50% on 100 XRP = max 50 XRP sniped. Once cap reached, remainder rests passively.">&#x24D8;</span> <span style="color:#333">(10-90)</span><input id="algo-f-snipePct" type="text" inputmode="decimal" value="50" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="50"></label>
+            <label style="flex:1;font-size:10px;color:#555">Min snipe % <span class="algo-tip" title="Stop sniping when remaining qty falls below this % of total order. Remainder rests passively.">&#x24D8;</span> <span style="color:#333">(1-20)</span><input id="algo-f-minSnipePct" type="text" inputmode="decimal" value="5" style="width:100%;font-size:11px;padding:4px 6px;background:#0d0d14;border:1px solid #1e1e28;border-radius:4px;color:#ccc;font-family:inherit;margin-top:2px" placeholder="5"></label>
+          </div>
         </div>
         <!-- Snipe ladder -->
         <div id="algo-ladder-fields">
@@ -2631,6 +2635,10 @@ function restoreLayoutPanels(layout) {
       if (p.instrument && p.instrument !== 'BTC-PERPETUAL') {
         s.instrument = p.instrument;
         s.ticker = {}; s.bids = []; s.asks = [];
+        // Set priceTick immediately from CONTRACT_SPECS (sync) before first render
+        const syncTick = priceStep(p.instrument, p.exchange || 'Deribit');
+        if (syncTick) s.priceTick = syncTick;
+        console.log(`[restore] ${p.exchange||'Deribit'} ${p.instrument} syncTick:`, syncTick, 'priceTick:', s.priceTick);
         const selBtn = document.getElementById(`sel-${s.id}`);
         if (selBtn) selBtn.textContent = p.instrument;
       }
@@ -2646,7 +2654,12 @@ function restoreLayoutPanels(layout) {
         document.getElementById(`qunit-${s.id}`).textContent = bc;
         if (isNonDeribit) {
           fetchInstrumentSpec(s.exchange, s.instrument).then(spec => {
-            if (spec) { s._spec = spec; if (spec.tickSize) s.priceTick = spec.tickSize; updateQuantoHint(s); }
+            if (spec) {
+              s._spec = spec;
+              if (spec.tickSize) { s.priceTick = spec.tickSize; renderPanel(s); updateCentre(s); }
+              updateQuantoHint(s);
+              console.log(`[restore] ${s.exchange} ${s.instrument} tickSize:`, spec.tickSize, 'priceTick:', s.priceTick);
+            }
           });
         } else if (p.instrument && !instruments.some(i => i.instrument_name === p.instrument)) {
           // Deribit instrument expired or not found — reset
@@ -2689,7 +2702,7 @@ function restoreLayoutPanels(layout) {
         if (spec) {
           s._spec = spec;
           if (spec.tickSize) { s.priceTick = spec.tickSize; renderPanel(s); updateCentre(s); persistLayouts(); }
-          console.log(`[tile restore] ${s.instrument} tickSize:`, spec.tickSize, 'priceTick:', s.priceTick);
+          console.log(`[restore] tickSize for ${s.exchange} ${s.instrument}:`, spec.tickSize, 'priceTick:', s.priceTick);
         }
       });
       } catch (e) {
@@ -2858,14 +2871,15 @@ function createPanel(defInstr = 'BTC-PERPETUAL', { skipSubscribe = false } = {})
     priceTick: null,
   };
   s.priceTick = priceStep(defInstr, 'Deribit');
-  // Async fetch spec to get accurate tickSize (covers case where instruments haven't loaded yet)
-  fetchInstrumentSpec('Deribit', defInstr).then(spec => {
-    if (spec) {
-      s._spec = spec;
-      if (spec.tickSize) { s.priceTick = spec.tickSize; renderPanel(s); updateCentre(s); }
-      console.log(`[tile] ${defInstr} tickSize:`, spec.tickSize, 'priceTick:', s.priceTick);
-    }
-  });
+  // Async fetch spec — skip for skipSubscribe (restore mode) to avoid overwriting with BTC-PERPETUAL spec
+  if (!skipSubscribe) {
+    fetchInstrumentSpec('Deribit', defInstr).then(spec => {
+      if (spec) {
+        s._spec = spec;
+        if (spec.tickSize) { s.priceTick = spec.tickSize; renderPanel(s); updateCentre(s); }
+      }
+    });
+  }
   panels.push(s);
 
   const granBtns = GRAN_OPTS.map(g =>
@@ -2908,7 +2922,7 @@ function createPanel(defInstr = 'BTC-PERPETUAL', { skipSubscribe = false } = {})
           </button>
         </div>
         <div class="qty-row">
-          <input class="qty-input" id="qty-${id}" type="number" placeholder="Qty…" min="0" step="any">
+          <input class="qty-input" id="qty-${id}" type="text" inputmode="decimal" placeholder="Qty…">
           <div style="display:flex;flex-direction:column;gap:1px;text-align:right">
             <span class="qty-unit" id="qunit-${id}">${qtyLabel(defInstr, 'Deribit')}</span>
             <span id="ctlabel-${id}" style="font-size:8px;color:#2a2a3a;white-space:nowrap">— ct</span>
@@ -3084,7 +3098,7 @@ function createSpreadPanel(opts = {}) {
           </button>
         </div>
         <div class="qty-row">
-          <input class="qty-input" id="sp-qty-${id}" type="number" placeholder="Qty…" min="0" step="any" value="${s.qty||''}">
+          <input class="qty-input" id="sp-qty-${id}" type="text" inputmode="decimal" placeholder="Qty…" value="${s.qty||''}">
           <div style="display:flex;flex-direction:column;gap:1px;text-align:right">
             <span class="qty-unit" id="sp-qunit-${id}">${base(s.legA.instrument)}</span>
             <span id="sp-leg2sz-${id}" style="font-size:8px;color:#2a2a3a;white-space:nowrap"></span>
@@ -5266,7 +5280,7 @@ function stepperHTML(id, val, suffix) {
   const sfx = suffix ? `<span class="order-input-suffix">${suffix}</span>` : '';
   return `<div class="order-stepper" data-target="${id}">
     <button class="step-btn step-dn" type="button">−</button>
-    <input class="order-input" id="${id}" type="number" step="any" value="${val ?? ''}">
+    <input class="order-input" id="${id}" type="text" inputmode="decimal" value="${val ?? ''}">
     <button class="step-btn step-up" type="button">+</button>
     ${sfx}
   </div>`;
@@ -5280,10 +5294,12 @@ function wireSteppers(body, instr) {
     const step = isQty ? qs : ps;
     const inp  = document.getElementById(id);
     st.querySelector('.step-dn').addEventListener('click', () => {
-      inp.value = Math.max(0, +(parseFloat(inp.value) || 0) - step).toPrecision(10).replace(/\.?0+$/, '');
+      const cur = parseFloat(String(inp.value).replace(/,/g, '')) || 0;
+      inp.value = Math.max(0, +(cur - step)).toPrecision(10).replace(/\.?0+$/, '');
     });
     st.querySelector('.step-up').addEventListener('click', () => {
-      inp.value = (+(parseFloat(inp.value) || 0) + step).toPrecision(10).replace(/\.?0+$/, '');
+      const cur = parseFloat(String(inp.value).replace(/,/g, '')) || 0;
+      inp.value = (+(cur + step)).toPrecision(10).replace(/\.?0+$/, '');
     });
     attachShorthandInput(inp);
   });
@@ -5606,7 +5622,7 @@ function renderRFQStep1(panelState) {
       <span class="rfq-label">Amount (${ba})</span>
       <div class="order-stepper" data-target="rfq-amount">
         <button class="step-btn step-dn" type="button">−</button>
-        <input class="order-input" id="rfq-amount" type="number" step="any" value="${dq}">
+        <input class="order-input" id="rfq-amount" type="text" inputmode="decimal" value="${dq}">
         <button class="step-btn step-up" type="button">+</button>
         <span class="order-input-suffix">${ba}</span>
       </div>
@@ -8029,6 +8045,7 @@ function initBlotter() {
     document.getElementById('algo-f-symbol').value = instrument;
     document.getElementById('algo-f-exchange').value = _algoExchange;
     document.getElementById('algo-f-size').value = qty || '';
+    attachShorthandInput(document.getElementById('algo-f-size'));
     document.getElementById('algo-f-duration').value = '30';
     document.getElementById('algo-f-start').value = '';
     document.getElementById('algo-f-buy').className = _algoSide === 'BUY' ? 'buy-active' : '';
@@ -8108,7 +8125,7 @@ function initBlotter() {
     _loadConfigs().then(_buildTabs);
     // Attach shorthand parsing to all number inputs in the algo modal
     setTimeout(() => {
-      overlay.querySelectorAll('input[type="number"]').forEach(attachShorthandInput);
+      overlay.querySelectorAll('input[type="number"], input[type="text"][inputmode="decimal"]').forEach(attachShorthandInput);
     }, 50);
   }
 
@@ -8150,7 +8167,14 @@ function initBlotter() {
   function _updateSniperModeVisibility() {
     const postFields = document.getElementById('algo-postsnipe-fields');
     const ladderFields = document.getElementById('algo-ladder-fields');
-    if (postFields) postFields.style.display = _sniperMode === 'post_snipe' ? '' : 'none';
+    if (postFields) {
+      postFields.style.display = _sniperMode === 'post_snipe' ? '' : 'none';
+      if (_sniperMode === 'post_snipe') {
+        ['algo-f-targetPrice','algo-f-snipeLevel','algo-f-snipePct','algo-f-minSnipePct'].forEach(id => {
+          attachShorthandInput(document.getElementById(id));
+        });
+      }
+    }
     if (ladderFields) ladderFields.style.display = _sniperMode === 'snipe' ? '' : 'none';
   }
 
@@ -8195,7 +8219,7 @@ function initBlotter() {
         else if (field === 'pct') _sniperLadder[idx].pct = parseFloat(inp.value) || 0;
         _updateLadderTotal();
       });
-      if (inp.type === 'number') attachShorthandInput(inp);
+      attachShorthandInput(inp);
     });
     container.querySelectorAll('button[data-ladder-del]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -8267,7 +8291,7 @@ function initBlotter() {
   }
 
   // Params handled by simple view — skip in advanced panel
-  const SIMPLE_KEYS = new Set(['venue','startMode','startScheduled','durationMode','durationMinutes','endTime','urgency','visibleSize','visibleVariancePct','vwapMode','duration','urgencyBias','executionMode','targetPrice','snipeLevel','triggerCondition','levels']);
+  const SIMPLE_KEYS = new Set(['venue','startMode','startScheduled','durationMode','durationMinutes','endTime','urgency','visibleSize','visibleVariancePct','vwapMode','duration','urgencyBias','executionMode','targetPrice','snipeLevel','triggerCondition','levels','snipePct','minSnipePct']);
 
   function _renderParams() {
     const container = document.getElementById('algo-dynamic-params');
@@ -8377,8 +8401,10 @@ function initBlotter() {
     if (_algoType === 'SNIPER') {
       out.executionMode = _sniperMode;
       if (_sniperMode === 'post_snipe') {
-        out.targetPrice = parseFloat(document.getElementById('algo-f-targetPrice')?.value) || 0;
-        out.snipeLevel = parseFloat(document.getElementById('algo-f-snipeLevel')?.value) || 0;
+        out.targetPrice = parseFloat(String(document.getElementById('algo-f-targetPrice')?.value || '').replace(/,/g, '')) || 0;
+        out.snipeLevel = parseFloat(String(document.getElementById('algo-f-snipeLevel')?.value || '').replace(/,/g, '')) || 0;
+        out.snipePct = parseFloat(String(document.getElementById('algo-f-snipePct')?.value || '').replace(/,/g, '')) || 50;
+        out.minSnipePct = parseFloat(String(document.getElementById('algo-f-minSnipePct')?.value || '').replace(/,/g, '')) || 5;
       } else {
         // Ladder levels
         out.levels = _sniperLadder.filter(l => l.enabled !== false && l.price > 0);
@@ -8440,7 +8466,7 @@ function initBlotter() {
       const el = document.getElementById('algo-estimate');
       if (!_algoType) { el.textContent = ''; return; }
       const params = _getParamValues();
-      params.totalSize = parseFloat(document.getElementById('algo-f-size').value) || 0;
+      params.totalSize = parseFloat(String(document.getElementById('algo-f-size').value).replace(/,/g, '')) || 0;
       const qs = new URLSearchParams({ type: _algoType });
       for (const [k, v] of Object.entries(params)) qs.set(k, v);
       try {
@@ -8458,7 +8484,7 @@ function initBlotter() {
     btn.disabled = true; msg.textContent = '';
     try {
       const sym  = document.getElementById('algo-f-symbol').value;
-      const size = parseFloat(document.getElementById('algo-f-size').value) || 0;
+      const size = parseFloat(String(document.getElementById('algo-f-size').value).replace(/,/g, '')) || 0;
       if (!sym || !size) throw new Error('Symbol and size required');
       // Get tick size from the tile's instrument spec
       const tile = panels.find(p => p.instrument === sym && p.exchange === _algoExchange);
@@ -8645,7 +8671,11 @@ function initBlotter() {
       if (e.target.tagName === 'BUTTON') return;
       const ox = e.clientX - el.getBoundingClientRect().left;
       const oy = e.clientY - el.getBoundingClientRect().top;
-      function mv(ev) { el.style.left = (ev.clientX - ox) + 'px'; el.style.top = (ev.clientY - oy) + 'px'; }
+      function mv(ev) {
+        el.style.left = (ev.clientX - ox) + 'px'; el.style.top = (ev.clientY - oy) + 'px';
+        // Sync attached chart position
+        if (_chartAttached[sid]) _syncChartPosition(sid);
+      }
       function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
         localStorage.setItem('algo-mon-' + sid, JSON.stringify({ top: parseInt(el.style.top), left: parseInt(el.style.left) })); }
       document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
@@ -8762,8 +8792,10 @@ function initBlotter() {
                <span style="color:#555">Dev: <span style="color:${Math.abs(s.deviationFromVwap||0)<10?'#00c896':'#ccaa44'}">${(s.deviationFromVwap||0).toFixed(1)}bps ${s.inParticipationBand?'✓ in band':'outside band'}</span></span>`
             : s.type === 'SNIPER'
             ? (s.executionMode === 'post_snipe'
-              ? `<span style="color:#555">Limit: <span style="color:#ccaa44">$${s.targetPrice?.toFixed(pxD)||'—'}</span> | Snipe: <span style="color:#7F77DD">$${s.snipeLevel?.toFixed(pxD)||'—'}</span></span>
-                 <span style="color:#555">Passive: <span style="color:#ccc">${(s.passiveFillSize||0).toFixed(2)}</span> | Sniped: <span style="color:#00e5ff">${(s.snipedSize||0).toFixed(2)}</span> | Resting: <span style="color:#ccc">${(s.restingOrderSize||0).toFixed(2)}</span></span>`
+              ? `<span style="color:#555;font-size:8px">Round ${s.roundNumber||1} — Post+Snipe | Phase: <span style="color:#ccc">${s.postSnipePhase||'?'}</span></span>
+                 <span style="color:#555">Resting: <span style="color:#ccaa44">${formatNum(s.currentPostSize,2)} @ $${s.targetPrice?.toFixed(pxD)||'—'}</span> | Snipe: <span style="color:#7F77DD">${formatNum(s.currentSnipeSize,2)} @ $${s.snipeLevel?.toFixed(pxD)||'—'}</span></span>
+                 <span style="color:#555">Snipe cap: <span style="color:#00e5ff">${formatNum(s.snipeCapUsed||0,2)}/${formatNum(s.maxSnipeTotal||0,2)}</span> (${s.snipePct||50}%)</span>
+                 <span style="color:#555">Passive: <span style="color:#00c896">${formatNum(s.passiveFillSize,2)}</span> | Sniped: <span style="color:#00e5ff">${formatNum(s.snipedSize,2)}</span></span>`
               : (s.levels && s.levels.length > 0
                 ? s.levels.map((lv, li) => {
                     const pct = lv.allocatedSize > 0 ? Math.min(100, lv.filledSize / lv.allocatedSize * 100) : 0;
@@ -8832,53 +8864,124 @@ function initBlotter() {
 
   // ── Execution chart panel ─────────────────────────────────────────────────
 
+  const _chartAttached = {};  // sid → boolean
+
+  function _syncChartPosition(sid) {
+    const monEl = _monitors.get(sid);
+    const chartEl = document.getElementById('amon-chart-' + sid);
+    if (!monEl || !chartEl) return;
+    chartEl.style.left = (monEl.offsetLeft + monEl.offsetWidth) + 'px';
+    chartEl.style.top = monEl.offsetTop + 'px';
+  }
+
+  window._detachChart = function(sid) {
+    _chartAttached[sid] = false;
+    localStorage.setItem('algo-chart-attached-' + sid, 'false');
+    const monEl = _monitors.get(sid);
+    const chartEl = document.getElementById('amon-chart-' + sid);
+    if (!chartEl) return;
+    chartEl.style.left = (parseInt(chartEl.style.left) + 20) + 'px';
+    chartEl.style.borderRadius = '8px';
+    chartEl.style.borderLeft = '';
+    if (monEl) { monEl.style.borderRadius = '8px'; monEl.style.borderRight = ''; }
+    const hdr = chartEl.querySelector('.amon-chart-hdr');
+    if (hdr) hdr.style.cursor = 'grab';
+    const btn = chartEl.querySelector('.amon-chart-attach-btn');
+    if (btn) { btn.textContent = '↙'; btn.title = 'Attach to monitor'; btn.onclick = () => _attachChart(sid); }
+  };
+
+  window._attachChart = function(sid) {
+    _chartAttached[sid] = true;
+    localStorage.setItem('algo-chart-attached-' + sid, 'true');
+    const monEl = _monitors.get(sid);
+    const chartEl = document.getElementById('amon-chart-' + sid);
+    if (!chartEl) return;
+    chartEl.style.borderRadius = '0 8px 8px 0';
+    chartEl.style.borderLeft = 'none';
+    if (monEl) { monEl.style.borderRadius = '8px 0 0 8px'; monEl.style.borderRight = 'none'; }
+    const hdr = chartEl.querySelector('.amon-chart-hdr');
+    if (hdr) hdr.style.cursor = 'default';
+    _syncChartPosition(sid);
+    const btn = chartEl.querySelector('.amon-chart-attach-btn');
+    if (btn) { btn.textContent = '↗'; btn.title = 'Detach from monitor'; btn.onclick = () => _detachChart(sid); }
+  };
+
   window._closeChart = function(sid) {
     const el = document.getElementById('amon-chart-' + sid);
     if (el) { if (el._ro) el._ro.disconnect(); el.remove(); }
     _chartInstances.delete(sid);
     _chartVisible[sid] = false;
+    // Restore monitor borders
+    const monEl = _monitors.get(sid);
+    if (monEl) { monEl.style.borderRadius = '8px'; monEl.style.borderRight = ''; }
+    delete _chartAttached[sid];
   };
 
   window._algoToggleChart = function(sid) {
-    // Only opens — closing is handled by _closeChart via button onclick
-    if (document.getElementById('amon-chart-' + sid)) return; // already open
+    if (document.getElementById('amon-chart-' + sid)) return;
 
     const monEl = _monitors.get(sid);
     if (!monEl) return;
-    const monRect = monEl.getBoundingClientRect();
+
+    // Load saved attached state — default to attached
+    const savedAttached = localStorage.getItem('algo-chart-attached-' + sid);
+    const attached = savedAttached !== 'false';
+    _chartAttached[sid] = attached;
 
     const panel = document.createElement('div');
     panel.className = 'panel amon-chart-panel';
     panel.id = 'amon-chart-' + sid;
     panel.style.position = 'absolute';
-    // Position to the right of the monitor panel
-    panel.style.top = monEl.offsetTop + 'px';
-    panel.style.left = (monEl.offsetLeft + monEl.offsetWidth + 8) + 'px';
     panel.style.height = monEl.offsetHeight + 'px';
     panel.style.width = '320px';
+
+    if (attached) {
+      panel.style.borderRadius = '0 8px 8px 0';
+      panel.style.borderLeft = 'none';
+      monEl.style.borderRadius = '8px 0 0 8px';
+      monEl.style.borderRight = 'none';
+      panel.style.top = monEl.offsetTop + 'px';
+      panel.style.left = (monEl.offsetLeft + monEl.offsetWidth) + 'px';
+    } else {
+      panel.style.top = monEl.offsetTop + 'px';
+      panel.style.left = (monEl.offsetLeft + monEl.offsetWidth + 8) + 'px';
+    }
 
     // ResizeObserver: sync chart height to monitor height
     const ro = new ResizeObserver(() => {
       const h = monEl.getBoundingClientRect().height;
       panel.style.height = h + 'px';
+      if (_chartAttached[sid]) _syncChartPosition(sid);
       const ch = _chartInstances.get(sid);
       if (ch) ch.resize();
     });
     ro.observe(monEl);
     panel._ro = ro;
+
+    const attachBtnLabel = attached ? '↗' : '↙';
+    const attachBtnTitle = attached ? 'Detach from monitor' : 'Attach to monitor';
     panel.innerHTML = `<div class="amon-chart-hdr">
       <span>Execution Chart</span>
-      <button style="background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:0 3px" onclick="_closeChart('${sid}')">&times;</button>
+      <div style="display:flex;gap:2px">
+        <button class="amon-chart-attach-btn" style="background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:0 3px" title="${attachBtnTitle}">${attachBtnLabel}</button>
+        <button style="background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:0 3px" onclick="_closeChart('${sid}')">&times;</button>
+      </div>
     </div>
     <div style="padding:4px;flex:1;position:relative;min-height:0"><canvas id="amon-chart-canvas-${sid}"></canvas></div>`;
 
     document.getElementById('panels-canvas').appendChild(panel);
 
-    // Drag
+    // Wire attach/detach button
+    const attachBtn = panel.querySelector('.amon-chart-attach-btn');
+    if (attachBtn) {
+      attachBtn.onclick = () => { _chartAttached[sid] ? _detachChart(sid) : _attachChart(sid); };
+    }
+
+    // Drag — only works when detached
     const hdr = panel.querySelector('.amon-chart-hdr');
-    hdr.style.cursor = 'grab';
+    hdr.style.cursor = attached ? 'default' : 'grab';
     hdr.addEventListener('mousedown', e => {
-      if (e.target.tagName === 'BUTTON') return;
+      if (e.target.tagName === 'BUTTON' || _chartAttached[sid]) return;
       hdr.style.cursor = 'grabbing';
       const ox = e.clientX - panel.offsetLeft;
       const oy = e.clientY - panel.offsetTop;

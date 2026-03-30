@@ -26,9 +26,11 @@ const config = {
     // Ladder levels (snipe mode)
     { key: 'levels', label: 'Price levels', type: 'ladder', default: [{ price: 0, pct: 100, enabled: true }], dependsOn: { executionMode: 'snipe' } },
 
-    // Post+Snipe params (unchanged)
-    { key: 'targetPrice', label: 'Limit price', type: 'number', default: 0, dependsOn: { executionMode: 'post_snipe' } },
-    { key: 'snipeLevel', label: 'Snipe price', type: 'number', default: 0, dependsOn: { executionMode: 'post_snipe' } },
+    // Post+Snipe params
+    { key: 'targetPrice', label: 'Limit price (passive rest)', type: 'number', default: 0, dependsOn: { executionMode: 'post_snipe' } },
+    { key: 'snipeLevel', label: 'Snipe price (aggressive ceiling)', type: 'number', default: 0, dependsOn: { executionMode: 'post_snipe' } },
+    { key: 'snipePct', label: 'Snipe %', type: 'number', default: 50, min: 10, max: 90, dependsOn: { executionMode: 'post_snipe' } },
+    { key: 'minSnipePct', label: 'Min size to snipe %', type: 'number', default: 5, min: 1, max: 20, dependsOn: { executionMode: 'post_snipe' } },
 
     // Volume confirmation
     { key: 'volumeConfirmEnabled', label: 'Volume confirmation', type: 'select', options: [{value:'false',label:'Disabled'},{value:'true',label:'Enabled'}], default: 'false', dependsOn: { executionMode: 'snipe' } },
@@ -162,16 +164,28 @@ class SniperStrategy {
 
     this.activeLevelIndex = 0;
     this._priceHistory    = [];   // [{price, timestamp}] for momentum
-    this._rollingTrades   = [];   // [{price, size, timestamp}] for volume confirm
+    this._rollingTrades   = [];   // [{price, size, timestamp}] for volume confirm + VWAP
+    this._rollingVwap     = 0;
     this._retriggerAt     = 0;
 
-    // Post+Snipe state (unchanged)
-    this.restingOrderId   = null;
-    this.restingOrderSize = this.totalSize;
+    // Post+Snipe state — snipe cap model
+    this._snipePct        = Math.min(90, Math.max(10, parseFloat(params.snipePct) || 50));
+    this._minSnipePct     = Math.min(20, Math.max(1, parseFloat(params.minSnipePct) || 5));
+    this._maxSnipeTotal   = this.totalSize * this._snipePct / 100;
+    this._minSnipeSize    = this.totalSize * this._minSnipePct / 100;
+    console.log(`[sniper] constructor: totalSize=${this.totalSize} snipePct=${this._snipePct} maxSnipeTotal=${this._maxSnipeTotal} minSnipePct=${this._minSnipePct} minSnipeSize=${this._minSnipeSize} raw.snipePct=${params.snipePct} raw.minSnipePct=${params.minSnipePct}`);
+    this._postSnipePhase  = 'ACTIVE';  // ACTIVE | REST_ONLY
+    this._currentRoundTotal = 0;
+    this._currentPostSize = 0;
+    this._currentSnipeSize = 0;
+    this._postOrderId     = null;
+    this._snipeChildId    = null;
+    this._postFilled      = 0;
+    this._roundNumber     = 0;
+    this._cancellingForSnipe = false;  // true while cancelling resting before snipe
     this.snipedSize       = 0;
     this.passiveFillSize  = 0;
-    this._lastSnipeTs     = 0;
-    this._snipeChildId    = null;
+    this.restingOrderSize = 0;
     this._restingPrice    = null;
     this.activeChildId    = null;
 
@@ -187,8 +201,9 @@ class SniperStrategy {
   start(ctx) {
     this._ctx = ctx;
     if (this._executionMode === 'post_snipe') {
-      console.log(`[sniper] Post+Snipe: posting ${this.totalSize} at $${this._targetPrice}, snipe ceiling $${this._snipeLevel}`);
-      this._activatePostSnipe();
+      console.log(`[post+snipe] Start: total=${this.totalSize} limit=$${this._targetPrice} snipe=$${this._snipeLevel} snipePct=${this._snipePct}% maxSnipe=${this._maxSnipeTotal.toFixed(4)} minSnipeSize=${this._minSnipeSize.toFixed(4)}`);
+      this.status = 'ACTIVE';
+      this._startRound();
     } else {
       const levelSummary = this._levels.map((l, i) => `L${i+1}: $${l.price} ${l.pct}% (${l.allocatedSize.toFixed(4)})`).join(', ');
       console.log(`[sniper] Snipe: totalSize=${this.totalSize}, ${this._levels.length} levels — ${levelSummary}`);
@@ -211,41 +226,57 @@ class SniperStrategy {
     }
     if (this.activeChildId) { this._ctx.cancelChild(this.activeChildId); this.activeChildId = null; }
     if (this._snipeChildId) { this._ctx.cancelChild(this._snipeChildId); this._snipeChildId = null; }
-    if (this.restingOrderId) { this._ctx.cancelChild(this.restingOrderId); this.restingOrderId = null; }
+    if (this._postOrderId) { this._ctx.cancelChild(this._postOrderId); this._postOrderId = null; }
     if (this.status !== 'COMPLETED' && this.status !== 'EXPIRED') this.status = 'STOPPED';
     console.log(`[sniper] Stopped: filled=${this.filledSize.toFixed(4)} avg=${this.avgFillPrice.toFixed(4)}`);
   }
 
-  // ── Post+Snipe (unchanged) ────────────────────────────────────────────────
+  // ── Post+Snipe — round-based split execution ──────────────────────────────
 
-  _activatePostSnipe() {
-    this.status = 'ACTIVE';
-    this._placeRestingOrder();
-  }
+  _startRound() {
+    const remaining = Math.max(0, this.totalSize - this.filledSize);
+    if (remaining < this._lotSize * 0.01) {
+      this._completedTs = Date.now(); this.status = 'COMPLETED'; this.stop(); return;
+    }
 
-  _placeRestingOrder() {
-    if (this.restingOrderId) { this._ctx.cancelChild(this.restingOrderId); this.restingOrderId = null; }
-    this.restingOrderSize = this.remainingSize;
-    if (this.restingOrderSize <= 0.001) return;
-    this.restingOrderId = this._ctx.submitIntent({
-      symbol: this.symbol, side: this.side, quantity: this.restingOrderSize,
-      limitPrice: this._targetPrice, orderType: 'LIMIT', algoType: 'SNIPER-POST',
-    });
-    this._restingPrice = this._targetPrice;
-  }
+    this._postFilled = 0;
+    this._snipeChildId = null;
+    this._cancellingForSnipe = false;
+    this._roundNumber++;
 
-  _firePostSnipe(bid, ask) {
-    if (this._snipeChildId || this.remainingSize <= this._lotSize * 0.5) return;
-    if (Date.now() - this._lastSnipeTs < 200) return;
-    const price = this.side === 'BUY' ? ask + this._tickSize : bid - this._tickSize;
-    const qty = Math.round(Math.min(this.remainingSize, this.totalSize) / this._lotSize) * this._lotSize;
-    if (qty <= 0) return;
-    this._snipeChildId = this._ctx.submitIntent({
-      symbol: this.symbol, side: this.side, quantity: qty,
-      limitPrice: price, orderType: 'LIMIT', timeInForce: 'IOC', algoType: 'SNIPER-SNIPE',
-    });
-    this._lastSnipeTs = Date.now();
-    console.log(`[sniper] Post+Snipe fired: ${qty.toFixed(4)} @ $${price}`);
+    const remainingSnipeAllowance = Math.max(0, this._maxSnipeTotal - this.snipedSize);
+
+    if (remaining <= this._minSnipeSize || remainingSnipeAllowance < this._lotSize) {
+      // Below min snipe size or snipe cap reached — rest full remaining passively
+      this._postSnipePhase = 'REST_ONLY';
+      this._currentRoundTotal = remaining;
+      this._currentPostSize = remaining < this._lotSize ? remaining : Math.floor(remaining / this._lotSize) * this._lotSize;
+      this._currentSnipeSize = 0;
+      const reason = remainingSnipeAllowance < this._lotSize ? 'snipe cap reached' : 'below min snipe size';
+      console.log(`[post+snipe] Round ${this._roundNumber} REST_ONLY (${reason}): ${this._currentPostSize.toFixed(4)} @ $${this._targetPrice}`);
+    } else {
+      this._postSnipePhase = 'ACTIVE';
+      this._currentRoundTotal = remaining;
+      // Snipe size = smaller of: 50% of remaining OR remaining snipe allowance
+      let thisRoundSnipe = Math.min(remaining * 0.5, remainingSnipeAllowance);
+      thisRoundSnipe = Math.floor(thisRoundSnipe / this._lotSize) * this._lotSize;
+      if (thisRoundSnipe < this._lotSize) thisRoundSnipe = remaining < this._lotSize ? remaining : 0;
+      this._currentSnipeSize = thisRoundSnipe;
+      this._currentPostSize = remaining - thisRoundSnipe;
+      if (this._currentPostSize < this._lotSize && this._currentPostSize > 0) this._currentPostSize = remaining < this._lotSize ? remaining : this._lotSize;
+      console.log(`[post+snipe] Round ${this._roundNumber} ACTIVE: total=${remaining.toFixed(4)} post=${this._currentPostSize.toFixed(4)} snipe=${this._currentSnipeSize.toFixed(4)} snipeAllowance=${remainingSnipeAllowance.toFixed(4)}/${this._maxSnipeTotal.toFixed(4)}`);
+    }
+
+    // Place resting limit order
+    const postQty = this._currentPostSize;
+    if (postQty > 0) {
+      this._postOrderId = this._ctx.submitIntent({
+        symbol: this.symbol, side: this.side, quantity: postQty,
+        limitPrice: this._targetPrice, orderType: 'LIMIT', algoType: 'SNIPER-POST',
+      });
+      this.restingOrderSize = postQty;
+      this._restingPrice = this._targetPrice;
+    }
   }
 
   // ── Main tick handler ─────────────────────────────────────────────────────
@@ -289,18 +320,51 @@ class SniperStrategy {
       this.stop(); return;
     }
 
-    // ── Post+Snipe mode (unchanged) ──────────────────────────────────────
+    // ── Post+Snipe mode — round-based ──────────────────────────────────
     if (this._executionMode === 'post_snipe') {
-      if (this.status === 'ACTIVE' && bid > 0 && ask > 0) {
-        if (this.filledSize >= this.totalSize - 0.001) {
-          this._completedTs = now; this.status = 'COMPLETED'; this.stop(); return;
+      if (this.status !== 'ACTIVE' || bid <= 0 || ask <= 0) return;
+
+      // Completion check
+      if (this.filledSize >= this.totalSize - 0.001) {
+        this._completedTs = now; this.status = 'COMPLETED'; this.stop(); return;
+      }
+
+      // REST_ONLY: just wait for passive fills
+      if (this._postSnipePhase === 'REST_ONLY') return;
+
+      // ACTIVE: check snipe trigger
+      if (this._snipeChildId || this._cancellingForSnipe) return; // order in flight or cancelling
+
+      const snipeTriggered = this.side === 'BUY'
+        ? (this._snipeLevel > 0 && ask <= this._snipeLevel)
+        : (this._snipeLevel > 0 && bid >= this._snipeLevel);
+
+      if (snipeTriggered && this._currentSnipeSize > 0) {
+        // Cancel resting order FIRST, then snipe
+        this._cancellingForSnipe = true;
+        if (this._postOrderId) {
+          this._ctx.cancelChild(this._postOrderId);
+          console.log(`[post+snipe] Snipe triggered — cancelling resting ${this._currentPostSize.toFixed(4)}`);
         }
-        const snipeTriggered = this.side === 'BUY'
-          ? (this._snipeLevel > 0 && ask <= this._snipeLevel)
-          : (this._snipeLevel > 0 && bid >= this._snipeLevel);
-        if (snipeTriggered && !this._snipeChildId && this.remainingSize > this._lotSize * 0.5) {
-          this._firePostSnipe(bid, ask);
-        }
+        // Fire snipe after brief delay for cancel to propagate
+        setTimeout(() => {
+          if (!this._cancellingForSnipe) return; // already handled
+          this._cancellingForSnipe = false;
+          this._postOrderId = null;
+          this.restingOrderSize = 0;
+          this._restingPrice = null;
+
+          const snipeQty = Math.min(this._currentSnipeSize, this.totalSize - this.filledSize);
+          const roundedQty = snipeQty < this._lotSize ? snipeQty : Math.floor(snipeQty / this._lotSize) * this._lotSize;
+          if (roundedQty <= 0) return;
+
+          const price = this.side === 'BUY' ? (this._lastMd?.askPrice || ask) + this._tickSize : (this._lastMd?.bidPrice || bid) - this._tickSize;
+          this._snipeChildId = this._ctx.submitIntent({
+            symbol: this.symbol, side: this.side, quantity: roundedQty,
+            limitPrice: price, orderType: 'LIMIT', timeInForce: 'IOC', algoType: 'SNIPER-SNIPE',
+          });
+          console.log(`[post+snipe] Snipe fired: ${roundedQty.toFixed(4)} @ $${price}`);
+        }, 100);
       }
       return;
     }
@@ -349,7 +413,7 @@ class SniperStrategy {
       this.status = 'WAITING';
       return;
     }
-    console.log(`[sniper] L${this.activeLevelIndex+1} TRIGGERED: side=${this.side} bid=${bid} ask=${ask} snipePrice=${level.currentSnipePrice}`);
+    if (level.status !== 'FIRING') console.log(`[sniper] L${this.activeLevelIndex+1} TRIGGERED: side=${this.side} bid=${bid} ask=${ask} snipePrice=${level.currentSnipePrice}`);
 
     // Step 2: Volume confirmation (if enabled)
     if (this._volumeConfirmEnabled) {
@@ -396,11 +460,15 @@ class SniperStrategy {
     if (level.activeChildId) return; // order already in flight
 
     const levelRemaining = Math.max(0, level.allocatedSize - level.filledSize);
-    if (levelRemaining < this._lotSize * 0.5) { level.status = 'COMPLETED'; this.activeLevelIndex++; return; }
+    if (levelRemaining < this._lotSize * 0.01) {
+      level.status = 'COMPLETED'; this.activeLevelIndex++;
+      console.log(`[sniper] L${this.activeLevelIndex} remaining ${levelRemaining.toFixed(4)} < dust — advancing`);
+      return;
+    }
 
     if (!this._icebergEnabled) {
-      // Single IOC capped to level remaining
-      const qty = this._roundQtyDown(levelRemaining);
+      // Single IOC capped to level remaining — use remaining directly if less than 1 lot
+      const qty = levelRemaining < this._lotSize ? levelRemaining : this._roundQtyDown(levelRemaining);
       if (qty <= 0) return;
       const price = this.side === 'BUY' ? ask + this._tickSize : bid - this._tickSize;
       level.activeChildId = this._ctx.submitIntent({
@@ -418,7 +486,7 @@ class SniperStrategy {
       if (now < level.nextIcebergAt) return;
 
       const rawSlice = Math.min(level.icebergRemaining, level.allocatedSize * this._icebergSlicePct / 100, levelRemaining);
-      const sliceSize = this._roundQtyDown(rawSlice);
+      const sliceSize = rawSlice < this._lotSize ? rawSlice : this._roundQtyDown(rawSlice);
       if (sliceSize <= 0) return;
 
       const price = this.side === 'BUY' ? ask + this._tickSize : bid - this._tickSize;
@@ -436,12 +504,26 @@ class SniperStrategy {
 
   onTrade(trade) {
     if (!trade.size || trade.size <= 0) return;
-    this._rollingTrades.push({ price: trade.price, size: trade.size, timestamp: trade.timestamp || Date.now() });
-    // Expire old trades
-    const cutoff = Date.now() - this._volumeConfirmWindowMs;
+    const now = trade.timestamp || Date.now();
+    this._rollingTrades.push({ price: trade.price, size: trade.size, timestamp: now });
+    // Expire old trades (keep max 60s for VWAP, volumeConfirmWindow for volume check)
+    const cutoff = Date.now() - Math.max(this._volumeConfirmWindowMs, 60000);
     while (this._rollingTrades.length > 0 && this._rollingTrades[0].timestamp < cutoff) {
       this._rollingTrades.shift();
     }
+    // Update rolling VWAP from recent trades
+    this._recalcVwap();
+  }
+
+  _recalcVwap() {
+    let sumPV = 0, sumV = 0;
+    const cutoff = Date.now() - 60000; // 60s window
+    for (const t of this._rollingTrades) {
+      if (t.timestamp < cutoff) continue;
+      sumPV += t.price * t.size;
+      sumV += t.size;
+    }
+    this._rollingVwap = sumV > 0 ? sumPV / sumV : 0;
   }
 
   // ── Fill handling ─────────────────────────────────────────────────────────
@@ -464,26 +546,38 @@ class SniperStrategy {
       this.slippageVsArrival = (this.avgFillPrice - this.arrivalPrice) / this.arrivalPrice * 10000 * dir;
     }
 
-    // ── Post+Snipe fill handling (unchanged) ──
+    // ── Post+Snipe fill handling — round-based ──
     if (this._executionMode === 'post_snipe') {
       const isSnipeFill = fill.childId === this._snipeChildId || fill.orderId === this._snipeChildId;
-      const isRestingFill = fill.childId === this.restingOrderId || fill.orderId === this.restingOrderId;
-      const fillType = isSnipeFill ? 'snipe' : isRestingFill ? 'passive' : 'unknown';
-      if (fillType === 'snipe') this.snipedSize += fill.fillSize;
-      else this.passiveFillSize += fill.fillSize;
+      const isPostFill = fill.childId === this._postOrderId || fill.orderId === this._postOrderId;
+      const fillType = isSnipeFill ? 'snipe' : isPostFill ? 'passive' : 'unknown';
 
-      this._chartFills.push({ time: Date.now(), price: fill.fillPrice, size: fill.fillSize, side: this.side, simulated: !!fill.simulated, fillType });
+      if (fillType === 'snipe') this.snipedSize += cappedFill;
+      else this.passiveFillSize += cappedFill;
+
+      if (isPostFill) this._postFilled += cappedFill;
+
+      this._chartFills.push({ time: Date.now(), price: fill.fillPrice, size: cappedFill, side: this.side, simulated: !!fill.simulated, fillType });
+      console.log(`[post+snipe] Fill (${fillType}): ${cappedFill.toFixed(4)} @ ${fill.fillPrice} — passive=${this.passiveFillSize.toFixed(4)} sniped=${this.snipedSize.toFixed(4)} total=${this.filledSize.toFixed(4)}/${this.totalSize.toFixed(4)}`);
+
       if (isSnipeFill) this._snipeChildId = null;
 
+      // Completion check
       if (this.filledSize >= this.totalSize - 0.001) {
         this._completedTs = Date.now(); this.status = 'COMPLETED'; this.stop(); return;
       }
-      if (isSnipeFill && this.restingOrderId) {
-        if (this.remainingSize <= this._lotSize * 0.5) {
-          this._ctx.cancelChild(this.restingOrderId); this.restingOrderId = null; this.restingOrderSize = 0;
-        } else {
-          this._placeRestingOrder();
-        }
+
+      // After snipe fill: start new round with remaining
+      if (isSnipeFill) {
+        this._startRound();
+        return;
+      }
+
+      // After passive fill: check if resting fully filled → start new round
+      if (isPostFill && this._postFilled >= this._currentPostSize - Math.max(0.001, this._lotSize * 0.01)) {
+        this._postOrderId = null;
+        this.restingOrderSize = 0;
+        this._startRound();
       }
       return;
     }
@@ -551,7 +645,8 @@ class SniperStrategy {
     this._retriggerAt = Date.now() + this._retriggerCooldownMs;
     level.status = 'WAITING';
     this.status = 'WAITING';
-    console.log(`[sniper] L${levelIdx + 1} Partial — retrigger #${level.retriggerCount} in ${this._retriggerCooldownMs}ms`);
+    const lvlRemaining = (level.allocatedSize - level.filledSize).toFixed(4);
+    console.log(`[sniper] L${levelIdx + 1} partial fill: filled=${level.filledSize.toFixed(4)} allocated=${level.allocatedSize.toFixed(4)} remaining=${lvlRemaining} retriggerAt=${new Date(this._retriggerAt).toISOString()} retrigger#${level.retriggerCount}/${this._maxRetriggers} mode=${this._retriggerMode} nextPrice=${level.currentSnipePrice}`);
   }
 
   onOrderUpdate(order) {
@@ -573,8 +668,14 @@ class SniperStrategy {
     if (matchId === this._snipeChildId && (order.state === 'REJECTED' || order.state === 'CANCELLED')) {
       this._snipeChildId = null;
     }
-    if (matchId === this.restingOrderId && (order.state === 'REJECTED' || order.state === 'CANCELLED')) {
-      this.restingOrderId = null; this._restingPrice = null;
+    if (matchId === this._postOrderId && (order.state === 'REJECTED' || order.state === 'CANCELLED')) {
+      this._postOrderId = null; this._restingPrice = null; this.restingOrderSize = 0;
+      // If cancelled for snipe, the snipe timeout handles it
+      if (!this._cancellingForSnipe) {
+        // Unexpected cancel — restart round
+        console.log(`[post+snipe] Resting order ${order.state} — restarting round`);
+        this._startRound();
+      }
     }
   }
 
@@ -634,6 +735,10 @@ class SniperStrategy {
       totalSize: this.totalSize, filledQty: this.filledSize, remainingQty: this.remainingSize,
       avgFillPrice: this.avgFillPrice, arrivalPrice: this.arrivalPrice,
       slippageVsArrival: this.slippageVsArrival,
+      rollingVwap: this._rollingVwap,
+      slippageVsVwap: this._rollingVwap > 0 && this.avgFillPrice > 0
+        ? (this.avgFillPrice - this._rollingVwap) / this._rollingVwap * 10000 * (this.side === 'BUY' ? 1 : -1)
+        : 0,
       targetPrice: activeLevelPrice,
       triggerCondition: this.side === 'BUY' ? 'breaks_below' : 'breaks_above',
       executionMode: this._executionMode,
@@ -646,6 +751,15 @@ class SniperStrategy {
       restingOrderSize: this.restingOrderSize,
       snipedSize: this.snipedSize,
       passiveFillSize: this.passiveFillSize,
+      // Post+Snipe round state
+      postSnipePhase: this._postSnipePhase,
+      roundNumber: this._roundNumber,
+      currentPostSize: this._currentPostSize,
+      currentSnipeSize: this._currentSnipeSize,
+      snipePct: this._snipePct,
+      maxSnipeTotal: this._maxSnipeTotal,
+      snipeCapUsed: this.snipedSize,
+      snipeCapRemaining: Math.max(0, this._maxSnipeTotal - this.snipedSize),
       pauseReason: this.pauseReason,
       elapsed, timeRemaining: this._expiryTs ? Math.max(0, this._expiryTs - now) : null,
       tickSize: this._tickSize,
