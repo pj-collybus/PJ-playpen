@@ -88,6 +88,7 @@ class SniperStrategy {
     this.totalSize = params.totalSize || 0;
 
     this._executionMode    = params.executionMode || 'snipe';
+    this._levelMode        = params.levelMode || 'sequential';  // sequential | simultaneous
     this._tickSize         = params.tickSize || 0.0001;
     this._lotSize          = params.lotSize || 1;
     this._maxSpreadBps     = params.maxSpreadBps || 50;
@@ -384,6 +385,46 @@ class SniperStrategy {
       this._completedTs = now; this.status = 'COMPLETED'; this.stop(); return;
     }
 
+    // ── Simultaneous mode: all levels active independently ──
+    if (this._levelMode === 'simultaneous') {
+      this.status = 'ACTIVE';
+      let allDone = true;
+      for (let li = 0; li < this._levels.length; li++) {
+        const lvl = this._levels[li];
+        const lvlTol = Math.max(0.001, lvl.allocatedSize * 0.01);
+        if (lvl.filledSize >= lvl.allocatedSize - lvlTol) { lvl.status = 'COMPLETED'; continue; }
+        if (lvl.retriggerCount >= this._maxRetriggers) { lvl.status = 'COMPLETED'; continue; }
+        allDone = false;
+        if (lvl.activeChildId) continue; // order in flight
+        if (lvl._retriggerAt && now < lvl._retriggerAt) continue;
+
+        const triggered = this.side === 'BUY' ? (ask <= lvl.currentSnipePrice) : (bid >= lvl.currentSnipePrice);
+        if (!triggered) { lvl.status = 'WAITING'; continue; }
+
+        if (marketData.spreadBps > this._maxSpreadBps) continue;
+
+        lvl.status = 'FIRING';
+        const lvlRemaining = Math.max(0, lvl.allocatedSize - lvl.filledSize);
+        if (lvlRemaining < this._lotSize * 0.01) { lvl.status = 'COMPLETED'; continue; }
+        const qty = lvlRemaining < this._lotSize ? lvlRemaining : Math.floor(lvlRemaining / this._lotSize) * this._lotSize;
+        if (qty <= 0) { lvl.status = 'COMPLETED'; continue; }
+        const price = this.side === 'BUY' ? ask + this._tickSize : bid - this._tickSize;
+        lvl.activeChildId = this._ctx.submitIntent({
+          symbol: this.symbol, side: this.side, quantity: qty,
+          limitPrice: price, orderType: 'LIMIT', timeInForce: 'IOC', algoType: 'SNIPER',
+        });
+        console.log(`[sniper] Simultaneous L${li+1} firing: ${qty.toFixed(4)} @ $${price} (allocated=${lvl.allocatedSize.toFixed(4)} filled=${lvl.filledSize.toFixed(4)})`);
+      }
+      if (allDone) {
+        // All snipe levels exhausted — check if resting order fills the rest
+        if (this.filledSize >= this.totalSize - 0.001) {
+          this._completedTs = now; this.status = 'COMPLETED'; this.stop();
+        }
+      }
+      return;
+    }
+
+    // ── Sequential mode (default) ──
     // Get active level
     if (this.activeLevelIndex >= this._levels.length) {
       this._completedTs = now; this.status = 'COMPLETED'; this.stop(); return;
@@ -583,11 +624,17 @@ class SniperStrategy {
     }
 
     // ── Snipe mode fill handling ──
-    // Match fill to active level
-    const level = this._levels[this.activeLevelIndex];
+    // Match fill to correct level (by activeChildId for simultaneous, or activeLevelIndex for sequential)
+    let level, levelIdx;
+    if (this._levelMode === 'simultaneous') {
+      levelIdx = this._levels.findIndex(l => l.activeChildId && (fill.childId === l.activeChildId || fill.orderId === l.activeChildId));
+      if (levelIdx < 0) levelIdx = this.activeLevelIndex;
+      level = this._levels[levelIdx];
+    } else {
+      levelIdx = this.activeLevelIndex;
+      level = this._levels[levelIdx];
+    }
     if (!level) return;
-
-    const levelIdx = this.activeLevelIndex;
     // Cap fill to level remaining — never overfill a level
     const levelCappedFill = Math.min(cappedFill, Math.max(0, level.allocatedSize - level.filledSize));
     level.filledSize += levelCappedFill;
@@ -623,26 +670,27 @@ class SniperStrategy {
     // Partial fill — retrigger logic
     if (level.retriggerCount >= this._maxRetriggers) {
       level.status = 'COMPLETED';
-      this.activeLevelIndex++;
-      console.log(`[sniper] L${levelIdx + 1} Max retriggers (${this._maxRetriggers}) — advancing`);
+      if (this._levelMode !== 'simultaneous') this.activeLevelIndex++;
+      console.log(`[sniper] L${levelIdx + 1} Max retriggers (${this._maxRetriggers}) — ${this._levelMode === 'simultaneous' ? 'level done' : 'advancing'}`);
       return;
     }
 
-    // Calculate next snipe price
-    if (this._retriggerMode === 'better') {
-      const improve = this._retriggerImproveTicks * this._tickSize;
-      level.currentSnipePrice = this.side === 'BUY'
-        ? level.currentSnipePrice - improve
-        : level.currentSnipePrice + improve;
-      console.log(`[sniper] L${levelIdx + 1} Retrigger improved price: $${level.currentSnipePrice}`);
-    } else if (this._retriggerMode === 'vwap') {
-      level.currentSnipePrice = this.avgFillPrice;
-      console.log(`[sniper] L${levelIdx + 1} Retrigger VWAP chase: $${level.currentSnipePrice}`);
+    // Calculate next snipe price (sequential mode only)
+    if (this._levelMode !== 'simultaneous') {
+      if (this._retriggerMode === 'better') {
+        const improve = this._retriggerImproveTicks * this._tickSize;
+        level.currentSnipePrice = this.side === 'BUY'
+          ? level.currentSnipePrice - improve
+          : level.currentSnipePrice + improve;
+      } else if (this._retriggerMode === 'vwap') {
+        level.currentSnipePrice = this.avgFillPrice;
+      }
     }
 
     level.retriggerCount++;
-    level.icebergRemaining = 0; // reset iceberg for new attempt
-    this._retriggerAt = Date.now() + this._retriggerCooldownMs;
+    level.icebergRemaining = 0;
+    level._retriggerAt = Date.now() + this._retriggerCooldownMs;
+    if (this._levelMode !== 'simultaneous') this._retriggerAt = level._retriggerAt;
     level.status = 'WAITING';
     this.status = 'WAITING';
     const lvlRemaining = (level.allocatedSize - level.filledSize).toFixed(4);
@@ -729,9 +777,25 @@ class SniperStrategy {
     // Momentum velocity for display
     const momentumBps = this._calcMomentumBps();
 
+    const _fmtSize = v => { const s = Number(v).toFixed(4).replace(/\.?0+$/, ''); return s.replace(/\B(?=(\d{3})+(?!\d))/g, ','); };
+    const startStr = this._startTs ? new Date(this._startTs).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '?';
+    const expiryLabel = this._expiryMode === 'gtc' ? 'GTC' : this._expiryMode === 'eod' ? 'EOD' : 'Timed';
+    let summaryLine;
+    if (this._executionMode === 'post_snipe') {
+      const modeLabel = this._levelMode === 'simultaneous' ? 'LMT+Discretion' : 'Post+Snipe';
+      const discBps = this._snipeLevel && this._targetPrice ? Math.abs((this._snipeLevel - this._targetPrice) / this._targetPrice * 10000).toFixed(0) : '?';
+      summaryLine = this._levelMode === 'simultaneous'
+        ? `${this.side} ${_fmtSize(this.totalSize)} ${this.symbol} on ${this.venue} via ${modeLabel} | Limit: $${this._targetPrice} | Disc: ${discBps}bps ($${this._snipeLevel}) | ${this._snipePct}% disc`
+        : `${this.side} ${_fmtSize(this.totalSize)} ${this.symbol} on ${this.venue} via SNIPER | Post+Snipe | Limit: $${this._targetPrice} Snipe: $${this._snipeLevel} | ${this._snipePct}% snipe cap`;
+    } else {
+      const lvlStr = this._levels.map((l, i) => `L${i+1}: $${l.price} (${l.pct}%)`).join(' ');
+      summaryLine = `${this.side} ${_fmtSize(this.totalSize)} ${this.symbol} on ${this.venue} via SNIPER | Snipe | ${lvlStr} | ${expiryLabel}`;
+    }
+    if (summaryLine.length > 150) summaryLine = summaryLine.slice(0, 147) + '...';
+
     return {
       type: 'SNIPER', symbol: this.symbol, side: this.side, venue: this.venue,
-      status: this.status,
+      status: this.status, summaryLine,
       totalSize: this.totalSize, filledQty: this.filledSize, remainingQty: this.remainingSize,
       avgFillPrice: this.avgFillPrice, arrivalPrice: this.arrivalPrice,
       slippageVsArrival: this.slippageVsArrival,
@@ -742,6 +806,7 @@ class SniperStrategy {
       targetPrice: activeLevelPrice,
       triggerCondition: this.side === 'BUY' ? 'breaks_below' : 'breaks_above',
       executionMode: this._executionMode,
+      levelMode: this._levelMode,
       snipeLevel: this._snipeLevel,
       retriggerEnabled: true,
       distanceBps, distancePct,

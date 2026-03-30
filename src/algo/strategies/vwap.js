@@ -427,9 +427,16 @@ class VWAPStrategy {
     const timeRemaining = isDone ? 0 : (this._endTs ? Math.max(0, this._endTs - now) : 0);
     const nextIn = isDone ? 0 : (this.nextSliceAt ? Math.max(0, this.nextSliceAt - now) : 0);
 
+    const _fmtSize = v => { const s = Number(v).toFixed(4).replace(/\.?0+$/, ''); return s.replace(/\B(?=(\d{3})+(?!\d))/g, ','); };
+    const _urg = { passive: 'Passive', aggressive: 'Aggressive', neutral: 'Neutral' };
+    const _modes = { realtime: 'Real-time', benchmark: 'Benchmark', historical: 'Historical' };
+    const durMin = this._endTs ? Math.round((this._endTs - this._startTs) / 60000) : '?';
+    const startStr = this._startTs ? new Date(this._startTs).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '?';
+    const summaryLine = `${this.side} ${_fmtSize(this.totalSize)} ${this.symbol} on ${this.venue} via VWAP | ${_modes[this._vwapMode]||this._vwapMode} | ${_urg[this._baseUrgency]||this._baseUrgency} | ${durMin} min`;
+
     return {
       type: 'VWAP', symbol: this.symbol, side: this.side, venue: this.venue,
-      status: this.status, vwapMode: this._vwapMode,
+      status: this.status, vwapMode: this._vwapMode, summaryLine,
       totalSize: this.totalSize, filledQty: this.filledSize, remainingQty: this.remainingSize,
       avgFillPrice: this.avgFillPrice, arrivalPrice: this.arrivalPrice,
       arrivalVwap: this.arrivalVwap, rollingVwap: this.rollingVwap,

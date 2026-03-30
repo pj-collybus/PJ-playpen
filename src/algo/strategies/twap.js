@@ -648,9 +648,15 @@ class TWAPStrategy {
     const timeRemaining = isDone ? 0 : (this._endTs ? Math.max(0, this._endTs - now) : 0);
     const nextIn = isDone ? 0 : (this.nextSliceAt ? Math.max(0, this.nextSliceAt - now) : 0);
 
+    const _fmtSize = v => { const s = Number(v).toFixed(4).replace(/\.?0+$/, ''); return s.replace(/\B(?=(\d{3})+(?!\d))/g, ','); };
+    const _urg = { passive: 'Passive', aggressive: 'Aggressive', neutral: 'Neutral' };
+    const durMin = this._endTs ? Math.round((this._endTs - this._startTs) / 60000) : '?';
+    const startStr = this._startTs ? new Date(this._startTs).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '?';
+    const summaryLine = `${this.side} ${_fmtSize(this.totalSize)} ${this.symbol} on ${this.venue} via TWAP | ${_urg[this._urgency] || this._urgency} | ${durMin} min | ${this.slicesTotal} slices`;
+
     return {
       type: 'TWAP', symbol: this.symbol, side: this.side, venue: this.venue,
-      status: this.status,
+      status: this.status, summaryLine,
       totalSize: this.totalSize, filledQty: this.filledSize, remainingQty: this.remainingSize,
       avgFillPrice: this.avgFillPrice, arrivalPrice: this.arrivalPrice,
       slippageVsArrival: this.slippageVsArrival, slippageVsVwap: this.slippageVsVwap,

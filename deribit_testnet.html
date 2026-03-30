@@ -5339,6 +5339,19 @@ function renderOrderBody() {
       <div class="order-checks">
         <label class="order-check"><input type="checkbox" id="om-postonly"><span>Post-Only</span></label>
         <label class="order-check"><input type="checkbox" id="om-reduceonly"><span>Reduce-Only</span></label>
+        <label class="order-check"><input type="checkbox" id="om-disc-chk"><span>Discretion</span></label>
+      </div>
+      <div id="om-disc-fields" style="display:none;margin-top:4px;padding:6px;background:#0a0a12;border:1px solid #1a1a28;border-radius:6px">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+          <span class="order-label" style="width:80px;flex-shrink:0">Limit (bps)</span>
+          <input class="order-input" id="om-disc-bps" type="text" inputmode="decimal" value="20" style="width:50px">
+          <span id="om-disc-calc" style="font-size:9px;color:#888"></span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="order-label" style="width:80px;flex-shrink:0">Amount (%)</span>
+          <input class="order-input" id="om-disc-pct" type="text" inputmode="decimal" value="50" style="width:50px">
+          <span style="font-size:9px;color:#555">of total via snipe layers</span>
+        </div>
       </div>`;
 
   } else if (tab === 'stop') {
@@ -5396,6 +5409,52 @@ function renderOrderBody() {
       body.querySelectorAll('.order-tif-btn').forEach(b => b.classList.toggle('active', b === btn))));
   // Stepper arrows
   wireSteppers(body, instrument);
+
+  // ── Discretion checkbox & fields ──
+  const discChk = document.getElementById('om-disc-chk');
+  const discFields = document.getElementById('om-disc-fields');
+  if (discChk && discFields) {
+    // Restore saved state
+    const savedDisc = localStorage.getItem('order-disc-enabled');
+    if (savedDisc === 'true') { discChk.checked = true; discFields.style.display = ''; }
+
+    discChk.addEventListener('change', () => {
+      discFields.style.display = discChk.checked ? '' : 'none';
+      localStorage.setItem('order-disc-enabled', discChk.checked);
+      _updateDiscCalc();
+    });
+
+    const bpsInp = document.getElementById('om-disc-bps');
+    const pctInp = document.getElementById('om-disc-pct');
+    const priceInp = document.getElementById('om-price');
+    let _discDebounce = null;
+    function _updateDiscCalc() {
+      clearTimeout(_discDebounce);
+      _discDebounce = setTimeout(async () => {
+        const calcEl = document.getElementById('om-disc-calc');
+        if (!calcEl) return;
+        const lp = parseFloat(String(priceInp?.value || '').replace(/,/g, '')) || 0;
+        const bps = parseFloat(String(bpsInp?.value || '').replace(/,/g, '')) || 0;
+        if (lp <= 0 || bps <= 0) { calcEl.textContent = ''; return; }
+        try {
+          const r = await fetch(TCA_BASE + '/api/discretion/calculate', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ limitPrice: lp, discretionBps: bps, discretionPct: parseFloat(String(pctInp?.value || '').replace(/,/g, '')) || 50, side: orderState.side?.toUpperCase() || 'BUY', tickSize: 0.0001 }),
+          });
+          const j = await r.json();
+          if (j.discretionPrice) calcEl.textContent = `→ $${j.discretionPrice.toFixed(4)}`;
+        } catch { /* fallback client-side */
+          const dir = orderState.side === 'buy' ? 1 : -1;
+          calcEl.textContent = `→ $${(lp + lp * bps / 10000 * dir).toFixed(4)}`;
+        }
+      }, 150);
+    }
+    bpsInp?.addEventListener('input', _updateDiscCalc);
+    priceInp?.addEventListener('input', _updateDiscCalc);
+    _updateDiscCalc();
+    attachShorthandInput(bpsInp);
+    attachShorthandInput(pctInp);
+  }
 }
 
 // ── Place order via Deribit REST ──────────────────────────────────────────────
@@ -5414,10 +5473,58 @@ async function placeOrder() {
     // Collect order params from the form
     let _price = null, _qty = null, _tif = 'good_til_cancelled', _orderType = 'limit';
     if (tab === 'limit') {
-      _price = parseFloat(document.getElementById('om-price').value);
-      _qty   = parseFloat(document.getElementById('om-qty').value);
+      _price = parseFloat(String(document.getElementById('om-price').value).replace(/,/g, ''));
+      _qty   = parseFloat(String(document.getElementById('om-qty').value).replace(/,/g, ''));
       _tif   = document.querySelector('#order-body .order-tif-btn.active')?.dataset.tif || 'good_til_cancelled';
       if (!_price || !_qty) throw new Error('Price and quantity required');
+
+      // ── Discretion: calculate levels server-side, launch Sniper ──
+      const discChk = document.getElementById('om-disc-chk');
+      if (discChk?.checked) {
+        const discBps = parseFloat(String(document.getElementById('om-disc-bps')?.value || '').replace(/,/g, '')) || 20;
+        const discPct = parseFloat(String(document.getElementById('om-disc-pct')?.value || '').replace(/,/g, '')) || 50;
+        const tile = panels.find(p => p.instrument === instrument && p.exchange === (orderState.exchange || 'Deribit'));
+        const tickSize = tile?._spec?.tickSize || tile?.priceTick || 0.0001;
+        const lotSize = tile?._spec?.lotSize || 1;
+
+        // Server calculates levels with tick-size rounding
+        const calcResp = await fetch(TCA_BASE + '/api/discretion/calculate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ limitPrice: _price, discretionBps: discBps, discretionPct: discPct, side: side.toUpperCase(), tickSize, totalSize: _qty }),
+        });
+        const calc = await calcResp.json();
+        if (calc.error) throw new Error(calc.error);
+
+        const algoParams = {
+          strategyType: 'SNIPER',
+          params: {
+            symbol: instrument, side: side.toUpperCase(), totalSize: _qty,
+            venue: orderState.exchange || 'Deribit', tickSize, lotSize,
+            executionMode: 'post_snipe',
+            targetPrice: _price,
+            snipeLevel: calc.discretionPrice,
+            snipePct: discPct,
+            minSnipePct: 5,
+            levelMode: 'simultaneous',
+            levels: calc.levels,
+            isDiscretionOrder: true,
+          },
+        };
+
+        const r = await fetch(TCA_BASE + '/api/algo/start', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(algoParams),
+        });
+        const j = await r.json();
+        if (j.error) throw new Error(j.error);
+        msgEl.textContent = `Discretion order launched (${j.strategyId?.slice(-6) || 'ok'})`;
+        msgEl.style.color = '#00c896';
+        if (j.strategyId) {
+          setTimeout(() => { window._algoOpenMonitor?.(j.strategyId, { centre: true }); }, 300);
+        }
+        closeOrderModal();
+        return;
+      }
     } else if (tab === 'stop') {
       _price = parseFloat(document.getElementById('om-stop-trigger').value);
       _qty   = parseFloat(document.getElementById('om-stop-qty').value);
@@ -8757,12 +8864,10 @@ function initBlotter() {
     }
 
     // Order summary header — static line showing original order params
-    const _startTimeStr = s.startTime ? new Date(s.startTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
-    const _durStr = s.type === 'SNIPER' || s.type === 'POV' || s.type === 'ICEBERG'
-      ? '' : s.timeRemaining != null
-        ? ` | Duration: ${Math.ceil((s.elapsed + (s.timeRemaining||0)) / 60000)} min` : '';
-    const _sniperExtra = s.type === 'SNIPER' && s.levels?.length > 1 ? ` | ${s.levels.length} levels` : '';
-    const _orderSummary = `${s.side||''} ${formatNum(s.totalSize,4)} ${s.symbol||''} on ${s.venue||'Deribit'} via ${s.type||'?'}${_sniperExtra} | Started: ${_startTimeStr}${_durStr}`;
+    // Use rich summaryLine from strategy if available, otherwise build a basic one
+    const _fmtQty = v => { const n = Number(v); if (isNaN(n)) return '?'; return n.toFixed(4).replace(/\.?0+$/, '').replace(/\B(?=(\d{3})+(?!\d))/g, ','); };
+    if (s.summaryLine) console.log('[monitor] full summaryLine:', s.summaryLine, 'length:', s.summaryLine.length);
+    const _orderSummary = s.summaryLine || `${s.side||''} ${_fmtQty(s.totalSize)} ${s.symbol||''} on ${s.venue||'Deribit'} via ${s.type||'?'}`;
 
     body.innerHTML = `${pauseBar}
       <div class="amon-section">

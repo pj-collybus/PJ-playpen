@@ -419,9 +419,13 @@ class POVStrategy {
     const deficit = this.windowVolume > 0
       ? this.windowVolume * (this._targetPct / 100) - (this._myWindowVolume || 0) : 0;
 
+    const _fmtSize = v => { const s = Number(v).toFixed(4).replace(/\.?0+$/, ''); return s.replace(/\B(?=(\d{3})+(?!\d))/g, ','); };
+    const startStr = this._startTs ? new Date(this._startTs).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '?';
+    const summaryLine = `${this.side} ${_fmtSize(this.totalSize)} ${this.symbol} on ${this.venue} via POV | ${this._targetPct}% participation | ${this._volumeWindowSec}s window`;
+
     return {
       type: 'POV', symbol: this.symbol, side: this.side, venue: this.venue,
-      status: this.status,
+      status: this.status, summaryLine,
       totalSize: this.totalSize, filledQty: this.filledSize, remainingQty: this.remainingSize,
       avgFillPrice: this.avgFillPrice, arrivalPrice: this.arrivalPrice,
       slippageVsArrival: this.slippageVsArrival,

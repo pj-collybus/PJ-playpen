@@ -172,6 +172,27 @@ app.get('/api/options/index-price', async (req, res) => {
   }
 });
 
+// ── Discretion order API ─────────────────────────────────────────────────────
+const discretionService = require('./src/services/discretionService');
+
+app.post('/api/discretion/calculate', (req, res) => {
+  try {
+    const { limitPrice, discretionBps, discretionPct, side, tickSize, totalSize } = req.body;
+    if (!limitPrice || !discretionBps || !side) return res.status(400).json({ error: 'limitPrice, discretionBps, and side required' });
+    const result = discretionService.calculate({
+      limitPrice: parseFloat(limitPrice),
+      discretionBps: parseFloat(discretionBps),
+      discretionPct: parseFloat(discretionPct) || 50,
+      side: String(side).toUpperCase(),
+      tickSize: parseFloat(tickSize) || 0.0001,
+      totalSize: totalSize ? parseFloat(totalSize) : null,
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Venue colours — single source of truth from venues.js ────────────────────
 
 app.get('/api/config/exchange-colors', (req, res) => {
