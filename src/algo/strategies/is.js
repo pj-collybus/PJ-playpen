@@ -11,6 +11,8 @@
 
 'use strict';
 
+const { floorToLot } = require('../../utils/sizeUtils');
+
 const config = {
   name: 'IS',
   displayName: 'Impl. Shortfall',
@@ -336,7 +338,7 @@ class ISStrategy {
     const isLastSlice = this.remainingSize <= this._lotSize * 2;
     if (!isLastSlice) sliceSize = Math.min(sliceSize, this.remainingSize / 2);
     sliceSize = Math.max(this._lotSize, Math.min(sliceSize, this.remainingSize));
-    sliceSize = Math.round(sliceSize / this._lotSize) * this._lotSize;
+    sliceSize = floorToLot(sliceSize, this._lotSize);
     sliceSize = Math.max(this._lotSize, Math.min(sliceSize, this.remainingSize));
     console.log(`[is] _fireSlice entry: remainingSize=${this.remainingSize.toFixed(4)} optimalRate=${this.optimalRate.toFixed(3)} slicesFired=${this.slicesFired} elapsed=${(elapsedFraction*100).toFixed(0)}%`);
     console.log(`[is] slice sizing: base=${(this.totalSize/minSlices).toFixed(4)} rateScaled=${(this.totalSize/minSlices*Math.max(0.1,effectiveRate*2)).toFixed(4)} maxFirstHalf=${(this.totalSize/5).toFixed(4)} final=${sliceSize.toFixed(4)}`);

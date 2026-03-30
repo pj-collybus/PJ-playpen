@@ -1572,6 +1572,51 @@ function attachShorthandInput(el) {
   el.addEventListener('blur', handler);
   el.addEventListener('keydown', e => { if (e.key === 'Enter') handler(); });
 }
+// ── Lot size validation on quantity inputs ──
+// Attaches inline error + "Use suggested" button below a qty input.
+// lotSizeFn: function returning current lot size (may change per instrument)
+function attachLotValidation(inputEl, lotSizeFn, opts = {}) {
+  if (!inputEl || inputEl._lotValidationAttached) return;
+  inputEl._lotValidationAttached = true;
+
+  // Create hint/error elements
+  const wrapper = inputEl.closest('.order-field') || inputEl.closest('.order-stepper')?.parentElement || inputEl.parentElement;
+  const hintEl = document.createElement('div');
+  hintEl.style.cssText = 'font-size:8px;color:#333;margin-top:2px';
+  const errEl = document.createElement('div');
+  errEl.style.cssText = 'font-size:9px;color:#e05252;margin-top:2px;display:none';
+  wrapper.appendChild(hintEl);
+  wrapper.appendChild(errEl);
+
+  function validate() {
+    const lotSize = typeof lotSizeFn === 'function' ? lotSizeFn() : lotSizeFn;
+    if (!lotSize || lotSize <= 0) { hintEl.textContent = ''; errEl.style.display = 'none'; return true; }
+    hintEl.textContent = `Lot size: ${lotSize}`;
+    const size = parseFloat(String(inputEl.value).replace(/,/g, '')) || 0;
+    if (size <= 0) { errEl.style.display = 'none'; return true; }
+    const remainder = size % lotSize;
+    if (Math.abs(remainder) < lotSize * 0.001 || Math.abs(remainder - lotSize) < lotSize * 0.001) {
+      errEl.style.display = 'none'; return true;
+    }
+    const floored = Math.floor(size / lotSize) * lotSize;
+    const ceiled = floored + lotSize;
+    const suggested = (size - floored) < (ceiled - size) ? floored : ceiled;
+    const sugVal = suggested > 0 ? suggested : lotSize;
+    errEl.innerHTML = `Not a valid lot. <button style="font-size:8px;color:#6666cc;background:none;border:1px solid #2a2a44;border-radius:3px;padding:1px 6px;cursor:pointer;font-family:inherit;margin-left:4px">Use ${sugVal}</button>`;
+    errEl.style.display = '';
+    errEl.querySelector('button').addEventListener('click', () => {
+      inputEl.value = sugVal;
+      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      errEl.style.display = 'none';
+    });
+    return false;
+  }
+
+  inputEl.addEventListener('blur', validate);
+  inputEl.addEventListener('change', validate);
+  inputEl._lotValidate = validate;
+}
+
 const fmtK = n => {
   if (n == null) return '—';
   const a = Math.abs(n);
@@ -2960,6 +3005,7 @@ function createPanel(defInstr = 'BTC-PERPETUAL', { skipSubscribe = false } = {})
     updateVWAP(s);
   });
   attachShorthandInput(qtyEl);
+  attachLotValidation(qtyEl, () => s._spec?.lotSize || 0);
   document.getElementById(`gran-${id}`).addEventListener('click', e => {
     const btn = e.target.closest('.pgran-btn');
     if (!btn) return;
@@ -3122,6 +3168,7 @@ function createSpreadPanel(opts = {}) {
   const qtyInput = document.getElementById(`sp-qty-${id}`);
   qtyInput.addEventListener('input', () => { s.qty = parseFloat(String(qtyInput.value).replace(/,/g, '')) || 0; _updateSpreadDisplay(s); });
   attachShorthandInput(qtyInput);
+  attachLotValidation(qtyInput, () => s.legA?._spec?.lotSize || 0);
 
   // ── Instrument pickers — reuse openInstrPicker by passing leg state ──
   document.getElementById(`sp-selA-${id}`).addEventListener('click', function() {
@@ -5218,10 +5265,16 @@ function setAuthStatus() { /* no-op: auth status shown via vault indicator */ }
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      localStorage.setItem('order-modal-pos', JSON.stringify({ left: parseInt(box.style.left), top: parseInt(box.style.top) }));
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   });
+  // Restore saved position
+  const savedPos = localStorage.getItem('order-modal-pos');
+  if (savedPos) {
+    try { const p = JSON.parse(savedPos); box.style.left = p.left + 'px'; box.style.top = p.top + 'px'; } catch {}
+  }
 })();
 
 // ── Open / close ──────────────────────────────────────────────────────────────
@@ -5436,6 +5489,15 @@ function renderOrderBody() {
   // Stepper arrows
   wireSteppers(body, instrument);
 
+  // Lot size validation on all qty inputs in the order modal
+  const _orderLotSize = () => {
+    const ps = panels.find(p => p.instrument === orderState.instrument && p.exchange === (orderState.exchange || 'Deribit'));
+    return ps?._spec?.lotSize || qtyStep(orderState.instrument, ps) || 0;
+  };
+  body.querySelectorAll('.order-input').forEach(inp => {
+    if (inp.id?.includes('qty') || inp.id?.includes('stop-qty')) attachLotValidation(inp, _orderLotSize);
+  });
+
   // ── Discretion checkbox & fields ──
   const discChk = document.getElementById('om-disc-chk');
   const discFields = document.getElementById('om-disc-fields');
@@ -5521,6 +5583,16 @@ async function placeOrder() {
         _tif = _tifRaw;
       }
       if (!_price || !_qty) throw new Error('Price and quantity required');
+      // Lot size validation
+      const _ps = panels.find(p => p.instrument === instrument && p.exchange === (orderState.exchange || 'Deribit'));
+      const _ls = _ps?._spec?.lotSize;
+      if (_ls && _ls > 0) {
+        const rem = _qty % _ls;
+        if (Math.abs(rem) > _ls * 0.001 && Math.abs(rem - _ls) > _ls * 0.001) {
+          const sug = Math.round(_qty / _ls) * _ls || _ls;
+          throw new Error(`Quantity ${_qty} is not a valid lot size (${_ls}). Use ${sug} instead.`);
+        }
+      }
 
       // ── Discretion: calculate levels server-side, launch Sniper ──
       const discChk = document.getElementById('om-disc-chk');
@@ -5534,7 +5606,7 @@ async function placeOrder() {
         // Server calculates levels with tick-size rounding
         const calcResp = await fetch(TCA_BASE + '/api/discretion/calculate', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ limitPrice: _price, discretionBps: discBps, discretionPct: discPct, side: side.toUpperCase(), tickSize, totalSize: _qty }),
+          body: JSON.stringify({ limitPrice: _price, discretionBps: discBps, discretionPct: discPct, side: side.toUpperCase(), tickSize, lotSize, totalSize: _qty }),
         });
         const calc = await calcResp.json();
         if (calc.error) throw new Error(calc.error);
@@ -5803,6 +5875,10 @@ function renderRFQStep1(panelState) {
   });
   body.querySelector('.step-up').addEventListener('click', () => {
     inp.value = (+(parseFloat(inp.value)||0) + qs).toPrecision(10).replace(/\.?0+$/,'');
+  });
+  attachLotValidation(inp, () => {
+    const ps = panels.find(p => p.instrument === rfqState?.instrument);
+    return ps?._spec?.lotSize || 0;
   });
 
   // Side toggle
@@ -7182,6 +7258,7 @@ function BL_TS(ts) {
 function renderBlotterTable() {
   const wrap = document.getElementById('bl-table-wrap');
   if (!wrap) return;
+  console.log('[blotter] render tab:', blotterTab, 'orders:', Object.keys(blotterData.orders).length, 'algos:', Object.keys(blotterData.algos).length);
   const hasPeriods = PERIOD_TABS.includes(blotterTab);
   // Period pill bar — rendered in separate container above the scrolling table
   const periodContainer = document.getElementById('bl-period-container');
@@ -7490,11 +7567,21 @@ function blotterOrdersHTML(ordersMap, tabId) {
   }
 
   let body = '';
+  const _consumedOrderIds = new Set();
   // Render algo parent rows from blotterData.algos
   for (const [sid, s] of Object.entries(blotterData.algos || {})) {
     const shortId = s.shortId || sid.substring(sid.length - 6);
-    const parentId = `TWAP-${shortId}`;
-    const children = algoChildren.get(parentId) || [];
+    // Match children by strategy type prefix OR _strategyId
+    const children = [];
+    const _seen = new Set();
+    for (const key of [`${s.type||'ALGO'}-${shortId}`, `TWAP-${shortId}`, sid]) {
+      for (const c of (algoChildren.get(key) || [])) {
+        if (!_seen.has(c.order_id)) { children.push(c); _seen.add(c.order_id); }
+      }
+    }
+    for (const o of rows) {
+      if (o._strategyId === sid && !_seen.has(o.order_id)) { children.push(o); _seen.add(o.order_id); }
+    }
     if (children.length === 0 && !s.symbol) continue;
     const expanded = _algoOrderExpanded[sid] !== false;
     const arrow = expanded ? '▼' : '▶';
@@ -7516,7 +7603,7 @@ function blotterOrdersHTML(ordersMap, tabId) {
       <td>${formatNum(totalAmt, 4)}</td><td>${formatNum(totalFilled, 4)}</td><td>${formatNum(Math.max(0, totalAmt - totalFilled), 4)}</td>
       <td>${avgPx ? blotterPriceFmt(avgPx, s.venue, s.symbol) : '—'}</td>
       <td class="${stc}">${st || '—'}</td>
-      <td style="font-size:9px;color:#444">${parentId}</td>
+      <td style="font-size:9px;color:#444">${algoType}-${shortId}</td>
       <td></td>
     </tr>`;
     if (expanded) {
@@ -7540,7 +7627,15 @@ function blotterOrdersHTML(ordersMap, tabId) {
         </tr>`;
       }
     }
-    algoChildren.delete(parentId);
+    // Mark these children as consumed
+    for (const c of children) _consumedOrderIds.add(c.order_id);
+  }
+
+  // Render orphaned algo children (parent no longer in blotterData.algos) as standalone
+  for (const [, orphans] of algoChildren) {
+    for (const o of orphans) {
+      if (!_consumedOrderIds.has(o.order_id)) { standaloneRows.push(o); _consumedOrderIds.add(o.order_id); }
+    }
   }
 
   // Render standalone (non-algo) orders
@@ -7847,6 +7942,7 @@ function initBlotter() {
     btn.addEventListener('click', () => {
       if (!blotterExpanded) expandBlotter();
       blotterTab = btn.dataset.bl;
+      console.log('[tab click]', blotterTab, 'orders count:', Object.keys(blotterData.orders).length, 'algos count:', Object.keys(blotterData.algos).length);
       // Start/stop consolidated poll
       if (blotterTab === 'consolidated') _startConsolPoll();
       else _stopConsolPoll();
@@ -7932,9 +8028,16 @@ function initBlotter() {
 
       // Merge orders from non-Deribit exchanges (update existing, add new)
       if (data.orders?.length) {
+        const algoOrders = data.orders.filter(o => o.strategyId || o.parentOrderId);
+        if (algoOrders.length) console.log('[blotter] polling received', data.orders.length, 'orders,', algoOrders.length, 'algo orders:', algoOrders.map(o => o.orderId?.slice(-8) + ':' + o.state).join(', '));
         for (const o of data.orders) {
           // Skip Deribit orders from browser WS — but allow simulated algo child orders through
-          if ((o.venue || '').toUpperCase() === 'DERIBIT' && !o.parentOrderId && !o.metadata?.simulated) continue;
+          const _isDeribit = (o.venue || '').toUpperCase() === 'DERIBIT';
+          const _isAlgoOrder = !!(o.parentOrderId || o.strategyId || o.metadata?.simulated || o.metadata?.strategyId);
+          if (_isDeribit && !_isAlgoOrder && !blotterData.orders[o.orderId]) {
+            if (!window._blotterFilterLogOnce) { console.log('[blotter] filtered Deribit order:', o.orderId, 'venue:', o.venue, 'parentId:', o.parentOrderId, 'strategyId:', o.strategyId, 'simulated:', o.metadata?.simulated); window._blotterFilterLogOnce = true; }
+            continue;
+          }
           const existing = blotterData.orders[o.orderId];
           // Always update — server blotter is authoritative for non-Deribit
           blotterData.orders[o.orderId] = {
@@ -7946,7 +8049,7 @@ function initBlotter() {
             creation_timestamp: existing?.creation_timestamp || o.timestamp,
             last_update_timestamp: o.timestamp,
             _parentOrderId: o.parentOrderId || existing?._parentOrderId || null,
-            _strategyId: o.strategyId || existing?._strategyId || null,
+            _strategyId: o.strategyId || o.metadata?.strategyId || existing?._strategyId || null,
             _metadata: o.metadata || existing?._metadata || null,
           };
         }
@@ -8245,7 +8348,12 @@ function initBlotter() {
     document.getElementById('algo-f-symbol').value = instrument;
     document.getElementById('algo-f-exchange').value = _algoExchange;
     document.getElementById('algo-f-size').value = qty || '';
-    attachShorthandInput(document.getElementById('algo-f-size'));
+    const _algoSizeEl = document.getElementById('algo-f-size');
+    attachShorthandInput(_algoSizeEl);
+    attachLotValidation(_algoSizeEl, () => {
+      const tile = panels.find(p => p.instrument === document.getElementById('algo-f-symbol')?.value && p.exchange === _algoExchange);
+      return tile?._spec?.lotSize || 0;
+    });
     document.getElementById('algo-f-duration').value = '30';
     document.getElementById('algo-f-start').value = '';
     document.getElementById('algo-f-buy').className = _algoSide === 'BUY' ? 'buy-active' : '';
@@ -8759,7 +8867,8 @@ function initBlotter() {
       const r = await fetch(TCA_BASE + '/api/algo/status');
       const j = await r.json();
       const strats = j.strategies || {};
-      blotterData.algos = strats;
+      // Merge — don't replace. Keeps completed strategies visible for their child orders.
+      for (const [sid, s] of Object.entries(strats)) blotterData.algos[sid] = s;
       const active = Object.values(strats).filter(s => s.state === 'RUNNING' || s.state === 'PAUSED').length;
       blotterBadge.algos = active;
       blotterUpdateBadge('algos');

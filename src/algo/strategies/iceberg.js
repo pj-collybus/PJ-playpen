@@ -9,6 +9,8 @@
 
 'use strict';
 
+const { floorToLot } = require('../../utils/sizeUtils');
+
 const config = {
   name: 'ICEBERG',
   displayName: 'Iceberg',
@@ -247,7 +249,7 @@ class IcebergStrategy {
     let sliceSize = this._visibleSize + (Math.random() * 2 - 1) * varianceAmt;
     sliceSize = Math.max(this._lotSize, Math.min(sliceSize, this.remainingSize));
     // Round to lotSize
-    sliceSize = Math.round(sliceSize / this._lotSize) * this._lotSize;
+    sliceSize = floorToLot(sliceSize, this._lotSize);
     sliceSize = Math.max(this._lotSize, Math.min(sliceSize, this.remainingSize));
     this.currentSliceSize = sliceSize;
 

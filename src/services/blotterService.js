@@ -68,7 +68,7 @@ class BlotterService extends EventEmitter {
 
     // Order state changes
     await subscribe(Topics.ORDERS, 'blotterService-orders', async (order) => {
-      console.log('[blotterService] Received order:', order.venue, order.symbol, order.state);
+      console.log('[blotterService] Received order:', order.orderId?.slice(-8), order.venue, order.symbol, order.state, 'parentId:', order.parentOrderId?.slice(-12), 'total orders:', this._orders.size + 1);
       // Deduplicate: if a venue orderId matches an existing entry, update it instead of creating new
       let key = order.orderId;
       if (order.venueOrderId) {

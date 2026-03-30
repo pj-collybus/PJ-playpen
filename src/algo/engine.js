@@ -358,7 +358,7 @@ function _submitIntent(strategyId, intent) {
 
   _send('ORDER_INTENT', {
     intentId, strategyId, shortId: entry.shortId,
-    parentOrderId: `TWAP-${entry.shortId}`,
+    parentOrderId: `${entry.strategyType || 'ALGO'}-${entry.shortId}`,
     sliceNumber: entry.childOrders.length,
     symbol: intent.symbol, side: intent.side, quantity: intent.quantity,
     limitPrice: intent.limitPrice, orderType: intent.orderType || 'LIMIT',

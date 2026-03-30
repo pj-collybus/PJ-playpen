@@ -15,6 +15,8 @@
 
 'use strict';
 
+const { floorToLot, splitToLots } = require('../../utils/sizeUtils');
+
 const config = {
   name: 'SNIPER',
   displayName: 'Sniper',
@@ -128,7 +130,7 @@ class SniperStrategy {
     this._retriggerMode        = params.retriggerMode || 'same';
     this._retriggerImproveTicks = parseInt(params.retriggerImproveTicks) || 1;
     this._retriggerCooldownMs  = parseInt(params.retriggerCooldownMs) || 3000;
-    this._maxRetriggers        = parseInt(params.maxRetriggers) || 5;
+    this._maxRetriggers        = parseInt(params.maxRetriggers) || (this._levelMode === 'simultaneous' ? 20 : 5);
 
     // Iceberg
     this._icebergEnabled       = String(params.icebergEnabled) === 'true';
@@ -200,6 +202,26 @@ class SniperStrategy {
 
   get type() { return 'SNIPER'; }
 
+  // True completion: all quantity filled, OR all components resolved
+  _isComplete() {
+    if (this.filledSize >= this.totalSize - 0.001) return true;
+
+    // For simultaneous Post+Snipe: resting filled AND all levels done
+    if (this._levelMode === 'simultaneous' && this._executionMode === 'post_snipe') {
+      const restingDone = !this._postOrderId && this._roundNumber > 0;
+      const allLevelsDone = this._levels.every(l => {
+        const tol = Math.max(0.001, l.allocatedSize * 0.01);
+        return l.filledSize >= l.allocatedSize - tol || l.retriggerCount >= this._maxRetriggers || l.status === 'COMPLETED';
+      });
+      if (restingDone && allLevelsDone) return true;
+    }
+
+    // For sequential snipe: all levels done
+    if (this._executionMode === 'snipe' && this.activeLevelIndex >= this._levels.length) return true;
+
+    return false;
+  }
+
   start(ctx) {
     this._ctx = ctx;
     if (this._executionMode === 'post_snipe') {
@@ -250,21 +272,21 @@ class SniperStrategy {
     if (this._levelMode === 'simultaneous' && this._levels.length > 1) {
       this._postSnipePhase = 'ACTIVE';
       this._currentRoundTotal = remaining;
-      // Post size = total - sum of level allocations
+      // Post size = total - sum of level allocations (remainder from lot rounding goes here)
       const totalSnipeAlloc = this._levels.reduce((s, l) => s + l.allocatedSize, 0);
-      this._currentPostSize = Math.max(0, this.totalSize - totalSnipeAlloc) - this.passiveFillSize;
-      if (this._currentPostSize < this._lotSize) this._currentPostSize = 0;
-      this._currentSnipeSize = totalSnipeAlloc;
-      console.log(`[post+snipe] Round ${this._roundNumber} SIMULTANEOUS: ${this._levels.length} levels, post=${this._currentPostSize.toFixed(4)}, snipeAlloc=${totalSnipeAlloc.toFixed(4)}`);
-      console.log('[sniper] simultaneous mode: activating', this._levels.length, 'levels simultaneously');
-      // Place resting order for post portion
-      if (this._currentPostSize >= this._lotSize) {
-        const postQty = Math.floor(this._currentPostSize / this._lotSize) * this._lotSize;
+      const totalSnipeFilled = this._levels.reduce((s, l) => s + l.filledSize, 0);
+      const snipeRemaining = totalSnipeAlloc - totalSnipeFilled;
+      this._currentPostSize = Math.max(0, remaining - snipeRemaining);
+      this._currentSnipeSize = snipeRemaining;
+      console.log(`[post+snipe] Round ${this._roundNumber} SIMULTANEOUS: totalSize=${this.totalSize} remaining=${remaining.toFixed(4)} snipeAlloc=${totalSnipeAlloc.toFixed(4)} snipeFilled=${totalSnipeFilled.toFixed(4)} post=${this._currentPostSize.toFixed(4)} snipeRemaining=${snipeRemaining.toFixed(4)}`);
+      console.log('[sniper] simultaneous mode: activating', this._levels.length, 'levels:', this._levels.map((l,i) => `L${i+1}=$${l.currentSnipePrice} alloc=${l.allocatedSize} filled=${l.filledSize}`).join(', '));
+      // Place resting order for post portion — use raw size (remainder from active rounding)
+      if (this._currentPostSize > 0) {
         this._postOrderId = this._ctx.submitIntent({
-          symbol: this.symbol, side: this.side, quantity: postQty,
+          symbol: this.symbol, side: this.side, quantity: this._currentPostSize,
           limitPrice: this._targetPrice, orderType: 'LIMIT', algoType: 'SNIPER-POST',
         });
-        this.restingOrderSize = postQty;
+        this.restingOrderSize = this._currentPostSize;
         this._restingPrice = this._targetPrice;
       }
       return;
@@ -276,7 +298,7 @@ class SniperStrategy {
       // Below min snipe size or snipe cap reached — rest full remaining passively
       this._postSnipePhase = 'REST_ONLY';
       this._currentRoundTotal = remaining;
-      this._currentPostSize = remaining < this._lotSize ? remaining : Math.floor(remaining / this._lotSize) * this._lotSize;
+      this._currentPostSize = remaining; // passive absorbs all remainder — no rounding
       this._currentSnipeSize = 0;
       const reason = remainingSnipeAllowance < this._lotSize ? 'snipe cap reached' : 'below min snipe size';
       console.log(`[post+snipe] Round ${this._roundNumber} REST_ONLY (${reason}): ${this._currentPostSize.toFixed(4)} @ $${this._targetPrice}`);
@@ -285,7 +307,7 @@ class SniperStrategy {
       this._currentRoundTotal = remaining;
       // Snipe size = smaller of: 50% of remaining OR remaining snipe allowance
       let thisRoundSnipe = Math.min(remaining * 0.5, remainingSnipeAllowance);
-      thisRoundSnipe = Math.floor(thisRoundSnipe / this._lotSize) * this._lotSize;
+      thisRoundSnipe = floorToLot(thisRoundSnipe, this._lotSize);
       if (thisRoundSnipe < this._lotSize) thisRoundSnipe = remaining < this._lotSize ? remaining : 0;
       this._currentSnipeSize = thisRoundSnipe;
       this._currentPostSize = remaining - thisRoundSnipe;
@@ -351,7 +373,7 @@ class SniperStrategy {
       if (this.status !== 'ACTIVE' || bid <= 0 || ask <= 0) return;
 
       // Completion check
-      if (this.filledSize >= this.totalSize - 0.001) {
+      if (this._isComplete()) {
         this._completedTs = now; this.status = 'COMPLETED'; this.stop(); return;
       }
 
@@ -363,8 +385,14 @@ class SniperStrategy {
         for (let li = 0; li < this._levels.length; li++) {
           const lvl = this._levels[li];
           const lvlTol = Math.max(0.001, lvl.allocatedSize * 0.01);
-          if (lvl.filledSize >= lvl.allocatedSize - lvlTol) { lvl.status = 'COMPLETED'; continue; }
-          if (lvl.retriggerCount >= this._maxRetriggers) { lvl.status = 'COMPLETED'; continue; }
+          if (lvl.filledSize >= lvl.allocatedSize - lvlTol) {
+            if (lvl.status !== 'COMPLETED') console.log(`[sniper] L${li+1} completed: filled=${lvl.filledSize.toFixed(4)}/${lvl.allocatedSize.toFixed(4)}`);
+            lvl.status = 'COMPLETED'; continue;
+          }
+          if (lvl.retriggerCount >= this._maxRetriggers) {
+            if (lvl.status !== 'COMPLETED') console.log(`[sniper] L${li+1} completed: maxRetriggers exhausted (${lvl.retriggerCount}/${this._maxRetriggers}) filled=${lvl.filledSize.toFixed(4)}/${lvl.allocatedSize.toFixed(4)}`);
+            lvl.status = 'COMPLETED'; continue;
+          }
           if (lvl.activeChildId) continue;
           if (lvl._retriggerAt && now < lvl._retriggerAt) continue;
 
@@ -375,7 +403,7 @@ class SniperStrategy {
           lvl.status = 'FIRING';
           const lvlRemaining = Math.max(0, lvl.allocatedSize - lvl.filledSize);
           if (lvlRemaining < this._lotSize * 0.01) { lvl.status = 'COMPLETED'; continue; }
-          const qty = lvlRemaining < this._lotSize ? lvlRemaining : Math.floor(lvlRemaining / this._lotSize) * this._lotSize;
+          const qty = floorToLot(lvlRemaining, this._lotSize);
           if (qty <= 0) { lvl.status = 'COMPLETED'; continue; }
           const price = this.side === 'BUY' ? ask + this._tickSize : bid - this._tickSize;
           lvl.activeChildId = this._ctx.submitIntent({
@@ -408,7 +436,7 @@ class SniperStrategy {
           this._restingPrice = null;
 
           const snipeQty = Math.min(this._currentSnipeSize, this.totalSize - this.filledSize);
-          const roundedQty = snipeQty < this._lotSize ? snipeQty : Math.floor(snipeQty / this._lotSize) * this._lotSize;
+          const roundedQty = floorToLot(snipeQty, this._lotSize);
           if (roundedQty <= 0) return;
 
           const price = this.side === 'BUY' ? (this._lastMd?.askPrice || ask) + this._tickSize : (this._lastMd?.bidPrice || bid) - this._tickSize;
@@ -433,7 +461,7 @@ class SniperStrategy {
     }
 
     // Check completion
-    if (this.filledSize >= this.totalSize - 0.001) {
+    if (this._isComplete()) {
       this._completedTs = now; this.status = 'COMPLETED'; this.stop(); return;
     }
 
@@ -458,7 +486,7 @@ class SniperStrategy {
         lvl.status = 'FIRING';
         const lvlRemaining = Math.max(0, lvl.allocatedSize - lvl.filledSize);
         if (lvlRemaining < this._lotSize * 0.01) { lvl.status = 'COMPLETED'; continue; }
-        const qty = lvlRemaining < this._lotSize ? lvlRemaining : Math.floor(lvlRemaining / this._lotSize) * this._lotSize;
+        const qty = floorToLot(lvlRemaining, this._lotSize);
         if (qty <= 0) { lvl.status = 'COMPLETED'; continue; }
         const price = this.side === 'BUY' ? ask + this._tickSize : bid - this._tickSize;
         lvl.activeChildId = this._ctx.submitIntent({
@@ -468,8 +496,7 @@ class SniperStrategy {
         console.log(`[sniper] Simultaneous L${li+1} firing: ${qty.toFixed(4)} @ $${price} (allocated=${lvl.allocatedSize.toFixed(4)} filled=${lvl.filledSize.toFixed(4)})`);
       }
       if (allDone) {
-        // All snipe levels exhausted — check if resting order fills the rest
-        if (this.filledSize >= this.totalSize - 0.001) {
+        if (this._isComplete()) {
           this._completedTs = now; this.status = 'COMPLETED'; this.stop();
         }
       }
@@ -561,7 +588,7 @@ class SniperStrategy {
 
     if (!this._icebergEnabled) {
       // Single IOC capped to level remaining — use remaining directly if less than 1 lot
-      const qty = levelRemaining < this._lotSize ? levelRemaining : this._roundQtyDown(levelRemaining);
+      const qty = levelRemaining < this._lotSize ? levelRemaining : floorToLot(levelRemaining, this._lotSize);
       if (qty <= 0) return;
       const price = this.side === 'BUY' ? ask + this._tickSize : bid - this._tickSize;
       level.activeChildId = this._ctx.submitIntent({
@@ -579,7 +606,7 @@ class SniperStrategy {
       if (now < level.nextIcebergAt) return;
 
       const rawSlice = Math.min(level.icebergRemaining, level.allocatedSize * this._icebergSlicePct / 100, levelRemaining);
-      const sliceSize = rawSlice < this._lotSize ? rawSlice : this._roundQtyDown(rawSlice);
+      const sliceSize = rawSlice < this._lotSize ? rawSlice : floorToLot(rawSlice, this._lotSize);
       if (sliceSize <= 0) return;
 
       const price = this.side === 'BUY' ? ask + this._tickSize : bid - this._tickSize;
@@ -682,7 +709,7 @@ class SniperStrategy {
       console.log(`[post+snipe] Fill (${fillType}): ${cappedFill.toFixed(4)} @ ${fill.fillPrice} — passive=${this.passiveFillSize.toFixed(4)} sniped=${this.snipedSize.toFixed(4)} total=${this.filledSize.toFixed(4)}/${this.totalSize.toFixed(4)}`);
 
       // Completion check
-      if (this.filledSize >= this.totalSize - 0.001) {
+      if (this._isComplete()) {
         this._completedTs = Date.now(); this.status = 'COMPLETED'; this.stop(); return;
       }
 
@@ -737,7 +764,7 @@ class SniperStrategy {
       level.status = 'COMPLETED';
       this.activeLevelIndex++;
       console.log(`[sniper] Level ${levelIdx + 1} COMPLETED (filled=${level.filledSize.toFixed(4)}/${level.allocatedSize.toFixed(4)}) — advancing to ${this.activeLevelIndex + 1}`);
-      if (this.activeLevelIndex >= this._levels.length || this.filledSize >= this.totalSize - 0.001) {
+      if (this._isComplete()) {
         this._completedTs = Date.now(); this.status = 'COMPLETED';
         console.log(`[sniper] All levels COMPLETED: avg ${this.avgFillPrice.toFixed(4)}`);
         this.stop();

@@ -174,10 +174,16 @@ app.get('/api/options/index-price', async (req, res) => {
 
 // ── Discretion order API ─────────────────────────────────────────────────────
 const discretionService = require('./src/services/discretionService');
+const { validateSize } = require('./src/utils/sizeUtils');
+
+app.post('/api/validate-size', (req, res) => {
+  const { size, lotSize } = req.body;
+  res.json(validateSize(parseFloat(size) || 0, parseFloat(lotSize) || 0));
+});
 
 app.post('/api/discretion/calculate', (req, res) => {
   try {
-    const { limitPrice, discretionBps, discretionPct, side, tickSize, totalSize } = req.body;
+    const { limitPrice, discretionBps, discretionPct, side, tickSize, totalSize, lotSize } = req.body;
     if (!limitPrice || !discretionBps || !side) return res.status(400).json({ error: 'limitPrice, discretionBps, and side required' });
     const result = discretionService.calculate({
       limitPrice: parseFloat(limitPrice),
@@ -186,6 +192,7 @@ app.post('/api/discretion/calculate', (req, res) => {
       side: String(side).toUpperCase(),
       tickSize: parseFloat(tickSize) || 0.0001,
       totalSize: totalSize ? parseFloat(totalSize) : null,
+      lotSize: lotSize ? parseFloat(lotSize) : null,
     });
     res.json(result);
   } catch (e) {
@@ -438,7 +445,9 @@ const blotterService = require('./src/services/blotterService');
 
 app.get('/api/blotter', (req, res) => {
   const { venue } = req.query;
-  res.json(blotterService.getSnapshot(venue || undefined));
+  const snap = blotterService.getSnapshot(venue || undefined);
+  if (!global._blotterApiLogOnce) { console.log(`[blotter api] orders count: ${snap.orders?.length}, trades: ${snap.trades?.length}, positions: ${snap.positions?.length}`); global._blotterApiLogOnce = true; }
+  res.json(snap);
 });
 
 app.get('/api/positions/consolidated', async (req, res) => {
@@ -915,6 +924,8 @@ function spawnAlgoWorker() {
         // Publish FILLED order update so blotter/child order table shows filled state
         // Note: do not set parentOrderId here — the OPEN event already set it correctly
         // and blotterService merge preserves existing fields via spread
+        // Look up parentOrderId from the original OPEN event
+        const origOrder = _openSimOrders.get(msg.intentId);
         publish(Topics.ORDERS, {
           orderId:           msg.intentId,
           venueOrderId:      msg.intentId,
@@ -928,6 +939,7 @@ function spawnAlgoWorker() {
           state:             'FILLED',
           updatedTs:         fillTs,
           algoType:          'ALGO',
+          parentOrderId:     origOrder?.parentOrderId || msg.strategyId,
           metadata:          { source: 'algo', strategyId: msg.strategyId, intentId: msg.intentId, simulated: true },
         }, msg.symbol).catch(() => {});
         publish(Topics.FILLS, {
@@ -1041,8 +1053,9 @@ async function _handleOrderIntent(intent) {
 
   // For sim-fill venues, skip real exchange — the worker's sim fill system handles it
   if (_simFillVenueSet.has(venue)) {
-    console.log(`[algo] ORDER_INTENT ${intent.intentId} — sim-fill venue ${venue}, skipping exchange submission`);
+    console.log(`[algo] ORDER_INTENT ${intent.intentId} — sim-fill venue ${venue}, strategy=${intent.strategyId?.slice(-6)}, type=${intent.algoType}, qty=${intent.quantity}`);
     // Publish synthetic OPEN order so it appears in blotter and child order tables
+    console.log(`[sim] publishing OPEN for orderId: ${intent.intentId} parentOrderId: ${intent.parentOrderId || intent.strategyId} strategyId: ${intent.strategyId?.slice(-6)}`);
     const now = Date.now();
     publish(Topics.ORDERS, {
       orderId:           intent.intentId,

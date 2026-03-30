@@ -9,6 +9,8 @@
 
 'use strict';
 
+const { floorToLot } = require('../../utils/sizeUtils');
+
 const config = {
   name: 'VWAP',
   displayName: 'VWAP',
@@ -339,7 +341,7 @@ class VWAPStrategy {
     }
 
     sliceSize = Math.max(this._lotSize, Math.min(sliceSize, this.remainingSize));
-    sliceSize = Math.round(sliceSize / this._lotSize) * this._lotSize;
+    sliceSize = floorToLot(sliceSize, this._lotSize);
     sliceSize = Math.max(this._lotSize, Math.min(sliceSize, this.remainingSize));
 
     // Benchmark mode: auto-adjust urgency based on VWAP performance
