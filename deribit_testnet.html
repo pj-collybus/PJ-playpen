@@ -8379,10 +8379,13 @@ function initBlotter() {
 
 // ── Algo order modal + blotter tab + floating monitors ───────────────────────
 (function initAlgoSystem() {
+  // Wire AlgoMonitor data provider
+  if (window.AlgoMonitor) window.AlgoMonitor.setDataProvider(sid => blotterData.algos[sid]);
+
   let _algoType = '', _algoSide = 'BUY', _algoSymbol = '', _configs = [];
   let _pollTimer = null;
-  const _monitors = new Map(); // strategyId → DOM element
-  const _chartInstances = new Map(); // sid → Chart.js instance
+  const _monitors = new Map(); // strategyId → DOM element (legacy fallback)
+  const _chartInstances = new Map(); // sid → Chart.js instance (legacy fallback)
   const _chartVisible = {}; // sid → boolean
 
   // ── Load strategy configs from server ────────────────────────────────────
@@ -8941,23 +8944,18 @@ function initBlotter() {
       blotterBadge.algos = active;
       blotterUpdateBadge('algos');
       if (blotterTab === 'algos') renderBlotterTable();
-      // Update open monitors (legacy + AlgoMonitor module)
+      // Update monitors and charts via AlgoMonitor module
+      if (window.AlgoMonitor) {
+        for (const [sid] of window.AlgoMonitor.getMonitors()) {
+          if (strats[sid]) window.AlgoMonitor.updateMonitor(sid, strats[sid]);
+        }
+        window.AlgoMonitor.updateAllCharts();
+      }
+      // Legacy fallback
       for (const [sid, el] of _monitors) {
         if (strats[sid]) _updateMonitor(sid, strats[sid], el);
       }
-      if (window.AlgoMonitor) {
-        for (const [sid] of window.AlgoMonitor.getMonitors()) {
-          if (strats[sid]) window.AlgoMonitor.updateAlgoMonitor(sid, strats[sid]);
-        }
-      }
-      // Update execution charts (legacy + module)
       if (_chartInstances.size > 0) _updateCharts();
-      const amCharts = window.AlgoMonitor?.getChartInstances();
-      if (amCharts?.size > 0) {
-        for (const [sid, chart] of amCharts) {
-          if (strats[sid]) window._amUpdateChart?.(sid, chart, strats[sid]);
-        }
-      }
     } catch {}
   }
   _pollTimer = setInterval(_pollAlgos, 2000);
