@@ -595,7 +595,7 @@ class SniperStrategy {
         symbol: this.symbol, side: this.side, quantity: qty,
         limitPrice: price, orderType: 'LIMIT', timeInForce: 'IOC', algoType: 'SNIPER',
       });
-      this._restingPrice = price;
+      // Don't set _restingPrice for IOC snipe orders — only for genuine resting orders
       console.log(`[sniper] L${this.activeLevelIndex + 1} firing size=${qty.toFixed(4)} allocated=${level.allocatedSize.toFixed(4)} filled=${level.filledSize.toFixed(4)} remaining=${levelRemaining.toFixed(4)} @ $${price}`);
     } else {
       // Iceberg: fire slices capped to level remaining
@@ -614,7 +614,6 @@ class SniperStrategy {
         symbol: this.symbol, side: this.side, quantity: sliceSize,
         limitPrice: price, orderType: 'LIMIT', timeInForce: 'IOC', algoType: 'SNIPER',
       });
-      this._restingPrice = price;
       level.nextIcebergAt = now + this._icebergDelayMinMs + Math.random() * (this._icebergDelayMaxMs - this._icebergDelayMinMs);
       console.log(`[sniper] L${this.activeLevelIndex + 1} Iceberg firing size=${sliceSize.toFixed(4)} allocated=${level.allocatedSize.toFixed(4)} filled=${level.filledSize.toFixed(4)} remaining=${levelRemaining.toFixed(4)} @ $${price}`);
     }
@@ -691,7 +690,11 @@ class SniperStrategy {
         lvl.filledSize += lvlCapped;
         lvl.activeChildId = null;
         const levelColors = ['snipe-L1', 'snipe-L2', 'snipe-L3', 'snipe-L4', 'snipe-L5'];
-        this._chartFills.push({ time: Date.now(), price: fill.fillPrice, size: lvlCapped, side: this.side, simulated: !!fill.simulated, fillType: levelColors[levelFillIdx] || 'snipe' });
+        // Offset Y for overlapping fills at similar timestamps
+        let fillY = fill.fillPrice;
+        const lastFill = this._chartFills[this._chartFills.length - 1];
+        if (lastFill && Math.abs(Date.now() - lastFill.time) < 1000) fillY += this._tickSize * 2 * (levelFillIdx + 1);
+        this._chartFills.push({ time: Date.now(), price: fillY, size: lvlCapped, side: this.side, simulated: !!fill.simulated, fillType: levelColors[levelFillIdx] || 'snipe' });
         console.log(`[post+snipe] L${levelFillIdx+1} Fill: ${lvlCapped.toFixed(4)} @ ${fill.fillPrice} — level ${lvl.filledSize.toFixed(4)}/${lvl.allocatedSize.toFixed(4)}`);
         // Retrigger for level partial fill
         if (lvl.filledSize < lvl.allocatedSize - Math.max(0.001, lvl.allocatedSize * 0.01)) {
@@ -747,8 +750,12 @@ class SniperStrategy {
 
     // Determine fill colour by level index
     const levelColors = ['snipe-L1', 'snipe-L2', 'snipe-L3', 'snipe-L4', 'snipe-L5'];
+    // Offset Y for overlapping fills at similar timestamps
+    let fillY = fill.fillPrice;
+    const lastFill = this._chartFills[this._chartFills.length - 1];
+    if (lastFill && Math.abs(Date.now() - lastFill.time) < 1000) fillY += this._tickSize * 2 * (levelIdx + 1);
     this._chartFills.push({
-      time: Date.now(), price: fill.fillPrice, size: levelCappedFill,
+      time: Date.now(), price: fillY, size: levelCappedFill,
       side: this.side, simulated: !!fill.simulated,
       fillType: levelColors[levelIdx] || 'snipe',
     });

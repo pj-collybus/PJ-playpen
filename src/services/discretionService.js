@@ -34,12 +34,14 @@ class DiscretionService {
     if (totalSize && lotSize) {
       const { activeSizes, passiveSize } = splitWithPassive(totalSize, discretionPct, 3, lotSize);
       const totalActive = activeSizes.reduce((a, b) => a + b, 0);
+      const levels = [
+        { price: this._roundToTick(limitPrice + range * (1/3), tickSize), size: activeSizes[0], pct: totalSize > 0 ? activeSizes[0] / totalSize * 100 : 0, levelIndex: 0, enabled: true },
+        { price: this._roundToTick(limitPrice + range * (2/3), tickSize), size: activeSizes[1], pct: totalSize > 0 ? activeSizes[1] / totalSize * 100 : 0, levelIndex: 1, enabled: true },
+        { price: this._roundToTick(discretionPrice, tickSize),            size: activeSizes[2], pct: totalSize > 0 ? activeSizes[2] / totalSize * 100 : 0, levelIndex: 2, enabled: true },
+      ];
+      console.log(`[discretion] side=${side} limit=${limitPrice} discPrice=${discretionPrice} range=${range} L1=${levels[0].price} L2=${levels[1].price} L3=${levels[2].price} sizes=[${activeSizes}] passive=${passiveSize}`);
       return {
-        levels: [
-          { price: this._roundToTick(limitPrice + range * (1/3), tickSize), size: activeSizes[0], pct: totalSize > 0 ? activeSizes[0] / totalSize * 100 : 0, levelIndex: 0, enabled: true },
-          { price: this._roundToTick(limitPrice + range * (2/3), tickSize), size: activeSizes[1], pct: totalSize > 0 ? activeSizes[1] / totalSize * 100 : 0, levelIndex: 1, enabled: true },
-          { price: this._roundToTick(discretionPrice, tickSize),            size: activeSizes[2], pct: totalSize > 0 ? activeSizes[2] / totalSize * 100 : 0, levelIndex: 2, enabled: true },
-        ],
+        levels,
         passiveSize,
         totalSnipeSize: totalActive,
       };
