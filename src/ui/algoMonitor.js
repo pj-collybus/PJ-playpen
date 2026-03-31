@@ -57,7 +57,10 @@ function _openMonitor(sid, { centre = false, x, y, width, chartOpen } = {}) {
   };
 
   // Add to panels array
-  if (typeof panels !== 'undefined') panels.push(panelState);
+  if (typeof panels !== 'undefined') {
+    panels.push(panelState);
+    console.log('[AlgoMonitor] pushed to panels:', panelState.panelType, panelState.strategyId, 'panels.length:', panels.length);
+  }
 
   const el = document.createElement('div');
   el.className = 'algo-monitor status-' + (s.state || s.status || 'STOPPED');
@@ -76,9 +79,9 @@ function _openMonitor(sid, { centre = false, x, y, width, chartOpen } = {}) {
         <button onclick="_algoCloseMonitor('${sid}')" title="Close">&times;</button>
       </div>
     </div>
-    <div style="display:flex;flex:1;min-height:0;overflow:hidden">
-      <div class="algo-monitor-body" id="algo-mon-body-${sid}" style="width:480px;flex-shrink:0;overflow-y:auto"></div>
-      <div class="amon-chart-pane" id="amon-chart-pane-${sid}" style="display:none;flex:1;min-width:280px;flex-direction:column;border-left:1px solid #1a1a22">
+    <div style="display:flex;flex:1;min-height:0;overflow:visible">
+      <div class="algo-monitor-body" id="algo-mon-body-${sid}" style="min-width:480px;width:480px;flex-shrink:0;overflow-y:auto"></div>
+      <div class="amon-chart-pane" id="amon-chart-pane-${sid}" style="display:none;width:320px;flex-shrink:0;flex-direction:column;border-left:1px solid #1a1a22"
         <div class="amon-chart-hdr">
           <span>Execution Chart</span>
           <button style="background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:0 3px" onclick="_closeChart('${sid}')">&times;</button>
@@ -395,7 +398,7 @@ function _openChart(sid) {
   if (!pane) return;
   pane.style.display = 'flex';
   _chartVisible[sid] = true;
-  el.style.width = '780px'; // expand panel to fit chart
+  el.style.width = '800px'; // expand panel: 480 monitor + 320 chart
 
   // Create Chart.js instance
   requestAnimationFrame(() => {
@@ -559,7 +562,9 @@ function destroyMonitorPanel(panelState) {
 // ── Snapshot ────────────────────────────────────────────────────────────────
 function snapshotMonitor(s) {
   const el = s._el || document.getElementById(`panel-${s.id}`);
-  return { panelType: 'algo-monitor', strategyId: s.strategyId, x: s.x, y: s.y, width: el ? el.offsetWidth : 480, chartOpen: !!_chartVisible[s.strategyId] };
+  const result = { panelType: 'algo-monitor', strategyId: s.strategyId, x: s.x, y: s.y, width: el ? el.offsetWidth : 480, chartOpen: !!_chartVisible[s.strategyId] };
+  console.log('[AlgoMonitor] snapshot:', result);
+  return result;
 }
 
 // ── Register with PanelGrid ─────────────────────────────────────────────────

@@ -2663,9 +2663,8 @@ function restoreLayoutPanels(layout) {
       try {
       // Algo monitor restore
       if (p.panelType === 'algo-monitor') {
-        if (window.AlgoMonitor) {
-          const stratData = blotterData.algos[p.strategyId] || {};
-          window.AlgoMonitor.openMonitor(p.strategyId, { x: p.x, y: p.y });
+        if (window.AlgoMonitor && blotterData.algos && blotterData.algos[p.strategyId]) {
+          window.AlgoMonitor.openMonitor(p.strategyId, { x: p.x, y: p.y, width: p.width, chartOpen: p.chartOpen });
         }
         continue;
       }
