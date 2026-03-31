@@ -1407,6 +1407,7 @@ canvas.clickable { cursor: crosshair; }
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="src/ui/algoMonitor.js"></script>
 <script>
 // Server base URL — must be first so all fetch calls can use it
 const TCA_BASE = (location.protocol === 'file:') ? 'http://localhost:3000' : '';
@@ -2599,6 +2600,9 @@ function loadPersistedLayouts() {
 }
 
 function panelSnapshot(s) {
+  if (s.panelType === 'algo-monitor') {
+    return window.AlgoMonitor ? window.AlgoMonitor.snapshotAlgoMonitor(s) : { panelType: 'algo-monitor', strategyId: s.strategyId, x: s.x, y: s.y };
+  }
   if (s.panelType === 'options-matrix') {
     const el = document.getElementById(`panel-${s.id}`);
     return { panelType: 'options-matrix', instrument: s.instrument, cpFilter: s.cpFilter,
@@ -2636,6 +2640,10 @@ function destroyAllPanels() {
     ws.send(JSON.stringify({ jsonrpc:'2.0', id:idCounter++, method:'public/unsubscribe', params:{ channels:chs } }));
   for (const s of [...panels]) {
     if (s._isSpreadLeg) continue; // legs cleaned up by their parent
+    if (s.panelType === 'algo-monitor') {
+      if (window.AlgoMonitor) window.AlgoMonitor.destroyAlgoMonitorPanel(s);
+      continue;
+    }
     if (s.panelType === 'options-matrix') {
       clearInterval(s._timer); clearInterval(s._tickTimer);
     } else if (s.panelType === 'spread') {
@@ -2654,7 +2662,15 @@ function restoreLayoutPanels(layout) {
   if (layout.panels.length > 0) {
     for (const p of layout.panels) {
       try {
-      // Spread panel restore
+      // Algo monitor restore
+      if (p.panelType === 'algo-monitor') {
+        if (window.AlgoMonitor) {
+          const stratData = blotterData.algos[p.strategyId] || {};
+          window.AlgoMonitor.createAlgoMonitorPanel(p.strategyId, stratData, { x: p.x, y: p.y });
+        }
+        continue;
+      }
+      // Options matrix restore
       if (p.panelType === 'options-matrix') {
         const om = createOptionsMatrix({ instrument: p.instrument || p.currency, cpFilter: p.cpFilter, buySell: p.buySell,
           display: p.display, heatmap: p.heatmap, minStrike: p.minStrike, maxStrike: p.maxStrike,
@@ -5390,7 +5406,7 @@ function renderOrderBody() {
         <div id="om-disc-fields" style="display:none;padding:4px 0">
           <div style="display:flex;gap:6px;align-items:center;margin-bottom:3px">
             <span class="order-label" style="width:70px;flex-shrink:0">Limit (bps)</span>
-            <input class="order-input" id="om-disc-bps" type="text" inputmode="decimal" value="20" style="width:50px">
+            <input class="order-input" id="om-disc-bps" type="text" inputmode="decimal" value="5" style="width:50px">
             <span id="om-disc-calc" style="font-size:9px;color:#888"></span>
           </div>
           <div style="display:flex;gap:6px;align-items:center">
@@ -5597,7 +5613,7 @@ async function placeOrder() {
       // ── Discretion: calculate levels server-side, launch Sniper ──
       const discChk = document.getElementById('om-disc-chk');
       if (discChk?.checked) {
-        const discBps = parseFloat(String(document.getElementById('om-disc-bps')?.value || '').replace(/,/g, '')) || 20;
+        const discBps = parseFloat(String(document.getElementById('om-disc-bps')?.value || '').replace(/,/g, '')) || 5;
         const discPct = parseFloat(String(document.getElementById('om-disc-pct')?.value || '').replace(/,/g, '')) || 50;
         const tile = panels.find(p => p.instrument === instrument && p.exchange === (orderState.exchange || 'Deribit'));
         const tickSize = tile?._spec?.tickSize || tile?.priceTick || 0.0001;
@@ -7326,7 +7342,7 @@ const NUMERIC_COLS = new Set(['amount','price','fee','size','average_price','mar
 function blotterSortRows(rows, tabId) {
   const { col, dir } = blotterSort[tabId];
   if (!col) return rows;
-  const isNumeric = NUMERIC_COLS.has(col) || col.includes('timestamp') || col.includes('price') || col.includes('Ts') || col === '_updatedTs';
+  const isNumeric = NUMERIC_COLS.has(col) || col.includes('timestamp') || col.includes('price') || col.includes('Ts') || col === '_updatedTs' || col === 'startTime';
   return [...rows].sort((a, b) => {
     let av = a[col] ?? '', bv = b[col] ?? '';
     if (isNumeric) {
@@ -7601,9 +7617,8 @@ function blotterOrdersHTML(ordersMap, tabId) {
     const st = (s.state || s.status || '').toLowerCase();
     const stc = st === 'running' ? 'bl-st-open' : st === 'completed' ? 'bl-st-filled' : 'bl-st-cancelled';
     const sc = (s.side || '').toUpperCase() === 'BUY' ? 'bl-green' : 'bl-red';
-    const childFilled = children.reduce((sum, c) => sum + (c.filled_amount || 0), 0);
-    const totalFilled = s.filledQty || childFilled;
-    const totalAmt = s.totalSize || children.reduce((sum, c) => sum + (c.amount || 0), 0);
+    const totalFilled = s.filledQty != null ? s.filledQty : children.reduce((sum, c) => sum + (c.filled_amount || 0), 0);
+    const totalAmt = s.totalSize || 0;
     const avgPx = s.avgFillPrice || 0;
     const algoType = s.type || 'TWAP';
     body += `<tr class="bl-parent-row" data-algo-sid="${sid}" style="cursor:pointer">
@@ -8841,10 +8856,19 @@ function initBlotter() {
   // ── Blotter: algos tab rendering ─────────────────────────────────────────
   window.blotterAlgosHTML = function() {
     const strats = blotterData.algos;
-    const keys = Object.keys(strats);
-    if (keys.length === 0) return '<div class="bl-empty">No algo strategies this session</div>';
-    let html = '<table class="bl-tbl"><thead><tr><th>Exch</th><th>Type</th><th>Symbol</th><th>Side</th><th>Progress</th><th>Avg Fill</th><th>Slip (bps)</th><th>Schedule</th><th>Status</th><th></th></tr></thead><tbody>';
-    for (const [sid, s] of Object.entries(strats)) {
+    let entries = Object.entries(strats);
+    if (entries.length === 0) return '<div class="bl-empty">No algo strategies this session</div>';
+
+    // Sort by startTime (default newest first)
+    const { col: sortCol, dir: sortDir } = blotterSort['algos'] || {};
+    if (sortCol === 'startTime') {
+      entries.sort((a, b) => sortDir === 'asc' ? (a[1].startTime||0) - (b[1].startTime||0) : (b[1].startTime||0) - (a[1].startTime||0));
+    } else {
+      entries.sort((a, b) => (b[1].startTime||0) - (a[1].startTime||0));
+    }
+
+    let html = '<table class="bl-tbl"><thead><tr><th>Exch</th>' + blotterTH('startTime','Time','algos') + '<th>Type</th><th>Symbol</th><th>Side</th><th>Progress</th><th>Avg Fill</th><th>Slip (bps)</th><th>Schedule</th><th>Status</th><th></th></tr></thead><tbody>';
+    for (const [sid, s] of entries) {
       const pct = s.filledQty && s.totalSize ? Math.round(s.filledQty / (s.totalSize || 1) * 100) : 0;
       const statusCls = 'algo-status-' + (s.state || s.status || 'STOPPED');
       // Slippage display: positive = favourable
@@ -8860,7 +8884,7 @@ function initBlotter() {
       }
       const state = s.state || s.status || '-';
       const pauseInfo = s.pauseReason && state === 'PAUSED' ? ` <span style="color:#ccaa44;font-size:8px">${s.pauseReason}</span>` : '';
-      html += `<tr><td>${exchPill(s.venue || 'Deribit')}</td><td>${s.type || '-'}</td><td>${s.symbol || '-'}</td><td>${s.side || '-'}</td>
+      html += `<tr><td>${exchPill(s.venue || 'Deribit')}</td><td>${BL_TS(s.startTime)}</td><td>${s.type || '-'}</td><td>${s.symbol || '-'}</td><td>${s.side || '-'}</td>
         <td><div class="algo-progress-bar"><div class="algo-progress-fill" style="width:${pct}%"></div></div> ${formatNum(s.filledQty,4)}/${formatNum(s.totalSize,4)}</td>
         <td>${s.avgFillPrice ? s.avgFillPrice.toFixed(4) : '-'}</td>
         <td class="${slipCls}">${slip}</td>
@@ -8885,12 +8909,23 @@ function initBlotter() {
       blotterBadge.algos = active;
       blotterUpdateBadge('algos');
       if (blotterTab === 'algos') renderBlotterTable();
-      // Update open monitors
+      // Update open monitors (legacy + AlgoMonitor module)
       for (const [sid, el] of _monitors) {
         if (strats[sid]) _updateMonitor(sid, strats[sid], el);
       }
-      // Update execution charts
+      if (window.AlgoMonitor) {
+        for (const [sid] of window.AlgoMonitor.getMonitors()) {
+          if (strats[sid]) window.AlgoMonitor.updateAlgoMonitor(sid, strats[sid]);
+        }
+      }
+      // Update execution charts (legacy + module)
       if (_chartInstances.size > 0) _updateCharts();
+      const amCharts = window.AlgoMonitor?.getChartInstances();
+      if (amCharts?.size > 0) {
+        for (const [sid, chart] of amCharts) {
+          if (strats[sid]) window._amUpdateChart?.(sid, chart, strats[sid]);
+        }
+      }
     } catch {}
   }
   _pollTimer = setInterval(_pollAlgos, 2000);
@@ -8935,8 +8970,18 @@ function initBlotter() {
     try { await fetch(TCA_BASE + '/api/algo/' + ep + '/' + sid, { method: 'POST' }); _pollAlgos(); } catch {}
   };
 
-  // ── Monitor panel — integrated into panel grid layout ────────────────────
+  // ── Monitor panel — delegates to AlgoMonitor module ────────────────────
   window._algoOpenMonitor = function(sid, { centre = false } = {}) {
+    if (window.AlgoMonitor?.getMonitors().has(sid)) return;
+    if (window.AlgoMonitor) {
+      const s = blotterData.algos[sid] || {};
+      const opts = centre
+        ? { x: Math.round((window.innerWidth - 500) / 2), y: Math.round((window.innerHeight - 400) / 2) }
+        : {};
+      window.AlgoMonitor.createAlgoMonitorPanel(sid, s, opts);
+      return;
+    }
+    // Fallback: legacy monitor if module not loaded
     if (_monitors.has(sid)) return;
     const s = blotterData.algos[sid] || {};
     const el = document.createElement('div');
@@ -8989,12 +9034,16 @@ function initBlotter() {
     _updateMonitor(sid, s, el);
     const hdr = el.querySelector('.algo-monitor-hdr');
     hdr.addEventListener('mousedown', e => {
-      if (e.target.tagName === 'BUTTON') return;
-      const ox = e.clientX - el.getBoundingClientRect().left;
-      const oy = e.clientY - el.getBoundingClientRect().top;
+      if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const ox = e.clientX - rect.left;
+      const oy = e.clientY - rect.top;
       function mv(ev) {
-        el.style.left = (ev.clientX - ox) + 'px'; el.style.top = (ev.clientY - oy) + 'px';
-        // Sync attached chart position
+        const newLeft = Math.max(0, Math.min(window.innerWidth - el.offsetWidth, ev.clientX - ox));
+        const newTop = Math.max(0, Math.min(window.innerHeight - 40, ev.clientY - oy));
+        el.style.left = newLeft + 'px'; el.style.top = newTop + 'px';
         if (_chartAttached[sid]) _syncChartPosition(sid);
       }
       function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
@@ -9018,8 +9067,13 @@ function initBlotter() {
     } catch (e) { console.error('[algo] accelerate failed:', e.message); }
   };
 
+  // Expose _updateMonitor for the AlgoMonitor module
+  window._amRenderMonitor = _updateMonitor;
   function _updateMonitor(sid, s, el) {
-    const state = s.state || s.status || 'STOPPED';
+    // Prefer terminal status from strategy over engine wrapper state
+    const _rawState = s.state || s.status || 'STOPPED';
+    const _stratStatus = (s.status || '').toUpperCase();
+    const state = (_stratStatus === 'COMPLETED' || _stratStatus === 'STOPPED' || _stratStatus === 'EXPIRED') ? _stratStatus : _rawState;
     el.className = 'algo-monitor status-' + state;
     const title = el.querySelector('.algo-monitor-title');
     const pct = s.totalSize ? Math.round((s.filledQty || 0) / s.totalSize * 100) : 0;
@@ -9027,9 +9081,12 @@ function initBlotter() {
     const body = document.getElementById('algo-mon-body-' + sid);
     if (!body || el.classList.contains('minimised')) return;
 
-    // Frozen final state for COMPLETED/STOPPED — don't re-render live data
-    if ((state === 'COMPLETED' || state === 'STOPPED') && body.dataset.frozen === 'true') return;
-    if (state === 'COMPLETED' || state === 'STOPPED') body.dataset.frozen = 'true';
+    // Only freeze on COMPLETED/STOPPED after body has been rendered at least once in final state
+    if (state === 'COMPLETED' && body.dataset.frozen === 'completed') return;
+    if (state === 'STOPPED' && body.dataset.frozen === 'stopped') return;
+    if (state === 'COMPLETED') body.dataset.frozen = 'completed';
+    else if (state === 'STOPPED') body.dataset.frozen = 'stopped';
+    else body.dataset.frozen = '';
 
     const pxD = s.tickSize ? tickDecimals(s.tickSize) : 4;
     // Live market from tile
@@ -9065,17 +9122,36 @@ function initBlotter() {
     const pauseBar = state === 'PAUSED' && s.pauseReason ? `<div class="amon-pause-bar">Paused: ${s.pauseReason}</div>` : '';
     // Child orders from blotter (match by strategyId prefix)
     const sidShort = sid.substring(0, 12);
-    const childOrders = Object.values(blotterData.orders).filter(o =>
-      o._strategyId === sid
-    ).sort((a,b) => (b.creation_timestamp||0)-(a.creation_timestamp||0)).slice(0, 50);
+    // Expected sizes for fuzzy matching (resting post order from exchange)
+    const _expectedSizes = new Set();
+    _expectedSizes.add(s.totalSize);
+    if (s.currentPostSize) _expectedSizes.add(s.currentPostSize);
+    if (s.levels) s.levels.forEach(l => { if (l.allocatedSize) _expectedSizes.add(l.allocatedSize); });
+    const _startTs = s.startTime || 0;
+
+    const childOrders = Object.values(blotterData.orders).filter(o => {
+      if (o._strategyId === sid) return true;
+      const parentId = o._parentOrderId || o._metadata?.parentOrderId;
+      if (parentId) {
+        const shortId = s.shortId || sid.substring(sid.length - 6);
+        if (parentId === sid || parentId === `${s.type||'SNIPER'}-${shortId}` || parentId === `TWAP-${shortId}`) return true;
+      }
+      // Fuzzy fallback: match resting post order by instrument + timing + size
+      if (s.symbol && o.instrument_name === s.symbol && (o.creation_timestamp||0) >= _startTs - 5000 && _expectedSizes.has(o.amount)) return true;
+      return false;
+    }).sort((a,b) => (b.creation_timestamp||0)-(a.creation_timestamp||0)).slice(0, 50);
     let childHTML = '';
     if (childOrders.length) {
       const pxDec = s.tickSize ? tickDecimals(s.tickSize) : 4;
+      const stratDone = state === 'COMPLETED' || state === 'STOPPED';
       childHTML = `<table class="amon-child-tbl"><thead><tr><th>Time</th><th>Side</th><th>Size</th><th>Price</th><th>Status</th><th>Filled</th></tr></thead><tbody>` +
         childOrders.map(o => {
-          const st = (o.order_state||'').toLowerCase();
+          let st = (o.order_state||'').toLowerCase();
+          let filledAmt = o.filled_amount;
+          // If strategy completed but order still shows open, force to filled
+          if (stratDone && (st === 'open' || st === 'partial' || st === 'partially_filled')) { st = 'filled'; filledAmt = o.amount; }
           const cls = st==='filled'?'child-filled':st==='open'?'child-open':st==='cancelled'?'child-cancelled':st==='rejected'?'child-rejected':'';
-          return `<tr class="${cls}"><td>${BL_TS(o.creation_timestamp||o.last_update_timestamp)}</td><td>${(o.direction||'').toUpperCase()}</td><td>${formatNum(o.amount,4)}</td><td>${BL_FMT(o.price, pxDec)}</td><td>${st}</td><td>${formatNum(o.filled_amount,4)}</td></tr>`;
+          return `<tr class="${cls}"><td>${BL_TS(o.creation_timestamp||o.last_update_timestamp)}</td><td>${(o.direction||'').toUpperCase()}</td><td>${formatNum(o.amount,4)}</td><td>${BL_FMT(o.price, pxDec)}</td><td>${st}</td><td>${formatNum(filledAmt,4)}</td></tr>`;
         }).join('') + '</tbody></table>';
     }
 
@@ -9343,7 +9419,7 @@ function initBlotter() {
         datasets: [
           { label: 'Bid', data: seedBids.map((v,i) => ({x:seedTimes[i],y:v})), borderColor: '#e05252', borderWidth: 1, pointRadius: 0, tension: 0 },
           { label: 'Ask', data: seedAsks.map((v,i) => ({x:seedTimes[i],y:v})), borderColor: '#00c896', borderWidth: 1, pointRadius: 0, tension: 0 },
-          { label: 'Order', data: seedOrders.map((v,i) => v?{x:seedTimes[i],y:v}:null).filter(Boolean), borderColor: '#4488ff', borderWidth: 1.5, pointRadius: 0, tension: 0, borderDash: [4,2] },
+          { label: 'Order', data: seedOrders.map((v,i) => v?{x:seedTimes[i],y:v}:null).filter(Boolean), borderColor: '#00cc88', borderWidth: 1.5, pointRadius: 0, tension: 0, borderDash: [4,2] },
           { label: 'Fills', data: [], type: 'scatter', pointRadius: 8, pointStyle: [],
             rotation: [], backgroundColor: [], borderColor: [], borderWidth: 1 },
           { label: 'Volume', data: [], type: 'bar', yAxisID: 'y2',
@@ -9379,10 +9455,42 @@ function initBlotter() {
   };
 
   // Update charts on every algo poll
+  // Expose for AlgoMonitor module — adds module charts to the update loop
+  window._amUpdateChart = function(sid, chart, s) {
+    if (!s?.chartTimes?.length || !chart) return;
+    // Temporarily add to _chartInstances so the existing loop picks it up
+    const had = _chartInstances.has(sid);
+    if (!had) _chartInstances.set(sid, chart);
+    // Will be processed in the next _updateCharts call (or call directly below)
+    if (!had) _chartInstances.delete(sid);
+    // Direct inline update using same logic as _updateCharts
+    _updateOneChart(sid, chart, s);
+  };
+
+  function _updateOneChart(sid, chart, s) {
+    // The body of the per-chart loop is extracted here for reuse
+    // For now, the full logic stays inline in _updateCharts and this is a thin wrapper
+    // that sets up the same variables and calls chart.update
+    const times = s.chartTimes, bids = s.chartBids, asks = s.chartAsks, orders = s.chartOrder, fills = s.chartFills || [];
+    chart.data.datasets[0].data = bids.map((v,i) => ({ x: times[i], y: v }));
+    chart.data.datasets[1].data = asks.map((v,i) => ({ x: times[i], y: v }));
+    if (s.type === 'SNIPER' && s.executionMode === 'post_snipe' && s.chartTargetPrice && times.length >= 2) {
+      chart.data.datasets[2].data = [{ x: times[0], y: s.chartTargetPrice }, { x: times[times.length - 1], y: s.chartTargetPrice }];
+    } else if (s.type === 'SNIPER') {
+      chart.data.datasets[2].data = [];
+    } else {
+      chart.data.datasets[2].data = orders.map((v,i) => v ? { x: times[i], y: v } : null).filter(Boolean);
+    }
+    // Fills
+    const _timeCount = {};
+    const fillPts = fills.map(f => { const t = f.time; _timeCount[t] = (_timeCount[t]||0)+1; return { x: t + (_timeCount[t]-1)*800, y: f.price, _fill: f }; });
+    chart.data.datasets[3].data = fillPts;
+    chart.update('none');
+  }
+
   function _updateCharts() {
     for (const [sid, chart] of _chartInstances) {
       const s = blotterData.algos[sid];
-      // Height sync handled by ResizeObserver — no manual sync needed
       if (!s?.chartTimes?.length) continue;
 
       const times = s.chartTimes;
@@ -9394,7 +9502,14 @@ function initBlotter() {
       chart.data.datasets[0].data = bids.map((v,i) => ({ x: times[i], y: v }));
       chart.data.datasets[1].data = asks.map((v,i) => ({ x: times[i], y: v }));
       // Hide order price line for Sniper — level lines already show all prices
-      chart.data.datasets[2].data = s.type === 'SNIPER' ? [] : orders.map((v,i) => v ? { x: times[i], y: v } : null).filter(Boolean);
+      // Order line: hidden for pure Snipe, horizontal at targetPrice for Post+Snipe, normal for others
+      if (s.type === 'SNIPER' && s.executionMode === 'post_snipe' && s.chartTargetPrice && times.length >= 2) {
+        chart.data.datasets[2].data = [{ x: times[0], y: s.chartTargetPrice }, { x: times[times.length - 1], y: s.chartTargetPrice }];
+      } else if (s.type === 'SNIPER') {
+        chart.data.datasets[2].data = [];
+      } else {
+        chart.data.datasets[2].data = orders.map((v,i) => v ? { x: times[i], y: v } : null).filter(Boolean);
+      }
 
       // Volume bars (dataset index 4) — scale to fit bottom 20% of chart
       const volBars = s.chartVolBars || [];

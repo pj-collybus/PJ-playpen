@@ -204,13 +204,13 @@ class SniperStrategy {
 
   // True completion: all quantity filled, OR all components resolved
   _isComplete() {
-    if (this.filledSize >= this.totalSize - 0.001) return true;
+    if (this.filledSize >= this.totalSize - (this._lotSize || 0.001)) return true;
 
     // For simultaneous Post+Snipe: resting filled AND all levels done
     if (this._levelMode === 'simultaneous' && this._executionMode === 'post_snipe') {
       const restingDone = !this._postOrderId && this._roundNumber > 0;
       const allLevelsDone = this._levels.every(l => {
-        const tol = Math.max(0.001, l.allocatedSize * 0.01);
+        const tol = Math.max(this._lotSize || 0.001, l.allocatedSize * 0.001);
         return l.filledSize >= l.allocatedSize - tol || l.retriggerCount >= this._maxRetriggers || l.status === 'COMPLETED';
       });
       if (restingDone && allLevelsDone) return true;
@@ -393,7 +393,12 @@ class SniperStrategy {
             if (lvl.status !== 'COMPLETED') console.log(`[sniper] L${li+1} completed: maxRetriggers exhausted (${lvl.retriggerCount}/${this._maxRetriggers}) filled=${lvl.filledSize.toFixed(4)}/${lvl.allocatedSize.toFixed(4)}`);
             lvl.status = 'COMPLETED'; continue;
           }
-          if (lvl.activeChildId) continue;
+          if (lvl.activeChildId) {
+            if (now - (lvl._intentSubmittedAt || 0) < 5000) continue;
+            console.log(`[sniper] L${li+1} IOC timeout — clearing stuck activeChildId`);
+            lvl.activeChildId = null;
+            lvl._intentSubmittedAt = 0;
+          }
           if (lvl._retriggerAt && now < lvl._retriggerAt) continue;
 
           const triggered = this.side === 'BUY' ? (ask <= lvl.currentSnipePrice) : (bid >= lvl.currentSnipePrice);
@@ -410,6 +415,7 @@ class SniperStrategy {
             symbol: this.symbol, side: this.side, quantity: qty,
             limitPrice: price, orderType: 'LIMIT', timeInForce: 'IOC', algoType: 'SNIPER-SNIPE',
           });
+          lvl._intentSubmittedAt = now;
           console.log(`[post+snipe] Simultaneous L${li+1} firing: ${qty.toFixed(4)} @ $${price} (level price=${lvl.currentSnipePrice})`);
         }
         return;
@@ -475,7 +481,12 @@ class SniperStrategy {
         if (lvl.filledSize >= lvl.allocatedSize - lvlTol) { lvl.status = 'COMPLETED'; continue; }
         if (lvl.retriggerCount >= this._maxRetriggers) { lvl.status = 'COMPLETED'; continue; }
         allDone = false;
-        if (lvl.activeChildId) continue; // order in flight
+        if (lvl.activeChildId) {
+          if (now - (lvl._intentSubmittedAt || 0) < 5000) continue;
+          console.log(`[sniper] L${li+1} IOC timeout — clearing stuck activeChildId`);
+          lvl.activeChildId = null;
+          lvl._intentSubmittedAt = 0;
+        }
         if (lvl._retriggerAt && now < lvl._retriggerAt) continue;
 
         const triggered = this.side === 'BUY' ? (ask <= lvl.currentSnipePrice) : (bid >= lvl.currentSnipePrice);
@@ -493,6 +504,7 @@ class SniperStrategy {
           symbol: this.symbol, side: this.side, quantity: qty,
           limitPrice: price, orderType: 'LIMIT', timeInForce: 'IOC', algoType: 'SNIPER',
         });
+        lvl._intentSubmittedAt = now;
         console.log(`[sniper] Simultaneous L${li+1} firing: ${qty.toFixed(4)} @ $${price} (allocated=${lvl.allocatedSize.toFixed(4)} filled=${lvl.filledSize.toFixed(4)})`);
       }
       if (allDone) {
@@ -689,6 +701,7 @@ class SniperStrategy {
         const lvlCapped = Math.min(cappedFill, Math.max(0, lvl.allocatedSize - lvl.filledSize));
         lvl.filledSize += lvlCapped;
         lvl.activeChildId = null;
+        lvl._intentSubmittedAt = 0;
         const levelColors = ['snipe-L1', 'snipe-L2', 'snipe-L3', 'snipe-L4', 'snipe-L5'];
         // Offset Y for overlapping fills at similar timestamps
         let fillY = fill.fillPrice;
@@ -763,6 +776,7 @@ class SniperStrategy {
     console.log(`[sniper] L${levelIdx + 1} Fill: ${levelCappedFill.toFixed(4)} @ ${fill.fillPrice} (raw=${fill.fillSize.toFixed(4)}) — level ${level.filledSize.toFixed(4)}/${level.allocatedSize.toFixed(4)}, total ${this.filledSize.toFixed(4)}/${this.totalSize.toFixed(4)}`);
 
     level.activeChildId = null;
+    level._intentSubmittedAt = 0;
     this._restingPrice = null;
 
     // Check level completion (99% filled = complete)
@@ -895,10 +909,11 @@ class SniperStrategy {
     let summaryLine;
     if (this._executionMode === 'post_snipe') {
       const modeLabel = this._levelMode === 'simultaneous' ? 'LMT+Discretion' : 'Post+Snipe';
-      const discBps = this._snipeLevel && this._targetPrice ? Math.abs((this._snipeLevel - this._targetPrice) / this._targetPrice * 10000).toFixed(0) : '?';
+      const discBps = this._snipeLevel && this._targetPrice ? Math.round(Math.abs((this._snipeLevel - this._targetPrice) / this._targetPrice * 10000)) : '?';
+      const snipeLevelFmt = Number(this._snipeLevel).toFixed(4);
       summaryLine = this._levelMode === 'simultaneous'
-        ? `${this.side} ${_fmtSize(this.totalSize)} ${this.symbol} on ${this.venue} via ${modeLabel} | Limit: $${this._targetPrice} | Disc: ${discBps}bps ($${this._snipeLevel}) | ${this._snipePct}% disc`
-        : `${this.side} ${_fmtSize(this.totalSize)} ${this.symbol} on ${this.venue} via SNIPER | Post+Snipe | Limit: $${this._targetPrice} Snipe: $${this._snipeLevel} | ${this._snipePct}% snipe cap`;
+        ? `${this.side} ${_fmtSize(this.totalSize)} ${this.symbol} on ${this.venue} via LMT+Discretion | Limit: $${this._targetPrice} | Disc: ${discBps}bps | ${this._snipePct}% disc`
+        : `${this.side} ${_fmtSize(this.totalSize)} ${this.symbol} on ${this.venue} via SNIPER | Post+Snipe | Limit: $${this._targetPrice} Snipe: $${snipeLevelFmt} | ${this._snipePct}% snipe cap`;
     } else {
       const lvlStr = this._levels.map((l, i) => `L${i+1}: $${l.price} (${l.pct}%)`).join(' ');
       summaryLine = `${this.side} ${_fmtSize(this.totalSize)} ${this.symbol} on ${this.venue} via SNIPER | Snipe | ${lvlStr} | ${expiryLabel}`;
@@ -965,8 +980,9 @@ class SniperStrategy {
       chartBids: [...this._chartBids], chartAsks: [...this._chartAsks],
       chartOrder: [...this._chartOrder], chartTimes: [...this._chartTimes],
       chartFills: [...this._chartFills],
-      chartTargetPrice: activeLevelPrice,
-      chartSnipeLevel: this._executionMode === 'post_snipe' ? this._snipeLevel : null,
+      // post_snipe: show resting limit price. Pure snipe: hidden (level lines cover it).
+      chartTargetPrice: (this._executionMode === 'post_snipe') ? this._targetPrice : (this._executionMode === 'snipe' ? null : activeLevelPrice),
+      chartSnipeLevel: (this._executionMode === 'post_snipe' && this._levelMode !== 'simultaneous') ? this._snipeLevel : null,
       // All level prices for chart lines
       chartLevelPrices: this._levels.map(l => ({ price: l.currentSnipePrice, status: l.status })),
     };
