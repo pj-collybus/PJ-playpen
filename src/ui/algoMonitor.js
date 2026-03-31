@@ -87,29 +87,42 @@ function _openMonitor(sid, { centre = false, x, y, width, height, chartOpen } = 
   el.querySelector('.amon-chart-toggle').addEventListener('mousedown', e => e.stopPropagation());
   el.querySelector('.amon-chart-toggle').addEventListener('click', e => { e.stopImmediatePropagation(); e.preventDefault(); _toggleChart(sid); });
 
-  // Drag — sync attached chart position
+  // Custom drag for monitor — algoMonitor.js owns this entirely, NOT PanelGrid.startDrag()
   const hdr = el.querySelector('.algo-monitor-hdr');
-  hdr.addEventListener('mousedown', e => {
+  hdr.style.cursor = 'grab';
+  hdr.addEventListener('mousedown', function(e) {
     if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
     if (e.button !== 0) return;
     e.preventDefault();
-    const rect = el.getBoundingClientRect();
-    const ox = e.clientX - rect.left, oy = e.clientY - rect.top;
-    function mv(ev) {
-      const newLeft = Math.max(0, Math.min(window.innerWidth - el.offsetWidth, ev.clientX - ox));
-      const newTop = Math.max(0, Math.min(window.innerHeight - 40, ev.clientY - oy));
-      el.style.left = newLeft + 'px'; el.style.top = newTop + 'px';
+    e.stopPropagation(); // prevent panelGrid or other handlers from intercepting
+    hdr.style.cursor = 'grabbing';
+    const startX = e.clientX - el.offsetLeft;
+    const startY = e.clientY - el.offsetTop;
+    function onMove(ev) {
+      const newLeft = Math.max(0, ev.clientX - startX);
+      const newTop = Math.max(0, ev.clientY - startY);
+      el.style.left = newLeft + 'px';
+      el.style.top = newTop + 'px';
       panelState.x = newLeft; panelState.y = newTop;
+      // Sync attached chart position inline (no function call)
       if (_chartAttached[sid] === true) {
-        _syncChartPosition(sid);
+        const chartEl = document.getElementById('amon-chart-' + sid);
+        if (chartEl) {
+          chartEl.style.left = (newLeft + el.offsetWidth) + 'px';
+          chartEl.style.top = newTop + 'px';
+        }
       }
     }
-    function up() {
-      document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
+    function onUp() {
+      hdr.style.cursor = 'grab';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
       localStorage.setItem('algo-mon-' + sid, JSON.stringify({ top: parseInt(el.style.top), left: parseInt(el.style.left) }));
-      if (typeof persistLayouts === 'function') persistLayouts();
+      if (typeof PanelGrid !== 'undefined') PanelGrid.persistLayouts();
+      else if (typeof persistLayouts === 'function') persistLayouts();
     }
-    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   });
 
   // Resize
@@ -394,7 +407,7 @@ function _openChart(sid) {
   const panel = document.createElement('div');
   panel.className = 'panel amon-chart-panel';
   panel.id = 'amon-chart-' + sid;
-  panel.style.cssText = `position:absolute;width:320px;height:${monEl.offsetHeight}px;top:${monEl.offsetTop}px;left:${monEl.offsetLeft + monEl.offsetWidth}px;background:#0a0a10;border:1px solid #1a1a22;border-radius:0 8px 8px 0;border-left:none;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.4)`;
+  panel.style.cssText = `position:absolute;z-index:100;width:320px;height:${monEl.offsetHeight}px;top:${monEl.offsetTop}px;left:${monEl.offsetLeft + monEl.offsetWidth}px;background:#0a0a10;border:1px solid #1a1a22;border-radius:0 8px 8px 0;border-left:none;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.4)`;
   monEl.style.borderRadius = '8px 0 0 8px';
   monEl.style.borderRight = 'none';
 
@@ -514,7 +527,10 @@ function _detachChart(sid) {
   const hdr = chartEl.querySelector('.amon-chart-hdr');
   if (!hdr) { console.log('[detach] no hdr found'); return; }
 
-  console.log('[detach] adding drag to hdr');
+  // Ensure chart panel is absolutely positioned for drag to work
+  chartEl.style.position = 'absolute';
+  chartEl.style.zIndex = '100';
+  console.log('[detach] adding drag to hdr, chartEl pos:', chartEl.style.position, 'left:', chartEl.style.left, 'top:', chartEl.style.top);
   hdr.style.cursor = 'grab';
 
   // Remove any existing handler
