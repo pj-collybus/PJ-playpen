@@ -65,7 +65,7 @@ function _openMonitor(sid, { centre = false, x, y, width, height, chartOpen } = 
   const el = document.createElement('div');
   el.className = 'algo-monitor status-' + (s.state || s.status || 'STOPPED');
   el.id = `panel-${id}`;
-  el.style.cssText = `position:absolute;left:${panelState.x}px;top:${panelState.y}px;width:480px;min-height:380px;display:flex;flex-direction:column`;
+  el.style.cssText = `position:absolute;left:${panelState.x}px;top:${panelState.y}px;width:460px;min-height:380px;display:flex;flex-direction:column`;
 
   el.innerHTML = `
     <div class="algo-monitor-hdr" data-sid="${sid}">
@@ -100,7 +100,9 @@ function _openMonitor(sid, { centre = false, x, y, width, height, chartOpen } = 
       const newTop = Math.max(0, Math.min(window.innerHeight - 40, ev.clientY - oy));
       el.style.left = newLeft + 'px'; el.style.top = newTop + 'px';
       panelState.x = newLeft; panelState.y = newTop;
-      if (_chartAttached[sid]) _syncChartPosition(sid);
+      if (_chartAttached[sid] === true) {
+        _syncChartPosition(sid);
+      }
     }
     function up() {
       document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
@@ -419,7 +421,7 @@ function _openChart(sid) {
   // ResizeObserver to sync chart height with monitor
   const ro = new ResizeObserver(() => {
     panel.style.height = monEl.offsetHeight + 'px';
-    if (_chartAttached[sid]) _syncChartPosition(sid);
+    if (_chartAttached[sid] === true) _syncChartPosition(sid);
     const ch = _chartInstances.get(sid); if (ch) try { ch.resize(); } catch {}
   });
   ro.observe(monEl);
@@ -493,46 +495,53 @@ function _syncChartPosition(sid) {
 }
 
 function _detachChart(sid) {
+  const chartEl = document.getElementById('amon-chart-' + sid);
+  if (!chartEl) { console.log('[detach] no chart el found'); return; }
+
   _chartAttached[sid] = false;
   localStorage.setItem('algo-chart-attached-' + sid, 'false');
-  console.log('[AlgoMonitor] _detachChart:', sid, '_chartAttached:', _chartAttached[sid]);
-  const ps = _monitors.get(sid);
-  const monEl = ps?._el;
-  const chartEl = document.getElementById('amon-chart-' + sid);
-  if (!chartEl) return;
-  chartEl.style.left = (parseInt(chartEl.style.left) + 20) + 'px';
+  console.log('[detach] _chartAttached set to false for', sid);
+
+  // Update visuals
   chartEl.style.borderRadius = '8px';
   chartEl.style.borderLeft = '1px solid #1a1a22';
+  const monEl = document.getElementById('panel-' + _monitors.get(sid)?.id);
   if (monEl) { monEl.style.borderRadius = '8px'; monEl.style.borderRight = ''; }
-  const btn = chartEl.querySelector('.amon-chart-detach');
-  if (btn) { btn.textContent = '↙'; btn.title = 'Attach to monitor'; }
-  // Add explicit drag handler
+
+  const detachBtn = chartEl.querySelector('.amon-chart-detach');
+  if (detachBtn) { detachBtn.textContent = '↙'; detachBtn.title = 'Attach'; }
+
   const hdr = chartEl.querySelector('.amon-chart-hdr');
-  if (!hdr) return;
+  if (!hdr) { console.log('[detach] no hdr found'); return; }
+
+  console.log('[detach] adding drag to hdr');
   hdr.style.cursor = 'grab';
-  if (!hdr._detachDragHandler) {
-    hdr._detachDragHandler = function(e) {
-      if (e.target.tagName === 'BUTTON') return;
-      if (_chartAttached[sid]) return;
-      if (e.button !== 0) return;
-      e.preventDefault();
-      hdr.style.cursor = 'grabbing';
-      const startX = e.clientX - chartEl.offsetLeft;
-      const startY = e.clientY - chartEl.offsetTop;
-      function onMove(ev) {
-        chartEl.style.left = (ev.clientX - startX) + 'px';
-        chartEl.style.top = (ev.clientY - startY) + 'px';
-      }
-      function onUp() {
-        hdr.style.cursor = 'grab';
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-      }
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-    };
-    hdr.addEventListener('mousedown', hdr._detachDragHandler);
-  }
+
+  // Remove any existing handler
+  if (hdr._dd) { hdr.removeEventListener('mousedown', hdr._dd); }
+
+  hdr._dd = function(e) {
+    console.log('[detach drag] mousedown, target:', e.target.tagName, '_chartAttached:', _chartAttached[sid]);
+    if (e.target.tagName === 'BUTTON') return;
+    e.preventDefault();
+    e.stopPropagation();
+    const ox = e.clientX - chartEl.offsetLeft;
+    const oy = e.clientY - chartEl.offsetTop;
+    function mv(ev) {
+      chartEl.style.left = (ev.clientX - ox) + 'px';
+      chartEl.style.top = (ev.clientY - oy) + 'px';
+    }
+    function up() {
+      hdr.style.cursor = 'grab';
+      document.removeEventListener('mousemove', mv);
+      document.removeEventListener('mouseup', up);
+      console.log('[detach drag] ended at', chartEl.style.left, chartEl.style.top);
+    }
+    document.addEventListener('mousemove', mv);
+    document.addEventListener('mouseup', up);
+  };
+  hdr.addEventListener('mousedown', hdr._dd);
+  console.log('[detach] handler registered');
 }
 
 function _attachChart(sid) {
