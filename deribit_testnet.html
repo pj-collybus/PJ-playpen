@@ -1459,7 +1459,7 @@ document.getElementById('specs-overlay').addEventListener('click', e => {
 
 // ── Global ────────────────────────────────────────────────────────────────────
 let ws = null, idCounter = 1, reconnectTimer = null, pingTimer = null;
-let instruments = [], panels = [], nextId = 0;
+let instruments = []; // panels and nextId declared in src/ui/panelGrid.js
 let rfqState = null; // set by RFQ system
 
 // ── WebSocket request-response map ────────────────────────────────────────────
@@ -2515,8 +2515,7 @@ async function ipGetInstruments(exch) {
 }
 
 // ── Panel placement ───────────────────────────────────────────────────────────
-const GRID_SNAP = 10;   // snap-to-grid resolution in px
-const PLACE_GAP = 8;    // gap between panels when placing
+// GRID_SNAP, PLACE_GAP declared in src/ui/panelGrid.js
 
 function _snapToGrid(v) { return Math.round(v / GRID_SNAP) * GRID_SNAP; }
 
@@ -2573,11 +2572,9 @@ function updateAreaSize() {
 }
 
 // ── Layout management ─────────────────────────────────────────────────────────
-let layouts = [];
-let activeLayoutId = 0;
-let layoutNextId = 0;
+// layouts, activeLayoutId, layoutNextId declared in src/ui/panelGrid.js
 
-const LAYOUTS_LS = 'dbt_layouts';
+// LAYOUTS_LS declared in src/ui/panelGrid.js
 
 function persistLayouts() {
   saveCurrentLayout();
@@ -4222,8 +4219,7 @@ function drawSide(canvas, rawLevels, side, priceTick) {
 // ── Options Matrix Panel (extracted to src/ui/optionsMatrix.js) ──────────────
 // createOptionsMatrix, OM_INSTRUMENTS, _omShowCalendar are now in the module.
 // The HTML retains only this comment marker.
-// OM_INSTRUMENTS moved to src/ui/optionsMatrix.js
-const OM_INSTRUMENTS = window.OptionsMatrix?.OM_INSTRUMENTS || [];
+// OM_INSTRUMENTS is in src/ui/optionsMatrix.js (accessed via window.OptionsMatrix.OM_INSTRUMENTS)
 
 // createOptionsMatrix — delegated to OptionsMatrix module (src/ui/optionsMatrix.js)
 // Kept as a thin wrapper for backward compatibility
@@ -4237,7 +4233,7 @@ function createOptionsMatrix(opts = {}) {
 
 // ── Drag panels (free absolute position) ─────────────────────────────────────
 
-const SETTLE_GAP = 8;
+// SETTLE_GAP declared in src/ui/panelGrid.js
 
 function _panelRect(p) {
   const el = document.getElementById(`panel-${p.id}`);
