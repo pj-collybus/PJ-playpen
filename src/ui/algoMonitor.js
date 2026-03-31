@@ -423,11 +423,19 @@ function _openChart(sid) {
 
   document.getElementById('panels-canvas').appendChild(panel);
 
-  // Wire chart panel buttons
-  panel.querySelector('.amon-chart-x').addEventListener('click', () => _closeChart(sid));
-  panel.querySelector('.amon-chart-detach').addEventListener('click', () => {
-    if (_chartAttached[sid]) _detachChart(sid); else _attachChart(sid);
+  // Wire chart panel buttons with stopPropagation
+  panel.querySelector('.amon-chart-x').addEventListener('click', function(e) {
+    e.stopPropagation();
+    console.log('[AlgoMonitor] chart close button clicked for', sid);
+    _closeChart(sid);
   });
+  panel.querySelector('.amon-chart-detach').addEventListener('click', function(e) {
+    e.stopPropagation();
+    console.log('[AlgoMonitor] detach/attach button clicked for', sid, 'attached:', _chartAttached[sid]);
+    if (_chartAttached[sid] === true) _detachChart(sid); else _attachChart(sid);
+  });
+  // Prevent mousedown on buttons from being interpreted as drag start
+  panel.querySelectorAll('button').forEach(btn => btn.addEventListener('mousedown', e => e.stopPropagation()));
 
   // Chart header drag is added in _detachChart, not here (starts attached)
 
@@ -508,6 +516,7 @@ function _syncChartPosition(sid) {
 }
 
 function _detachChart(sid) {
+  console.log('[AlgoMonitor] _detachChart called for', sid);
   const chartEl = document.getElementById('amon-chart-' + sid);
   if (!chartEl) { console.log('[detach] no chart el found'); return; }
 
