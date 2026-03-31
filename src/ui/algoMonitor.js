@@ -35,7 +35,7 @@ function openMonitor(sid, opts) {
   return _openMonitor(sid, opts || {});
 }
 
-function _openMonitor(sid, { centre = false, x, y, width, chartOpen } = {}) {
+function _openMonitor(sid, { centre = false, x, y, width, height, chartOpen } = {}) {
   console.log('[AlgoMonitor] openMonitor called:', sid, { centre, x, y, width, chartOpen });
   if (_monitors.has(sid)) return _monitors.get(sid);
   const s = _getData(sid) || {};
@@ -65,26 +65,23 @@ function _openMonitor(sid, { centre = false, x, y, width, chartOpen } = {}) {
   const el = document.createElement('div');
   el.className = 'algo-monitor status-' + (s.state || s.status || 'STOPPED');
   el.id = `panel-${id}`;
-  el.style.position = 'absolute';
-  el.style.left = panelState.x + 'px';
-  el.style.top = panelState.y + 'px';
-  el.style.width = '480px';
+  el.style.cssText = `position:absolute;left:${panelState.x}px;top:${panelState.y}px;width:480px;height:${(typeof height !== 'undefined' && height) ? height + 'px' : '420px'};display:flex;flex-direction:column`;
 
   el.innerHTML = `
     <div class="algo-monitor-hdr" data-sid="${sid}">
       <span class="algo-monitor-title"></span>
       <div class="algo-monitor-btns">
-        <span id="amon-chart-btn-${sid}"></span>
-        <button onclick="_algoMinimiseMonitor('${sid}')" title="Minimise">_</button>
-        <button onclick="_algoCloseMonitor('${sid}')" title="Close">&times;</button>
+        <button class="amon-chart-toggle" data-sid="${sid}" style="font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid #4488ff;background:#0a1628;color:#4488ff;font-weight:700;cursor:pointer;margin-right:4px">CHART</button>
+        <button class="amon-min-btn" data-sid="${sid}" title="Minimise" style="background:none;border:1px solid #1e1e28;border-radius:4px;color:#555;cursor:pointer;padding:1px 6px;font-family:inherit">_</button>
+        <button class="amon-close-btn" data-sid="${sid}" title="Close" style="background:none;border:1px solid #1e1e28;border-radius:4px;color:#555;cursor:pointer;padding:1px 6px;font-family:inherit">&times;</button>
       </div>
     </div>
-    <div style="display:flex;flex:1;min-height:0;overflow:visible">
-      <div class="algo-monitor-body" id="algo-mon-body-${sid}" style="min-width:480px;width:480px;flex-shrink:0;overflow-y:auto"></div>
-      <div class="amon-chart-pane" id="amon-chart-pane-${sid}" style="display:none;flex-direction:column;width:320px;height:100%;border-left:1px solid #1a1a22">
+    <div style="display:flex;flex:1;min-height:0;overflow:hidden">
+      <div class="algo-monitor-body" id="algo-mon-body-${sid}" style="width:480px;flex-shrink:0;display:flex;flex-direction:column;overflow:hidden"></div>
+      <div class="amon-chart-pane" id="amon-chart-pane-${sid}" style="display:none;flex-direction:column;width:320px;flex-shrink:0;height:100%;border-left:1px solid #1a1a22">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;font-size:10px;color:#555;flex-shrink:0;border-bottom:1px solid #111">
           <span>Execution Chart</span>
-          <button style="background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:0 3px" onclick="_closeChart('${sid}')">&times;</button>
+          <button class="amon-chart-close" data-sid="${sid}" style="background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:0 3px">&times;</button>
         </div>
         <div style="flex:1;position:relative;min-height:0;height:100%"><canvas id="amon-chart-canvas-${sid}" style="position:absolute;top:0;left:0;width:100%;height:100%"></canvas></div>
       </div>
@@ -95,21 +92,13 @@ function _openMonitor(sid, { centre = false, x, y, width, chartOpen } = {}) {
   panelState._el = el;
   _monitors.set(sid, panelState);
 
-  // CHART button
-  const chartBtnSlot = document.getElementById('amon-chart-btn-' + sid);
-  if (chartBtnSlot) {
-    const chartBtn = document.createElement('button');
-    chartBtn.textContent = 'CHART';
-    chartBtn.title = 'Execution chart';
-    chartBtn.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid #4488ff;background:#0a1628;color:#4488ff;font-weight:700;cursor:pointer;margin-right:4px;pointer-events:all;position:relative;z-index:10;';
-    chartBtn.addEventListener('mousedown', e => e.stopPropagation());
-    chartBtn.onclick = function(e) {
-      e.stopImmediatePropagation(); e.preventDefault();
-      if (_chartVisible[sid]) { _closeChart(sid); }
-      else { _openChart(sid); }
-    };
-    chartBtnSlot.replaceWith(chartBtn);
-  }
+  // Wire buttons via addEventListener (not inline onclick)
+  el.querySelector('.amon-close-btn').addEventListener('click', () => closeMonitor(sid));
+  el.querySelector('.amon-min-btn').addEventListener('click', () => minimiseMonitor(sid));
+  el.querySelector('.amon-chart-toggle').addEventListener('mousedown', e => e.stopPropagation());
+  el.querySelector('.amon-chart-toggle').addEventListener('click', e => { e.stopImmediatePropagation(); e.preventDefault(); _toggleChart(sid); });
+  const chartCloseBtn = el.querySelector('.amon-chart-close');
+  if (chartCloseBtn) chartCloseBtn.addEventListener('click', () => _closeChart(sid));
 
   // Drag
   const hdr = el.querySelector('.algo-monitor-hdr');
@@ -386,6 +375,26 @@ function minimiseMonitor(sid) {
 }
 
 // ── Chart Management ────────────────────────────────────────────────────────
+function _toggleChart(sid) {
+  const pane = document.getElementById('amon-chart-pane-' + sid);
+  const isOpen = pane && pane.style.display !== 'none';
+  if (isOpen) {
+    _closeChart(sid);
+  } else {
+    _openChart(sid);
+  }
+  // Update CHART button style
+  const ps = _monitors.get(sid);
+  const el = ps?._el;
+  const btn = el?.querySelector('.amon-chart-toggle');
+  if (btn) {
+    const open = !isOpen; // toggled
+    btn.style.background = open ? '#1a2a1a' : '#0a1628';
+    btn.style.color = open ? '#00c896' : '#4488ff';
+    btn.style.borderColor = open ? '#2a4a2a' : '#4488ff';
+  }
+}
+
 function _openChart(sid) {
   if (_chartInstances.has(sid)) return; // already open
   const ps = _monitors.get(sid);
@@ -614,7 +623,7 @@ function init() {
 window._algoOpenMonitor = openMonitor;
 window._algoCloseMonitor = closeMonitor;
 window._algoMinimiseMonitor = minimiseMonitor;
-window._algoToggleChart = function(sid) { if (_chartVisible[sid]) _closeChart(sid); else { _chartVisible[sid] = true; _openChart(sid); } };
+window._algoToggleChart = _toggleChart;
 window._closeChart = _closeChart;
 // _detachChart, _attachChart removed — chart is inline in monitor panel
 
