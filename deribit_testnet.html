@@ -2628,7 +2628,10 @@ function panelSnapshot(s) {
 function saveCurrentLayout() {
   const layout = layouts.find(l => l.id === activeLayoutId);
   // Filter out spread leg entries — they're saved as part of their parent spread panel
-  if (layout) layout.panels = panels.filter(p => !p._isSpreadLeg).map(panelSnapshot);
+  if (layout) {
+    layout.panels = panels.filter(p => !p._isSpreadLeg).map(panelSnapshot);
+    console.log('[Layout] saving layout, panels:', layout.panels.map(p => p.panelType || 'price'));
+  }
 }
 
 function destroyAllPanels() {
@@ -2658,12 +2661,15 @@ function destroyAllPanels() {
 }
 
 function restoreLayoutPanels(layout) {
+  console.log('[Layout] restoring layout, panel count:', layout.panels.length, layout.panels.map(p => p.panelType || 'price'));
   if (layout.panels.length > 0) {
     for (const p of layout.panels) {
       try {
       // Algo monitor restore
       if (p.panelType === 'algo-monitor') {
-        if (window.AlgoMonitor && blotterData.algos && blotterData.algos[p.strategyId]) {
+        const exists = !!(blotterData.algos && blotterData.algos[p.strategyId]);
+        console.log('[Layout] restoring algo-monitor', p.strategyId, 'exists in blotterData:', exists);
+        if (window.AlgoMonitor && exists) {
           window.AlgoMonitor.openMonitor(p.strategyId, { x: p.x, y: p.y, width: p.width, chartOpen: p.chartOpen });
         }
         continue;

@@ -81,12 +81,12 @@ function _openMonitor(sid, { centre = false, x, y, width, chartOpen } = {}) {
     </div>
     <div style="display:flex;flex:1;min-height:0;overflow:visible">
       <div class="algo-monitor-body" id="algo-mon-body-${sid}" style="min-width:480px;width:480px;flex-shrink:0;overflow-y:auto"></div>
-      <div class="amon-chart-pane" id="amon-chart-pane-${sid}" style="display:none;width:320px;flex-shrink:0;flex-direction:column;border-left:1px solid #1a1a22"
+      <div class="amon-chart-pane" id="amon-chart-pane-${sid}" style="display:none;width:320px;flex-shrink:0;flex-direction:column;height:100%;border-left:1px solid #1a1a22">
         <div class="amon-chart-hdr">
           <span>Execution Chart</span>
           <button style="background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:0 3px" onclick="_closeChart('${sid}')">&times;</button>
         </div>
-        <div style="flex:1;position:relative;min-height:0;padding:4px"><canvas id="amon-chart-canvas-${sid}"></canvas></div>
+        <div style="flex:1;position:relative;min-height:0;padding:4px"><canvas id="amon-chart-canvas-${sid}" style="position:absolute;inset:0;width:100%;height:100%"></canvas></div>
       </div>
     </div>
     <div class="panel-resize" id="resize-${id}"></div>`;
@@ -393,14 +393,14 @@ function _openChart(sid) {
   const el = ps._el || document.getElementById(`panel-${ps.id}`);
   if (!el) return;
 
-  // Show the inline chart pane
+  // Show the inline chart pane FIRST so canvas has dimensions
   const pane = document.getElementById('amon-chart-pane-' + sid);
   if (!pane) return;
   pane.style.display = 'flex';
   _chartVisible[sid] = true;
   el.style.width = '800px'; // expand panel: 480 monitor + 320 chart
 
-  // Create Chart.js instance
+  // Wait for layout to settle before creating Chart.js (needs measurable canvas)
   requestAnimationFrame(() => {
     const ctx = document.getElementById('amon-chart-canvas-' + sid)?.getContext('2d');
     if (!ctx || typeof Chart === 'undefined') return;
@@ -438,6 +438,8 @@ function _openChart(sid) {
       },
     });
     _chartInstances.set(sid, chart);
+    // Force resize after layout has settled
+    setTimeout(() => { try { chart.resize(); } catch {} }, 50);
   });
 }
 
