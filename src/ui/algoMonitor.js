@@ -394,6 +394,8 @@ function _openChart(sid) {
   if (_chartInstances.has(sid)) { try { _chartInstances.get(sid).destroy(); } catch {} _chartInstances.delete(sid); }
   const existing = document.getElementById('amon-chart-' + sid);
   if (existing) { if (existing._ro) existing._ro.disconnect(); existing.remove(); }
+  delete _chartAttached[sid];
+  _chartVisible[sid] = false;
   const ps = _monitors.get(sid);
   if (!ps) return;
   const monEl = ps._el || document.getElementById(`panel-${ps.id}`);
@@ -694,9 +696,14 @@ function destroyMonitorPanel(panelState) {
 // DOM-only destroy — cleans up chart and DOM but leaves panels array intact
 // Used by destroyAllPanels during layout switch (panels = [] happens after)
 function _destroyDomOnly(sid) {
+  // Destroy chart instance and remove chart panel from DOM
   const chart = _chartInstances.get(sid);
   if (chart) { try { chart.destroy(); } catch {} _chartInstances.delete(sid); }
   _chartVisible[sid] = false;
+  delete _chartAttached[sid];
+  const chartEl = document.getElementById('amon-chart-' + sid);
+  if (chartEl) { if (chartEl._ro) chartEl._ro.disconnect(); chartEl.remove(); }
+  // Remove monitor panel from DOM
   const ps = _monitors.get(sid);
   if (ps) {
     const el = ps._el || document.getElementById(`panel-${ps.id}`);
