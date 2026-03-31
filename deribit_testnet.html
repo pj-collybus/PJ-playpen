@@ -233,7 +233,7 @@ body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, -apple-syste
 .algo-mon-btn { background: none; border: 1px solid #222244; border-radius: 3px; color: #6666cc; cursor: pointer; font-size: 10px; padding: 2px 6px; font-family: inherit; }
 .algo-mon-btn:hover { color: #99f; border-color: #4444aa; }
 /* Floating monitor panel */
-.algo-monitor { min-width: 480px; max-width: 560px; min-height: 380px; background: #0a0a10; border: 1px solid #1a1a22; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.4); display: flex; flex-direction: column; overflow: hidden; }
+.algo-monitor { min-width: 480px; max-width: 560px; min-height: 323px; background: #0a0a10; border: 1px solid #1a1a22; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.4); display: flex; flex-direction: column; overflow: hidden; }
 .algo-monitor.status-RUNNING   { border-left: 3px solid #22cc66; }
 .algo-monitor.status-PAUSED    { border-left: 3px solid #cc9900; }
 .algo-monitor.status-ERROR     { border-left: 3px solid #cc3333; }
@@ -1479,6 +1479,7 @@ const BL_TABS = [
   { id:'notifs',        label:'Notifications' },
   { id:'balances',      label:'Cash Balances' },
 ];
+window._panelTopZ = 100;
 const blotterData = {
   trades:          [],
   orders:          {},   // order_id → order object
@@ -2630,7 +2631,6 @@ function saveCurrentLayout() {
   // Filter out spread leg entries — they're saved as part of their parent spread panel
   if (layout) {
     layout.panels = panels.filter(p => !p._isSpreadLeg).map(panelSnapshot);
-    console.log('[Layout] saving layout, panels:', layout.panels.map(p => p.panelType || 'price'));
   }
 }
 
@@ -2663,7 +2663,6 @@ function destroyAllPanels() {
 }
 
 function restoreLayoutPanels(layout) {
-  console.log('[Layout] restoring layout, panel count:', layout.panels.length, layout.panels.map(p => p.panelType || 'price'));
   if (layout.panels.length > 0) {
     for (const p of layout.panels) {
       try {
@@ -3057,6 +3056,8 @@ function createPanel(defInstr = 'BTC-PERPETUAL', { skipSubscribe = false } = {})
     <div class="panel-resize" id="resize-${id}"></div>`;
 
   document.getElementById('panels-canvas').appendChild(div);
+  div.style.zIndex = String(++window._panelTopZ);
+  div.addEventListener('mousedown', function() { div.style.zIndex = String(++window._panelTopZ); }, true);
 
   const sel = document.getElementById(`sel-${id}`);
   sel.addEventListener('click', () => openInstrPicker(s, sel));
@@ -3216,6 +3217,8 @@ function createSpreadPanel(opts = {}) {
     </div>
     <div class="panel-resize" id="sp-resize-${id}"></div>`;
   document.getElementById('panels-canvas').appendChild(el);
+  el.style.zIndex = String(++window._panelTopZ);
+  el.addEventListener('mousedown', function() { el.style.zIndex = String(++window._panelTopZ); }, true);
 
   // ── Drag ──
   document.getElementById(`sp-drag-${id}`).addEventListener('mousedown', e => {
@@ -4394,9 +4397,6 @@ function startDrag(panelEl, s, e) {
   panelEl.style.transition = '';
   for (const p of panels) { if (p !== s) _enableTransition(p); }
 
-  // Bring dragged panel to front
-  panelEl.style.zIndex = '10';
-
   function onMove(ev) {
     const maxX = Math.max(0, area.clientWidth - panelEl.offsetWidth);
     const rawX = ev.clientX - areaRect.left - ox;
@@ -4415,7 +4415,6 @@ function startDrag(panelEl, s, e) {
   function onUp() {
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup',   onUp);
-    panelEl.style.zIndex = '';
     // Clear all pre-push positions — final positions are now permanent
     for (const p of panels) { delete p._prePushX; delete p._prePushY; }
     // Final settle with no direction bias
@@ -7657,13 +7656,13 @@ function initBlotter() {
       // Merge orders from non-Deribit exchanges (update existing, add new)
       if (data.orders?.length) {
         const algoOrders = data.orders.filter(o => o.strategyId || o.parentOrderId);
-        if (algoOrders.length) console.log('[blotter] polling received', data.orders.length, 'orders,', algoOrders.length, 'algo orders:', algoOrders.map(o => o.orderId?.slice(-8) + ':' + o.state).join(', '));
+        if (algoOrders.length) console.log('[blotter] poll:', data.orders.length, 'orders,', algoOrders.length, 'algo');
         for (const o of data.orders) {
           // Skip Deribit orders from browser WS — but allow simulated algo child orders through
           const _isDeribit = (o.venue || '').toUpperCase() === 'DERIBIT';
           const _isAlgoOrder = !!(o.parentOrderId || o.strategyId || o.metadata?.simulated || o.metadata?.strategyId);
           if (_isDeribit && !_isAlgoOrder && !blotterData.orders[o.orderId]) {
-            if (!window._blotterFilterLogOnce) { console.log('[blotter] filtered Deribit order:', o.orderId, 'venue:', o.venue, 'parentId:', o.parentOrderId, 'strategyId:', o.strategyId, 'simulated:', o.metadata?.simulated); window._blotterFilterLogOnce = true; }
+            if (!window._blotterFilterLogOnce) { console.log('[blotter] filtering Deribit WS orders (first skipped:', o.orderId?.slice(-8), ')'); window._blotterFilterLogOnce = true; }
             continue;
           }
           const existing = blotterData.orders[o.orderId];
@@ -8574,11 +8573,7 @@ function initBlotter() {
   window._algoOpenMonitor = function(sid, { centre = false } = {}) {
     if (window.AlgoMonitor?.getMonitors().has(sid)) return;
     if (window.AlgoMonitor) {
-      const s = blotterData.algos[sid] || {};
-      const opts = centre
-        ? { x: Math.round((window.innerWidth - 500) / 2), y: Math.round((window.innerHeight - 400) / 2) }
-        : {};
-      window.AlgoMonitor.openMonitor(sid, opts);
+      window.AlgoMonitor.openMonitor(sid, { centre });
       return;
     }
     // Fallback: legacy monitor if module not loaded

@@ -19,6 +19,45 @@ const _chartVisible = {};           // sid → boolean
 const _chartAttached = {};          // sid → boolean
 let _dataProvider = null;           // fn(sid) => strategyData
 
+// ── Chart element lookup ──
+function _chartEl(sid) {
+  return document.getElementById('amon-chart-' + sid);
+}
+
+// ── Positioning helper ──────────────────────────────────────────────────────
+function _findFreePos(width, height) {
+  const MARGIN = 10;
+  const allPanels = window.panels || [];
+  // Collect rects of all existing panels (DOM or panelState fallback)
+  const rects = [];
+  for (const p of allPanels) {
+    const el = document.getElementById('panel-' + p.id);
+    const rx = el ? el.offsetLeft : (p.x || 0);
+    const ry = el ? el.offsetTop  : (p.y || 0);
+    const w = el ? el.offsetWidth  : (p.panelType === 'algo-monitor' ? 460 : 480);
+    const h = el ? el.offsetHeight : (p.panelType === 'algo-monitor' ? 323 : 230);
+    rects.push({ x: rx, y: ry, w, h });
+  }
+  if (!rects.length) return { x: MARGIN, y: MARGIN };
+  const area = document.getElementById('panels-area');
+  const areaW = area ? area.clientWidth : window.innerWidth;
+  const maxY = rects.reduce((m, r) => Math.max(m, r.y + r.h), 0) + height + MARGIN;
+  for (let y = MARGIN; y < maxY; y += 10) {
+    for (let x = MARGIN; x + width <= areaW; x += 10) {
+      let fits = true;
+      for (const r of rects) {
+        if (x < r.x + r.w + MARGIN && x + width + MARGIN > r.x &&
+            y < r.y + r.h + MARGIN && y + height + MARGIN > r.y) {
+          fits = false; break;
+        }
+      }
+      if (fits) return { x, y };
+    }
+  }
+  const bottom = rects.reduce((m, r) => Math.max(m, r.y + r.h), 0);
+  return { x: MARGIN, y: bottom + MARGIN };
+}
+
 // ── Data Provider ───────────────────────────────────────────────────────────
 function setDataProvider(fn) { _dataProvider = fn; }
 function _getData(sid) {
@@ -40,32 +79,49 @@ function _openMonitor(sid, { centre = false, x, y, width, height, chartOpen } = 
   if (_monitors.has(sid)) return _monitors.get(sid);
   const s = _getData(sid) || {};
   const id = (typeof nextId !== 'undefined') ? nextId++ : Date.now();
-  let pos;
-  if (x != null && y != null) {
-    pos = { x, y };
-  } else if (centre) {
-    pos = { x: Math.round((window.innerWidth - 500) / 2), y: Math.round((window.innerHeight - 400) / 2) };
-  } else {
-    const saved = localStorage.getItem('algo-mon-' + sid);
-    pos = saved ? JSON.parse(saved) : (typeof nextPanelPos === 'function' ? nextPanelPos(500, 400) : { x: 80 + _monitors.size * 30, y: window.innerWidth - 510 });
-  }
-
   const panelState = {
     id, panelType: 'algo-monitor', strategyId: sid,
-    x: pos.x ?? pos.left ?? 10, y: pos.y ?? pos.top ?? 10,
-    _chartVisible: false,
+    x: x ?? 10, y: y ?? 10,
+    chartOpen: false,
   };
 
-  // Add to panels array
+  // Push to panels array FIRST so _findFreePos sees this panel when called for subsequent monitors
   if (typeof panels !== 'undefined') {
     panels.push(panelState);
     console.log('[AlgoMonitor] pushed to panels:', panelState.panelType, panelState.strategyId, 'panels.length:', panels.length);
   }
 
+  // Resolve position after push so _findFreePos sees all panels including this one
+  let pos;
+  if (x != null && y != null) {
+    pos = { x, y };
+  } else {
+    const centrePos = { x: Math.max(0, (window.innerWidth - 480) / 2), y: Math.max(0, (window.innerHeight - 323) / 2) };
+    // Check if centre position overlaps any existing panel
+    const MARGIN = 10;
+    const allPanels = window.panels || [];
+    let centreOccupied = false;
+    for (const p of allPanels) {
+      if (p.strategyId === sid) continue; // skip self
+      const el = document.getElementById('panel-' + p.id);
+      const rx = el ? el.offsetLeft : (p.x || 0);
+      const ry = el ? el.offsetTop  : (p.y || 0);
+      const rw = el ? el.offsetWidth  : 460;
+      const rh = el ? el.offsetHeight : 323;
+      if (centrePos.x < rx + rw + MARGIN && centrePos.x + 460 + MARGIN > rx &&
+          centrePos.y < ry + rh + MARGIN && centrePos.y + 323 + MARGIN > ry) {
+        centreOccupied = true; break;
+      }
+    }
+    pos = centreOccupied ? _findFreePos(460, 323) : centrePos;
+  }
+  panelState.x = pos.x ?? 10;
+  panelState.y = pos.y ?? 10;
+
   const el = document.createElement('div');
   el.className = 'algo-monitor status-' + (s.state || s.status || 'STOPPED');
   el.id = `panel-${id}`;
-  el.style.cssText = `position:absolute;left:${panelState.x}px;top:${panelState.y}px;width:460px;min-height:380px;display:flex;flex-direction:column`;
+  el.style.cssText = `position:absolute;left:${panelState.x}px;top:${panelState.y}px;width:460px;min-height:323px;display:flex;flex-direction:column`;
 
   el.innerHTML = `
     <div class="algo-monitor-hdr" data-sid="${sid}">
@@ -79,6 +135,13 @@ function _openMonitor(sid, { centre = false, x, y, width, height, chartOpen } = 
     <div class="panel-resize" id="resize-${id}"></div>`;
 
   document.getElementById('panels-canvas').appendChild(el);
+  el.style.zIndex = String(++window._panelTopZ);
+  el.addEventListener('mousedown', function() {
+    const z = String(++window._panelTopZ);
+    el.style.zIndex = z;
+    const chartEl = document.getElementById('amon-chart-' + sid);
+    if (chartEl) chartEl.style.zIndex = z;
+  }, true);
   panelState._el = el;
   _monitors.set(sid, panelState);
 
@@ -87,40 +150,63 @@ function _openMonitor(sid, { centre = false, x, y, width, height, chartOpen } = 
   el.querySelector('.amon-chart-toggle').addEventListener('mousedown', e => e.stopPropagation());
   el.querySelector('.amon-chart-toggle').addEventListener('click', e => { e.stopImmediatePropagation(); e.preventDefault(); _toggleChart(sid); });
 
-  // Custom drag for monitor — algoMonitor.js owns this entirely, NOT PanelGrid.startDrag()
+  // Custom drag for monitor — participates in layout settling like price panels
   const hdr = el.querySelector('.algo-monitor-hdr');
   hdr.style.cursor = 'grab';
   hdr.addEventListener('mousedown', function(e) {
     if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
     if (e.button !== 0) return;
     e.preventDefault();
-    e.stopPropagation(); // prevent panelGrid or other handlers from intercepting
+    e.stopPropagation();
     hdr.style.cursor = 'grabbing';
     const startX = e.clientX - el.offsetLeft;
     const startY = e.clientY - el.offsetTop;
+    let prevLeft = panelState.x, prevTop = panelState.y;
+
+    // Disable transition on dragged panel, enable on others for smooth push
+    el.style.transition = '';
+    if (typeof PanelGrid !== 'undefined') {
+      for (const p of (window.panels || [])) { if (p !== panelState) PanelGrid._enableTransition(p); }
+    }
+
     function onMove(ev) {
       const newLeft = Math.max(0, ev.clientX - startX);
       const newTop = Math.max(0, ev.clientY - startY);
+      panelState.x = newLeft;
+      panelState.y = newTop;
       el.style.left = newLeft + 'px';
       el.style.top = newTop + 'px';
-      panelState.x = newLeft; panelState.y = newTop;
-      // Sync attached chart position inline (no function call)
+      // Participate in layout settling — push other panels out of the way
+      if (typeof PanelGrid !== 'undefined') {
+        PanelGrid.settleLayout(panelState, { dx: newLeft - prevLeft, dy: newTop - prevTop }, true);
+      }
+      prevLeft = newLeft;
+      prevTop = newTop;
+      // Sync attached chart after settle (use panelState.x/y which _applyPos may have updated)
       if (_chartAttached[sid] === true) {
-        const chartEl = document.getElementById('amon-chart-' + sid);
+        const chartEl = _chartEl(sid);
         if (chartEl) {
-          chartEl.style.left = (newLeft + el.offsetWidth) + 'px';
-          chartEl.style.top = newTop + 'px';
+          chartEl.style.left = (panelState.x + el.offsetWidth) + 'px';
+          chartEl.style.top = panelState.y + 'px';
         }
       }
     }
+
     function onUp() {
       hdr.style.cursor = 'grab';
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
-      localStorage.setItem('algo-mon-' + sid, JSON.stringify({ top: parseInt(el.style.top), left: parseInt(el.style.left) }));
+      // Clear pre-push positions
+      for (const p of (window.panels || [])) { delete p._prePushX; delete p._prePushY; }
+      // Final settle
+      if (typeof PanelGrid !== 'undefined') PanelGrid.settleLayout(panelState);
+      // Remove transitions after settle animation
+      if (typeof PanelGrid !== 'undefined') {
+        setTimeout(() => { for (const p of (window.panels || [])) PanelGrid._disableTransition(p); }, 200);
+      }
       if (typeof PanelGrid !== 'undefined') PanelGrid.persistLayouts();
-      else if (typeof persistLayouts === 'function') persistLayouts();
     }
+
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   });
@@ -138,7 +224,10 @@ function _openMonitor(sid, { centre = false, x, y, width, height, chartOpen } = 
   if (typeof persistLayouts === 'function') persistLayouts();
 
   // Restore chart if it was open
-  if (chartOpen) setTimeout(() => _openChart(sid), 100);
+  if (chartOpen) {
+    panelState.chartOpen = true;  // set immediately so snapshot captures correct value
+    setTimeout(() => _openChart(sid), 100);
+  }
 
   return panelState;
 }
@@ -374,7 +463,7 @@ function minimiseMonitor(sid) {
 
 // ── Chart Management ────────────────────────────────────────────────────────
 function _toggleChart(sid) {
-  const chartEl = document.getElementById('amon-chart-' + sid);
+  const chartEl = _chartEl(sid);
   console.log('[AlgoMonitor] _toggleChart:', sid, 'chart exists:', !!chartEl);
   if (chartEl) { _closeChart(sid); } else { _openChart(sid); }
 }
@@ -392,7 +481,7 @@ function _openChart(sid) {
   console.log('[AlgoMonitor] _openChart called for', sid);
   // Clean up any stale state from a previous open
   if (_chartInstances.has(sid)) { try { _chartInstances.get(sid).destroy(); } catch {} _chartInstances.delete(sid); }
-  const existing = document.getElementById('amon-chart-' + sid);
+  const existing = _chartEl(sid);
   if (existing) { if (existing._ro) existing._ro.disconnect(); existing.remove(); }
   delete _chartAttached[sid];
   _chartVisible[sid] = false;
@@ -409,7 +498,7 @@ function _openChart(sid) {
   const panel = document.createElement('div');
   panel.className = 'panel amon-chart-panel';
   panel.id = 'amon-chart-' + sid;
-  panel.style.cssText = `position:absolute;z-index:100;width:320px;height:${monEl.offsetHeight}px;top:${monEl.offsetTop}px;left:${monEl.offsetLeft + monEl.offsetWidth}px;background:#0a0a10;border:1px solid #1a1a22;border-radius:0 8px 8px 0;border-left:none;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.4)`;
+  panel.style.cssText = `position:absolute;width:320px;height:${monEl.offsetHeight}px;top:${monEl.offsetTop}px;left:${monEl.offsetLeft + monEl.offsetWidth}px;background:#0a0a10;border:1px solid #1a1a22;border-radius:0 8px 8px 0;border-left:none;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.4)`;
   monEl.style.borderRadius = '8px 0 0 8px';
   monEl.style.borderRight = 'none';
 
@@ -423,7 +512,20 @@ function _openChart(sid) {
     </div>
     <div style="flex:1;position:relative;min-height:0;padding:4px"><canvas id="amon-chart-canvas-${sid}" style="position:absolute;top:4px;left:4px;right:4px;bottom:4px;width:calc(100% - 8px);height:calc(100% - 8px)"></canvas></div>`;
 
-  document.getElementById('panels-canvas').appendChild(panel);
+  // Insert chart BEFORE monitor in DOM so monitor naturally sits on top
+  const canvas = document.getElementById('panels-canvas');
+  const monElParent = ps?._el;
+  if (monElParent && monElParent.parentNode === canvas) {
+    canvas.insertBefore(panel, monElParent);
+  } else {
+    canvas.appendChild(panel);
+  }
+  panel.style.zIndex = String(++window._panelTopZ);
+  panel.addEventListener('mousedown', function() {
+    const z = String(++window._panelTopZ);
+    panel.style.zIndex = z;
+    if (ps?._el) ps._el.style.zIndex = z;
+  }, true);
 
   // Wire chart panel buttons with stopPropagation
   panel.querySelector('.amon-chart-x').addEventListener('click', function(e) {
@@ -434,7 +536,6 @@ function _openChart(sid) {
   panel.querySelector('.amon-chart-detach').addEventListener('click', function(e) {
     e.stopPropagation();
     const isAtt = _chartAttached[sid];
-    console.log('[AlgoMonitor] detach/attach: _chartAttached[sid]:', isAtt, typeof isAtt, '→ calling', isAtt === true ? '_detachChart' : '_attachChart');
     if (isAtt === true) { _detachChart(sid); } else { _attachChart(sid); }
   });
   // Prevent mousedown on buttons from being interpreted as drag start
@@ -450,6 +551,10 @@ function _openChart(sid) {
   });
   ro.observe(monEl);
   panel._ro = ro;
+
+  // Persist chart-open state in layout
+  ps.chartOpen = true;
+  if (typeof PanelGrid !== 'undefined') PanelGrid.persistLayouts();
 
   // Force reflow then create Chart.js
   void panel.offsetHeight;
@@ -499,7 +604,7 @@ function _closeChart(sid) {
   const chart = _chartInstances.get(sid);
   if (chart) { try { chart.destroy(); } catch {} _chartInstances.delete(sid); }
   _chartVisible[sid] = false;
-  const chartEl = document.getElementById('amon-chart-' + sid);
+  const chartEl = _chartEl(sid);
   if (chartEl) { if (chartEl._ro) chartEl._ro.disconnect(); chartEl.remove(); }
   // Restore monitor borders
   const ps = _monitors.get(sid);
@@ -507,26 +612,26 @@ function _closeChart(sid) {
   if (monEl) { monEl.style.borderRadius = '8px'; monEl.style.borderRight = ''; }
   delete _chartAttached[sid];
   _setChartBtnStyle(sid, false);
+  if (ps) ps.chartOpen = false;
+  if (typeof PanelGrid !== 'undefined') PanelGrid.persistLayouts();
 }
 
 function _syncChartPosition(sid) {
   const ps = _monitors.get(sid);
   const monEl = ps?._el || document.getElementById(`panel-${ps?.id}`);
-  const chartEl = document.getElementById('amon-chart-' + sid);
+  const chartEl = _chartEl(sid);
   if (!monEl || !chartEl) return;
   chartEl.style.left = (monEl.offsetLeft + monEl.offsetWidth) + 'px';
   chartEl.style.top = monEl.offsetTop + 'px';
 }
 
 function _detachChart(sid) {
-  console.log('[AlgoMonitor] _detachChart called for', sid);
   try {
-  const chartEl = document.getElementById('amon-chart-' + sid);
-  if (!chartEl) { console.log('[detach] no chart el found'); return; }
+  const chartEl = _chartEl(sid);
+  if (!chartEl) return;
 
   _chartAttached[sid] = false;
   localStorage.setItem('algo-chart-attached-' + sid, 'false');
-  console.log('[detach] _chartAttached set to false for', sid);
 
   // Update visuals
   chartEl.style.borderRadius = '8px';
@@ -538,19 +643,15 @@ function _detachChart(sid) {
   if (detachBtn) { detachBtn.textContent = '↙'; detachBtn.title = 'Attach'; }
 
   const hdr = chartEl.querySelector('.amon-chart-hdr');
-  if (!hdr) { console.log('[detach] no hdr found'); return; }
+  if (!hdr) return;
 
-  // Ensure chart panel is absolutely positioned for drag to work
   chartEl.style.position = 'absolute';
-  chartEl.style.zIndex = '100';
-  console.log('[detach] adding drag to hdr, chartEl pos:', chartEl.style.position, 'left:', chartEl.style.left, 'top:', chartEl.style.top);
   hdr.style.cursor = 'grab';
 
   // Remove any existing handler
   if (hdr._dd) { hdr.removeEventListener('mousedown', hdr._dd); }
 
   hdr._dd = function(e) {
-    console.log('[detach drag] mousedown, target:', e.target.tagName, '_chartAttached:', _chartAttached[sid]);
     if (e.target.tagName === 'BUTTON') return;
     e.preventDefault();
     e.stopPropagation();
@@ -564,23 +665,20 @@ function _detachChart(sid) {
       hdr.style.cursor = 'grab';
       document.removeEventListener('mousemove', mv);
       document.removeEventListener('mouseup', up);
-      console.log('[detach drag] ended at', chartEl.style.left, chartEl.style.top);
     }
     document.addEventListener('mousemove', mv);
     document.addEventListener('mouseup', up);
   };
   hdr.addEventListener('mousedown', hdr._dd);
-  console.log('[detach] handler registered');
   } catch(e) { console.error('[AlgoMonitor] _detachChart error:', e); }
 }
 
 function _attachChart(sid) {
-  console.log('[AlgoMonitor] _attachChart called for', sid);
   _chartAttached[sid] = true;
   localStorage.setItem('algo-chart-attached-' + sid, 'true');
   const ps = _monitors.get(sid);
   const monEl = ps?._el;
-  const chartEl = document.getElementById('amon-chart-' + sid);
+  const chartEl = _chartEl(sid);
   if (!chartEl) return;
   chartEl.style.borderRadius = '0 8px 8px 0'; chartEl.style.borderLeft = 'none';
   if (monEl) { monEl.style.borderRadius = '8px 0 0 8px'; monEl.style.borderRight = 'none'; }
@@ -701,7 +799,7 @@ function _destroyDomOnly(sid) {
   if (chart) { try { chart.destroy(); } catch {} _chartInstances.delete(sid); }
   _chartVisible[sid] = false;
   delete _chartAttached[sid];
-  const chartEl = document.getElementById('amon-chart-' + sid);
+  const chartEl = _chartEl(sid);
   if (chartEl) { if (chartEl._ro) chartEl._ro.disconnect(); chartEl.remove(); }
   // Remove monitor panel from DOM
   const ps = _monitors.get(sid);
@@ -715,8 +813,8 @@ function _destroyDomOnly(sid) {
 // ── Snapshot ────────────────────────────────────────────────────────────────
 function snapshotMonitor(s) {
   const el = s._el || document.getElementById(`panel-${s.id}`);
-  const result = { panelType: 'algo-monitor', strategyId: s.strategyId, x: s.x, y: s.y, width: el ? el.offsetWidth : 480, chartOpen: !!_chartVisible[s.strategyId] };
-  console.log('[AlgoMonitor] snapshot:', result);
+  const result = { panelType: 'algo-monitor', strategyId: s.strategyId, x: s.x, y: s.y, width: el ? el.offsetWidth : 480, chartOpen: !!s.chartOpen };
+  console.log('[AlgoMonitor] snapshot:', result, 'chartOpen:', s.chartOpen);
   return result;
 }
 

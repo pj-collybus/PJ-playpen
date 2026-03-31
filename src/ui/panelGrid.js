@@ -191,7 +191,6 @@ function startDrag(panelEl, s, e) {
   let prevX = s.x, prevY = s.y;
   panelEl.style.transition = '';
   for (const p of panels) { if (p !== s) _enableTransition(p); }
-  panelEl.style.zIndex = '10';
 
   function onMove(ev) {
     const maxX = Math.max(0, area.clientWidth - panelEl.offsetWidth);
@@ -209,7 +208,6 @@ function startDrag(panelEl, s, e) {
   function onUp() {
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
-    panelEl.style.zIndex = '';
     for (const p of panels) { delete p._prePushX; delete p._prePushY; }
     settleLayout(s);
     setTimeout(() => { for (const p of panels) _disableTransition(p); }, 200);
