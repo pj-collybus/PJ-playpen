@@ -431,8 +431,9 @@ function _openChart(sid) {
   });
   panel.querySelector('.amon-chart-detach').addEventListener('click', function(e) {
     e.stopPropagation();
-    console.log('[AlgoMonitor] detach/attach button clicked for', sid, 'attached:', _chartAttached[sid]);
-    if (_chartAttached[sid] === true) _detachChart(sid); else _attachChart(sid);
+    const isAtt = _chartAttached[sid];
+    console.log('[AlgoMonitor] detach/attach: _chartAttached[sid]:', isAtt, typeof isAtt, '→ calling', isAtt === true ? '_detachChart' : '_attachChart');
+    if (isAtt === true) { _detachChart(sid); } else { _attachChart(sid); }
   });
   // Prevent mousedown on buttons from being interpreted as drag start
   panel.querySelectorAll('button').forEach(btn => btn.addEventListener('mousedown', e => e.stopPropagation()));
@@ -517,6 +518,7 @@ function _syncChartPosition(sid) {
 
 function _detachChart(sid) {
   console.log('[AlgoMonitor] _detachChart called for', sid);
+  try {
   const chartEl = document.getElementById('amon-chart-' + sid);
   if (!chartEl) { console.log('[detach] no chart el found'); return; }
 
@@ -567,6 +569,7 @@ function _detachChart(sid) {
   };
   hdr.addEventListener('mousedown', hdr._dd);
   console.log('[detach] handler registered');
+  } catch(e) { console.error('[AlgoMonitor] _detachChart error:', e); }
 }
 
 function _attachChart(sid) {
