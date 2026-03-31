@@ -359,6 +359,7 @@ function minimiseMonitor(sid) {
 // ── Chart Management ────────────────────────────────────────────────────────
 function _toggleChart(sid) {
   const chartEl = document.getElementById('amon-chart-' + sid);
+  console.log('[AlgoMonitor] _toggleChart:', sid, 'chart exists:', !!chartEl);
   if (chartEl) { _closeChart(sid); } else { _openChart(sid); }
 }
 
@@ -372,7 +373,11 @@ function _setChartBtnStyle(sid, open) {
 }
 
 function _openChart(sid) {
-  if (_chartInstances.has(sid)) return;
+  console.log('[AlgoMonitor] _openChart called for', sid);
+  // Clean up any stale state from a previous open
+  if (_chartInstances.has(sid)) { try { _chartInstances.get(sid).destroy(); } catch {} _chartInstances.delete(sid); }
+  const existing = document.getElementById('amon-chart-' + sid);
+  if (existing) { if (existing._ro) existing._ro.disconnect(); existing.remove(); }
   const ps = _monitors.get(sid);
   if (!ps) return;
   const monEl = ps._el || document.getElementById(`panel-${ps.id}`);
@@ -506,11 +511,38 @@ function _detachChart(sid) {
   const chartEl = document.getElementById('amon-chart-' + sid);
   if (!chartEl) return;
   chartEl.style.left = (parseInt(chartEl.style.left) + 20) + 'px';
-  chartEl.style.borderRadius = '8px'; chartEl.style.borderLeft = '';
+  chartEl.style.borderRadius = '8px';
+  chartEl.style.borderLeft = '1px solid #1a1a22';
   if (monEl) { monEl.style.borderRadius = '8px'; monEl.style.borderRight = ''; }
-  const hdr = chartEl.querySelector('.amon-chart-hdr'); if (hdr) hdr.style.cursor = 'grab';
   const btn = chartEl.querySelector('.amon-chart-detach');
-  if (btn) { btn.textContent = '↙'; btn.title = 'Attach'; }
+  if (btn) { btn.textContent = '↙'; btn.title = 'Attach to monitor'; }
+  // Add explicit drag handler
+  const hdr = chartEl.querySelector('.amon-chart-hdr');
+  if (!hdr) return;
+  hdr.style.cursor = 'grab';
+  if (!hdr._detachDragHandler) {
+    hdr._detachDragHandler = function(e) {
+      if (e.target.tagName === 'BUTTON') return;
+      if (_chartAttached[sid]) return;
+      if (e.button !== 0) return;
+      e.preventDefault();
+      hdr.style.cursor = 'grabbing';
+      const startX = e.clientX - chartEl.offsetLeft;
+      const startY = e.clientY - chartEl.offsetTop;
+      function onMove(ev) {
+        chartEl.style.left = (ev.clientX - startX) + 'px';
+        chartEl.style.top = (ev.clientY - startY) + 'px';
+      }
+      function onUp() {
+        hdr.style.cursor = 'grab';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    };
+    hdr.addEventListener('mousedown', hdr._detachDragHandler);
+  }
 }
 
 function _attachChart(sid) {
