@@ -81,12 +81,12 @@ function _openMonitor(sid, { centre = false, x, y, width, chartOpen } = {}) {
     </div>
     <div style="display:flex;flex:1;min-height:0;overflow:visible">
       <div class="algo-monitor-body" id="algo-mon-body-${sid}" style="min-width:480px;width:480px;flex-shrink:0;overflow-y:auto"></div>
-      <div class="amon-chart-pane" id="amon-chart-pane-${sid}" style="display:none;width:320px;flex-shrink:0;flex-direction:column;height:100%;border-left:1px solid #1a1a22">
-        <div class="amon-chart-hdr">
+      <div class="amon-chart-pane" id="amon-chart-pane-${sid}" style="display:none;flex-direction:column;width:320px;height:100%;border-left:1px solid #1a1a22">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;font-size:10px;color:#555;flex-shrink:0;border-bottom:1px solid #111">
           <span>Execution Chart</span>
           <button style="background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:0 3px" onclick="_closeChart('${sid}')">&times;</button>
         </div>
-        <div style="flex:1;position:relative;min-height:0;padding:4px"><canvas id="amon-chart-canvas-${sid}" style="position:absolute;inset:0;width:100%;height:100%"></canvas></div>
+        <div style="flex:1;position:relative;min-height:0;height:100%"><canvas id="amon-chart-canvas-${sid}" style="position:absolute;top:0;left:0;width:100%;height:100%"></canvas></div>
       </div>
     </div>
     <div class="panel-resize" id="resize-${id}"></div>`;
@@ -395,15 +395,21 @@ function _openChart(sid) {
 
   // Show the inline chart pane FIRST so canvas has dimensions
   const pane = document.getElementById('amon-chart-pane-' + sid);
-  if (!pane) return;
+  if (!pane) { console.error('[AlgoMonitor] chart pane not found for', sid); return; }
   pane.style.display = 'flex';
   _chartVisible[sid] = true;
   el.style.width = '800px'; // expand panel: 480 monitor + 320 chart
 
+  // Force reflow so browser computes layout before Chart.js measures canvas
+  void pane.offsetHeight;
+
+  const canvasEl = document.getElementById('amon-chart-canvas-' + sid);
+  console.log('[AlgoMonitor] _openChart canvas:', canvasEl, 'pane dims:', pane.offsetWidth, 'x', pane.offsetHeight);
+
   // Wait for layout to settle before creating Chart.js (needs measurable canvas)
   requestAnimationFrame(() => {
-    const ctx = document.getElementById('amon-chart-canvas-' + sid)?.getContext('2d');
-    if (!ctx || typeof Chart === 'undefined') return;
+    const ctx = canvasEl?.getContext('2d');
+    if (!ctx || typeof Chart === 'undefined') { console.error('[AlgoMonitor] canvas context or Chart.js unavailable'); return; }
     const algoState = _getData(sid);
     const seedBids = [], seedAsks = [], seedTimes = [], seedOrders = [];
     if (algoState?.chartBids?.length >= 1) {
@@ -438,8 +444,14 @@ function _openChart(sid) {
       },
     });
     _chartInstances.set(sid, chart);
+    console.log('[AlgoMonitor] Chart.js instance created for', sid);
     // Force resize after layout has settled
-    setTimeout(() => { try { chart.resize(); } catch {} }, 50);
+    setTimeout(() => { try { chart.resize(); } catch {} }, 100);
+    setTimeout(() => { try { chart.resize(); } catch {} }, 500);
+    // ResizeObserver to handle panel resize
+    const ro = new ResizeObserver(() => { try { chart.resize(); } catch {} });
+    ro.observe(pane);
+    pane._chartRO = ro;
   });
 }
 
@@ -448,9 +460,9 @@ function _closeChart(sid) {
   const chart = _chartInstances.get(sid);
   if (chart) { chart.destroy(); _chartInstances.delete(sid); }
   _chartVisible[sid] = false;
-  // Hide the inline chart pane
+  // Hide the inline chart pane and disconnect ResizeObserver
   const pane = document.getElementById('amon-chart-pane-' + sid);
-  if (pane) pane.style.display = 'none';
+  if (pane) { if (pane._chartRO) { pane._chartRO.disconnect(); pane._chartRO = null; } pane.style.display = 'none'; }
   // Shrink panel back
   const ps = _monitors.get(sid);
   const el = ps?._el || document.getElementById(`panel-${ps?.id}`);
