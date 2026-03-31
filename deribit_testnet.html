@@ -2643,7 +2643,9 @@ function destroyAllPanels() {
   for (const s of [...panels]) {
     if (s._isSpreadLeg) continue; // legs cleaned up by their parent
     if (s.panelType === 'algo-monitor') {
-      if (window.AlgoMonitor) window.AlgoMonitor.destroyAlgoMonitorPanel(s);
+      // DOM-only cleanup — panels array is wiped by panels=[] below
+      if (window.AlgoMonitor) window.AlgoMonitor.destroyDomOnly(s.strategyId);
+      else { const el = document.getElementById(`panel-${s.id}`); if (el) el.remove(); }
       continue;
     }
     if (s.panelType === 'options-matrix') {
@@ -2665,13 +2667,22 @@ function restoreLayoutPanels(layout) {
   if (layout.panels.length > 0) {
     for (const p of layout.panels) {
       try {
-      // Algo monitor restore
+      // Algo monitor restore — deferred because blotterData.algos may not be populated yet
       if (p.panelType === 'algo-monitor') {
-        const exists = !!(blotterData.algos && blotterData.algos[p.strategyId]);
-        console.log('[Layout] restoring algo-monitor', p.strategyId, 'exists in blotterData:', exists);
-        if (window.AlgoMonitor && exists) {
-          window.AlgoMonitor.openMonitor(p.strategyId, { x: p.x, y: p.y, width: p.width, chartOpen: p.chartOpen });
-        }
+        const _opts = { x: p.x, y: p.y, width: p.width, chartOpen: p.chartOpen };
+        const _sid = p.strategyId;
+        let _attempts = 0;
+        const tryRestore = () => {
+          if (blotterData.algos && blotterData.algos[_sid]) {
+            console.log('[Layout] restoring algo-monitor', _sid, 'attempt', _attempts + 1);
+            if (window.AlgoMonitor) window.AlgoMonitor.openMonitor(_sid, _opts);
+          } else {
+            _attempts++;
+            if (_attempts < 10) setTimeout(tryRestore, 500);
+            else console.log('[Layout] algo-monitor restore gave up after 10 attempts:', _sid);
+          }
+        };
+        setTimeout(tryRestore, 500);
         continue;
       }
       // Options matrix restore

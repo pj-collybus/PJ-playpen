@@ -556,9 +556,24 @@ function updateAllCharts() {
 }
 
 // ── Destroy ─────────────────────────────────────────────────────────────────
+// Full destroy — removes from panels array (used by close button)
 function destroyMonitorPanel(panelState) {
   if (!panelState || panelState.panelType !== 'algo-monitor') return;
   closeMonitor(panelState.strategyId);
+}
+
+// DOM-only destroy — cleans up chart and DOM but leaves panels array intact
+// Used by destroyAllPanels during layout switch (panels = [] happens after)
+function _destroyDomOnly(sid) {
+  const chart = _chartInstances.get(sid);
+  if (chart) { try { chart.destroy(); } catch {} _chartInstances.delete(sid); }
+  _chartVisible[sid] = false;
+  const ps = _monitors.get(sid);
+  if (ps) {
+    const el = ps._el || document.getElementById(`panel-${ps.id}`);
+    if (el) el.remove();
+    _monitors.delete(sid);
+  }
 }
 
 // ── Snapshot ────────────────────────────────────────────────────────────────
@@ -601,6 +616,7 @@ window.AlgoMonitor = {
   updateAllCharts,
   setDataProvider,
   destroyAlgoMonitorPanel: destroyMonitorPanel,
+  destroyDomOnly: _destroyDomOnly,
   snapshotAlgoMonitor: snapshotMonitor,
   getMonitors: () => _monitors,
   getChartInstances: () => _chartInstances,
