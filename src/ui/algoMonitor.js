@@ -35,12 +35,15 @@ function openMonitor(sid, opts) {
   return _openMonitor(sid, opts || {});
 }
 
-function _openMonitor(sid, { centre = false } = {}) {
+function _openMonitor(sid, { centre = false, x, y } = {}) {
+  console.log('[AlgoMonitor] openMonitor called:', sid, { centre, x, y });
   if (_monitors.has(sid)) return _monitors.get(sid);
   const s = _getData(sid) || {};
   const id = (typeof nextId !== 'undefined') ? nextId++ : Date.now();
   let pos;
-  if (centre) {
+  if (x != null && y != null) {
+    pos = { x, y };
+  } else if (centre) {
     pos = { x: Math.round((window.innerWidth - 500) / 2), y: Math.round((window.innerHeight - 400) / 2) };
   } else {
     const saved = localStorage.getItem('algo-mon-' + sid);

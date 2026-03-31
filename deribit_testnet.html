@@ -2665,7 +2665,7 @@ function restoreLayoutPanels(layout) {
       if (p.panelType === 'algo-monitor') {
         if (window.AlgoMonitor) {
           const stratData = blotterData.algos[p.strategyId] || {};
-          window.AlgoMonitor.createAlgoMonitorPanel(p.strategyId, stratData, { x: p.x, y: p.y });
+          window.AlgoMonitor.openMonitor(p.strategyId, { x: p.x, y: p.y });
         }
         continue;
       }
@@ -8562,7 +8562,7 @@ function initBlotter() {
       const opts = centre
         ? { x: Math.round((window.innerWidth - 500) / 2), y: Math.round((window.innerHeight - 400) / 2) }
         : {};
-      window.AlgoMonitor.createAlgoMonitorPanel(sid, s, opts);
+      window.AlgoMonitor.openMonitor(sid, opts);
       return;
     }
     // Fallback: legacy monitor if module not loaded
