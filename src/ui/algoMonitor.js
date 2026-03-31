@@ -65,66 +65,48 @@ function _openMonitor(sid, { centre = false, x, y, width, height, chartOpen } = 
   const el = document.createElement('div');
   el.className = 'algo-monitor status-' + (s.state || s.status || 'STOPPED');
   el.id = `panel-${id}`;
-  el.style.cssText = `position:absolute;left:${panelState.x}px;top:${panelState.y}px;width:480px;height:${(typeof height !== 'undefined' && height) ? height + 'px' : '420px'};display:flex;flex-direction:column`;
+  el.style.cssText = `position:absolute;left:${panelState.x}px;top:${panelState.y}px;width:480px;min-height:380px;display:flex;flex-direction:column`;
 
   el.innerHTML = `
     <div class="algo-monitor-hdr" data-sid="${sid}">
       <span class="algo-monitor-title"></span>
       <div class="algo-monitor-btns">
-        <button class="amon-chart-toggle" data-sid="${sid}" style="font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid #4488ff;background:#0a1628;color:#4488ff;font-weight:700;cursor:pointer;margin-right:4px">CHART</button>
-        <button class="amon-min-btn" data-sid="${sid}" title="Minimise" style="background:none;border:1px solid #1e1e28;border-radius:4px;color:#555;cursor:pointer;padding:1px 6px;font-family:inherit">_</button>
-        <button class="amon-close-btn" data-sid="${sid}" title="Close" style="background:none;border:1px solid #1e1e28;border-radius:4px;color:#555;cursor:pointer;padding:1px 6px;font-family:inherit">&times;</button>
+        <button class="amon-chart-toggle" style="font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid #4488ff;background:#0a1628;color:#4488ff;font-weight:700;cursor:pointer;margin-right:4px">CHART</button>
+        <button class="amon-close-btn" style="background:none;border:1px solid #1e1e28;border-radius:4px;color:#555;cursor:pointer;padding:1px 6px;font-family:inherit" title="Close">&times;</button>
       </div>
     </div>
-    <div style="display:flex;flex:1;min-height:0;overflow:hidden">
-      <div class="algo-monitor-body" id="algo-mon-body-${sid}" style="width:480px;flex-shrink:0;display:flex;flex-direction:column;overflow:hidden"></div>
-      <div class="amon-chart-pane" id="amon-chart-pane-${sid}" style="display:none;flex-direction:column;width:320px;flex-shrink:0;height:100%;border-left:1px solid #1a1a22">
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;font-size:10px;color:#555;flex-shrink:0;border-bottom:1px solid #111">
-          <span>Execution Chart</span>
-          <button class="amon-chart-close" data-sid="${sid}" style="background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:0 3px">&times;</button>
-        </div>
-        <div style="flex:1;position:relative;min-height:0;height:100%"><canvas id="amon-chart-canvas-${sid}" style="position:absolute;top:0;left:0;width:100%;height:100%"></canvas></div>
-      </div>
-    </div>
+    <div class="algo-monitor-body" id="algo-mon-body-${sid}" style="flex:1;overflow-y:auto;min-height:0;padding:0"></div>
     <div class="panel-resize" id="resize-${id}"></div>`;
 
   document.getElementById('panels-canvas').appendChild(el);
   panelState._el = el;
   _monitors.set(sid, panelState);
 
-  // Wire buttons via addEventListener (not inline onclick)
+  // Wire buttons
   el.querySelector('.amon-close-btn').addEventListener('click', () => closeMonitor(sid));
-  el.querySelector('.amon-min-btn').addEventListener('click', () => minimiseMonitor(sid));
   el.querySelector('.amon-chart-toggle').addEventListener('mousedown', e => e.stopPropagation());
   el.querySelector('.amon-chart-toggle').addEventListener('click', e => { e.stopImmediatePropagation(); e.preventDefault(); _toggleChart(sid); });
-  const chartCloseBtn = el.querySelector('.amon-chart-close');
-  if (chartCloseBtn) chartCloseBtn.addEventListener('click', () => _closeChart(sid));
 
-  // Drag
+  // Drag — sync attached chart position
   const hdr = el.querySelector('.algo-monitor-hdr');
   hdr.addEventListener('mousedown', e => {
     if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
     if (e.button !== 0) return;
-    if (typeof startDrag === 'function') {
-      startDrag(el, panelState, e);
-    } else {
-      // Fallback drag
-      e.preventDefault();
-      const rect = el.getBoundingClientRect();
-      const ox = e.clientX - rect.left, oy = e.clientY - rect.top;
-      function mv(ev) {
-        const newLeft = Math.max(0, Math.min(window.innerWidth - el.offsetWidth, ev.clientX - ox));
-        const newTop = Math.max(0, Math.min(window.innerHeight - 40, ev.clientY - oy));
-        el.style.left = newLeft + 'px'; el.style.top = newTop + 'px';
-        panelState.x = newLeft; panelState.y = newTop;
-        // Chart is inline — moves with panel automatically
-      }
-      function up() {
-        document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
-        localStorage.setItem('algo-mon-' + sid, JSON.stringify({ top: parseInt(el.style.top), left: parseInt(el.style.left) }));
-      }
-      document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+    e.preventDefault();
+    const rect = el.getBoundingClientRect();
+    const ox = e.clientX - rect.left, oy = e.clientY - rect.top;
+    function mv(ev) {
+      const newLeft = Math.max(0, Math.min(window.innerWidth - el.offsetWidth, ev.clientX - ox));
+      const newTop = Math.max(0, Math.min(window.innerHeight - 40, ev.clientY - oy));
+      el.style.left = newLeft + 'px'; el.style.top = newTop + 'px';
+      panelState.x = newLeft; panelState.y = newTop;
+      if (_chartAttached[sid]) _syncChartPosition(sid);
     }
+    function up() {
+      document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
+      localStorage.setItem('algo-mon-' + sid, JSON.stringify({ top: parseInt(el.style.top), left: parseInt(el.style.left) }));
+    }
+    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
   });
 
   // Resize
@@ -376,49 +358,84 @@ function minimiseMonitor(sid) {
 
 // ── Chart Management ────────────────────────────────────────────────────────
 function _toggleChart(sid) {
-  const pane = document.getElementById('amon-chart-pane-' + sid);
-  const isOpen = pane && pane.style.display !== 'none';
-  if (isOpen) {
-    _closeChart(sid);
-  } else {
-    _openChart(sid);
-  }
-  // Update CHART button style
+  const chartEl = document.getElementById('amon-chart-' + sid);
+  if (chartEl) { _closeChart(sid); } else { _openChart(sid); }
+}
+
+function _setChartBtnStyle(sid, open) {
   const ps = _monitors.get(sid);
-  const el = ps?._el;
-  const btn = el?.querySelector('.amon-chart-toggle');
-  if (btn) {
-    const open = !isOpen; // toggled
-    btn.style.background = open ? '#1a2a1a' : '#0a1628';
-    btn.style.color = open ? '#00c896' : '#4488ff';
-    btn.style.borderColor = open ? '#2a4a2a' : '#4488ff';
-  }
+  const btn = ps?._el?.querySelector('.amon-chart-toggle');
+  if (!btn) return;
+  btn.style.background = open ? '#1a2a1a' : '#0a1628';
+  btn.style.color = open ? '#00c896' : '#4488ff';
+  btn.style.borderColor = open ? '#2a4a2a' : '#4488ff';
 }
 
 function _openChart(sid) {
-  if (_chartInstances.has(sid)) return; // already open
+  if (_chartInstances.has(sid)) return;
   const ps = _monitors.get(sid);
   if (!ps) return;
-  const el = ps._el || document.getElementById(`panel-${ps.id}`);
-  if (!el) return;
+  const monEl = ps._el || document.getElementById(`panel-${ps.id}`);
+  if (!monEl) return;
 
-  // Show the inline chart pane FIRST so canvas has dimensions
-  const pane = document.getElementById('amon-chart-pane-' + sid);
-  if (!pane) { console.error('[AlgoMonitor] chart pane not found for', sid); return; }
-  pane.style.display = 'flex';
+  _chartAttached[sid] = true;
   _chartVisible[sid] = true;
-  el.style.width = '800px'; // expand panel: 480 monitor + 320 chart
+  _setChartBtnStyle(sid, true);
 
-  // Force reflow so browser computes layout before Chart.js measures canvas
-  void pane.offsetHeight;
+  // Create separate chart panel div as sibling
+  const panel = document.createElement('div');
+  panel.className = 'panel amon-chart-panel';
+  panel.id = 'amon-chart-' + sid;
+  panel.style.cssText = `position:absolute;width:320px;height:${monEl.offsetHeight}px;top:${monEl.offsetTop}px;left:${monEl.offsetLeft + monEl.offsetWidth}px;background:#0a0a10;border:1px solid #1a1a22;border-radius:0 8px 8px 0;border-left:none;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.4)`;
+  monEl.style.borderRadius = '8px 0 0 8px';
+  monEl.style.borderRight = 'none';
 
-  const canvasEl = document.getElementById('amon-chart-canvas-' + sid);
-  console.log('[AlgoMonitor] _openChart canvas:', canvasEl, 'pane dims:', pane.offsetWidth, 'x', pane.offsetHeight);
+  panel.innerHTML = `
+    <div class="amon-chart-hdr" style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;background:#0c0c14;font-size:9px;color:#555;flex-shrink:0">
+      <span>Execution Chart</span>
+      <div style="display:flex;gap:2px">
+        <button class="amon-chart-detach" style="background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:0 3px" title="Detach">↗</button>
+        <button class="amon-chart-x" style="background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:0 3px" title="Close chart">&times;</button>
+      </div>
+    </div>
+    <div style="flex:1;position:relative;min-height:0;padding:4px"><canvas id="amon-chart-canvas-${sid}" style="position:absolute;top:4px;left:4px;right:4px;bottom:4px;width:calc(100% - 8px);height:calc(100% - 8px)"></canvas></div>`;
 
-  // Wait for layout to settle before creating Chart.js (needs measurable canvas)
+  document.getElementById('panels-canvas').appendChild(panel);
+
+  // Wire chart panel buttons
+  panel.querySelector('.amon-chart-x').addEventListener('click', () => _closeChart(sid));
+  panel.querySelector('.amon-chart-detach').addEventListener('click', () => {
+    if (_chartAttached[sid]) _detachChart(sid); else _attachChart(sid);
+  });
+
+  // Drag on chart header (only when detached)
+  const chartHdr = panel.querySelector('.amon-chart-hdr');
+  chartHdr.style.cursor = _chartAttached[sid] ? 'default' : 'grab';
+  chartHdr.addEventListener('mousedown', e => {
+    if (e.target.tagName === 'BUTTON' || _chartAttached[sid]) return;
+    if (e.button !== 0) return;
+    e.preventDefault();
+    chartHdr.style.cursor = 'grabbing';
+    const ox = e.clientX - panel.offsetLeft, oy = e.clientY - panel.offsetTop;
+    function mv(ev) { panel.style.left = (ev.clientX - ox) + 'px'; panel.style.top = (ev.clientY - oy) + 'px'; }
+    function up() { chartHdr.style.cursor = 'grab'; document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); }
+    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+  });
+
+  // ResizeObserver to sync chart height with monitor
+  const ro = new ResizeObserver(() => {
+    panel.style.height = monEl.offsetHeight + 'px';
+    if (_chartAttached[sid]) _syncChartPosition(sid);
+    const ch = _chartInstances.get(sid); if (ch) try { ch.resize(); } catch {}
+  });
+  ro.observe(monEl);
+  panel._ro = ro;
+
+  // Force reflow then create Chart.js
+  void panel.offsetHeight;
   requestAnimationFrame(() => {
-    const ctx = canvasEl?.getContext('2d');
-    if (!ctx || typeof Chart === 'undefined') { console.error('[AlgoMonitor] canvas context or Chart.js unavailable'); return; }
+    const ctx = document.getElementById('amon-chart-canvas-' + sid)?.getContext('2d');
+    if (!ctx || typeof Chart === 'undefined') return;
     const algoState = _getData(sid);
     const seedBids = [], seedAsks = [], seedTimes = [], seedOrders = [];
     if (algoState?.chartBids?.length >= 1) {
@@ -453,32 +470,63 @@ function _openChart(sid) {
       },
     });
     _chartInstances.set(sid, chart);
-    console.log('[AlgoMonitor] Chart.js instance created for', sid);
-    // Force resize after layout has settled
     setTimeout(() => { try { chart.resize(); } catch {} }, 100);
     setTimeout(() => { try { chart.resize(); } catch {} }, 500);
-    // ResizeObserver to handle panel resize
-    const ro = new ResizeObserver(() => { try { chart.resize(); } catch {} });
-    ro.observe(pane);
-    pane._chartRO = ro;
   });
 }
 
 function _closeChart(sid) {
-  // Destroy chart instance
   const chart = _chartInstances.get(sid);
-  if (chart) { chart.destroy(); _chartInstances.delete(sid); }
+  if (chart) { try { chart.destroy(); } catch {} _chartInstances.delete(sid); }
   _chartVisible[sid] = false;
-  // Hide the inline chart pane and disconnect ResizeObserver
-  const pane = document.getElementById('amon-chart-pane-' + sid);
-  if (pane) { if (pane._chartRO) { pane._chartRO.disconnect(); pane._chartRO = null; } pane.style.display = 'none'; }
-  // Shrink panel back
+  const chartEl = document.getElementById('amon-chart-' + sid);
+  if (chartEl) { if (chartEl._ro) chartEl._ro.disconnect(); chartEl.remove(); }
+  // Restore monitor borders
   const ps = _monitors.get(sid);
-  const el = ps?._el || document.getElementById(`panel-${ps?.id}`);
-  if (el) el.style.width = '480px';
+  const monEl = ps?._el;
+  if (monEl) { monEl.style.borderRadius = '8px'; monEl.style.borderRight = ''; }
+  delete _chartAttached[sid];
+  _setChartBtnStyle(sid, false);
 }
 
-// _syncChartPosition, _detachChart, _attachChart removed — chart is now inline in the panel
+function _syncChartPosition(sid) {
+  const ps = _monitors.get(sid);
+  const monEl = ps?._el || document.getElementById(`panel-${ps?.id}`);
+  const chartEl = document.getElementById('amon-chart-' + sid);
+  if (!monEl || !chartEl) return;
+  chartEl.style.left = (monEl.offsetLeft + monEl.offsetWidth) + 'px';
+  chartEl.style.top = monEl.offsetTop + 'px';
+}
+
+function _detachChart(sid) {
+  _chartAttached[sid] = false;
+  localStorage.setItem('algo-chart-attached-' + sid, 'false');
+  const ps = _monitors.get(sid);
+  const monEl = ps?._el;
+  const chartEl = document.getElementById('amon-chart-' + sid);
+  if (!chartEl) return;
+  chartEl.style.left = (parseInt(chartEl.style.left) + 20) + 'px';
+  chartEl.style.borderRadius = '8px'; chartEl.style.borderLeft = '';
+  if (monEl) { monEl.style.borderRadius = '8px'; monEl.style.borderRight = ''; }
+  const hdr = chartEl.querySelector('.amon-chart-hdr'); if (hdr) hdr.style.cursor = 'grab';
+  const btn = chartEl.querySelector('.amon-chart-detach');
+  if (btn) { btn.textContent = '↙'; btn.title = 'Attach'; }
+}
+
+function _attachChart(sid) {
+  _chartAttached[sid] = true;
+  localStorage.setItem('algo-chart-attached-' + sid, 'true');
+  const ps = _monitors.get(sid);
+  const monEl = ps?._el;
+  const chartEl = document.getElementById('amon-chart-' + sid);
+  if (!chartEl) return;
+  chartEl.style.borderRadius = '0 8px 8px 0'; chartEl.style.borderLeft = 'none';
+  if (monEl) { monEl.style.borderRadius = '8px 0 0 8px'; monEl.style.borderRight = 'none'; }
+  const hdr = chartEl.querySelector('.amon-chart-hdr'); if (hdr) hdr.style.cursor = 'default';
+  _syncChartPosition(sid);
+  const btn = chartEl.querySelector('.amon-chart-detach');
+  if (btn) { btn.textContent = '↗'; btn.title = 'Detach'; }
+}
 
 // ── Chart Update (full rendering logic) ─────────────────────────────────────
 function _updateSingleChart(sid, chart, s) {
@@ -625,7 +673,8 @@ window._algoCloseMonitor = closeMonitor;
 window._algoMinimiseMonitor = minimiseMonitor;
 window._algoToggleChart = _toggleChart;
 window._closeChart = _closeChart;
-// _detachChart, _attachChart removed — chart is inline in monitor panel
+window._detachChart = _detachChart;
+window._attachChart = _attachChart;
 
 // ── Export ───────────────────────────────────────────────────────────────────
 window.AlgoMonitor = {
