@@ -105,6 +105,7 @@ function _openMonitor(sid, { centre = false, x, y, width, height, chartOpen } = 
     function up() {
       document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
       localStorage.setItem('algo-mon-' + sid, JSON.stringify({ top: parseInt(el.style.top), left: parseInt(el.style.left) }));
+      if (typeof persistLayouts === 'function') persistLayouts();
     }
     document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
   });
@@ -413,19 +414,7 @@ function _openChart(sid) {
     if (_chartAttached[sid]) _detachChart(sid); else _attachChart(sid);
   });
 
-  // Drag on chart header (only when detached)
-  const chartHdr = panel.querySelector('.amon-chart-hdr');
-  chartHdr.style.cursor = _chartAttached[sid] ? 'default' : 'grab';
-  chartHdr.addEventListener('mousedown', e => {
-    if (e.target.tagName === 'BUTTON' || _chartAttached[sid]) return;
-    if (e.button !== 0) return;
-    e.preventDefault();
-    chartHdr.style.cursor = 'grabbing';
-    const ox = e.clientX - panel.offsetLeft, oy = e.clientY - panel.offsetTop;
-    function mv(ev) { panel.style.left = (ev.clientX - ox) + 'px'; panel.style.top = (ev.clientY - oy) + 'px'; }
-    function up() { chartHdr.style.cursor = 'grab'; document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); }
-    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
-  });
+  // Chart header drag is added in _detachChart, not here (starts attached)
 
   // ResizeObserver to sync chart height with monitor
   const ro = new ResizeObserver(() => {
@@ -506,6 +495,7 @@ function _syncChartPosition(sid) {
 function _detachChart(sid) {
   _chartAttached[sid] = false;
   localStorage.setItem('algo-chart-attached-' + sid, 'false');
+  console.log('[AlgoMonitor] _detachChart:', sid, '_chartAttached:', _chartAttached[sid]);
   const ps = _monitors.get(sid);
   const monEl = ps?._el;
   const chartEl = document.getElementById('amon-chart-' + sid);
@@ -546,6 +536,7 @@ function _detachChart(sid) {
 }
 
 function _attachChart(sid) {
+  console.log('[AlgoMonitor] _attachChart called for', sid);
   _chartAttached[sid] = true;
   localStorage.setItem('algo-chart-attached-' + sid, 'true');
   const ps = _monitors.get(sid);
