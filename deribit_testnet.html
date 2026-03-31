@@ -1407,6 +1407,7 @@ canvas.clickable { cursor: crosshair; }
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="src/ui/panelGrid.js"></script>
 <script src="src/ui/algoMonitor.js"></script>
 <script>
 // Server base URL — must be first so all fetch calls can use it
@@ -2908,6 +2909,37 @@ document.getElementById('save-layout-btn').addEventListener('click', () => {
   btn.classList.add('saved');
   setTimeout(() => btn.classList.remove('saved'), 1500);
 });
+
+// ── PanelGrid module bridge ──────────────────────────────────────────────────
+// Wire the HTML's layout functions as callbacks for the PanelGrid module
+window._pgDestroyAllPanels = destroyAllPanels;
+window._pgRestoreLayoutPanels = restoreLayoutPanels;
+// Expose key functions for the module and other modules to call
+window.removePanel = typeof removePanel !== 'undefined' ? removePanel : () => {};
+window.updateAreaSize = updateAreaSize;
+window.persistLayouts = persistLayouts;
+window.nextPanelPos = nextPanelPos;
+window.startDrag = startDrag;
+window.startResize = startResize;
+window.settleLayout = settleLayout;
+
+// Register panel type snapshot handlers with PanelGrid if available
+if (window.PanelGrid) {
+  window.PanelGrid.addPanelType('options-matrix', {
+    snapshot: (s) => {
+      const el = document.getElementById(`panel-${s.id}`);
+      return { panelType: 'options-matrix', instrument: s.instrument, cpFilter: s.cpFilter,
+        buySell: s.buySell, display: s.display, heatmap: s.heatmap,
+        minStrike: s.minStrike, maxStrike: s.maxStrike,
+        expiryFrom: s.expiryFrom, expiryTo: s.expiryTo, atmOnly: s.atmOnly,
+        x: s.x, y: s.y, width: el ? el.offsetWidth : 820, testnet: s.testnet };
+    },
+  });
+  window.PanelGrid.addPanelType('algo-monitor', {
+    snapshot: (s) => window.AlgoMonitor ? window.AlgoMonitor.snapshotAlgoMonitor(s) : { panelType: 'algo-monitor', strategyId: s.strategyId, x: s.x, y: s.y },
+    destroy: (s) => { if (window.AlgoMonitor) window.AlgoMonitor.destroyAlgoMonitorPanel(s); },
+  });
+}
 
 // ── Panel creation ────────────────────────────────────────────────────────────
 const GRAN_OPTS = [
