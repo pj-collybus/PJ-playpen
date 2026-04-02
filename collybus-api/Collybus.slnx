@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Collybus.Api.Tests/Collybus.Api.Tests.csproj" />
+  <Project Path="Collybus.Api/Collybus.Api.csproj" />
+</Solution>
