@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import { GranButton, SettingsPanel } from '../atoms'
 import { BidAskDisplay, PriceStats, OrderSizeSelector, OrderTypeTabs, ExchangeSelector } from '../molecules'
 import { OrderModal } from '../organisms/OrderModal'
+import { AlgoModal } from '../organisms/AlgoModal'
 import { DepthChart } from '../shared/DepthChart'
 import { InstrumentSelector } from '../shared/InstrumentSelector'
 import { formatPrice, tickDecimals } from './utils'
@@ -76,6 +77,7 @@ export function PricePanel({
   const [instrPos, setInstrPos] = useState({ x: 0, y: 60 })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [orderModal, setOrderModal] = useState<{ tab: 'LMT' | 'S/L' | 'ID' | 'OCO'; side: 'BUY' | 'SELL'; price?: number; qty?: number } | null>(null)
+  const [algoOpen, setAlgoOpen] = useState(false)
   const settingsBtnRef = useRef<HTMLButtonElement>(null)
   const [granPresets, setGranPresets] = useState(
     config.granularityPresets ?? GRAN_OPTS.map(g => ({ label: g.label, value: g.val }))
@@ -322,6 +324,7 @@ export function PricePanel({
             padding: '4px 2px', gap: 2, paddingTop: 4, borderRight: `1px solid ${S.borderInner}`, justifyContent: 'flex-start',
           }}>
             <OrderTypeTabs onSelect={(_label, modalTab) => {
+              if (_label === 'ALGO') { setAlgoOpen(true); return }
               if (modalTab === 'LMT' || modalTab === 'S/L' || modalTab === 'ID' || modalTab === 'OCO') {
                 setOrderModal({
                   tab: modalTab as 'LMT' | 'S/L' | 'ID' | 'OCO',
@@ -397,7 +400,25 @@ export function PricePanel({
               timeInForce: params.timeInForce,
             })
           }}
+          onLaunchAlgo={callbacks.onLaunchAlgo ? async (params) => {
+            return await callbacks.onLaunchAlgo!(params)
+          } : undefined}
           onClose={() => setOrderModal(null)}
+        />
+      )}
+
+      {algoOpen && (
+        <AlgoModal
+          exchange={exchange} symbol={symbol}
+          baseCurrency={spec?.baseCurrency ?? ''} quoteCurrency={spec?.quoteCurrency ?? 'USD'}
+          tickSize={tickSize} lotSize={spec?.lotSize ?? 1}
+          bid={bid} ask={ask} mid={bid > 0 && ask > 0 ? (bid + ask) / 2 : 0}
+          initialSide="BUY" initialQty={qtyNum > 0 ? qtyNum : undefined}
+          onSubmit={async (params) => {
+            if (!callbacks.onLaunchAlgo) throw new Error('Algo not configured')
+            return await callbacks.onLaunchAlgo(params)
+          }}
+          onClose={() => setAlgoOpen(false)}
         />
       )}
     </div>

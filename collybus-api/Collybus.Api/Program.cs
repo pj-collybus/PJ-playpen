@@ -30,9 +30,15 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
 
 // Services
 builder.Services.AddSingleton<IBlotterService, StubBlotterService>();
-builder.Services.AddSingleton<IAlgoService, StubAlgoService>();
 builder.Services.AddSingleton<IRiskService, StubRiskService>();
 builder.Services.AddSingleton<IKeyStore, KeyStore>();
+
+// Algo engine
+builder.Services.AddSingleton<Collybus.Algo.Ports.IOrderPort, Collybus.Api.Adapters.AlgoOrderPort>();
+builder.Services.AddSingleton<Collybus.Algo.Ports.IAlgoEventBus, Collybus.Api.Adapters.AlgoEventBus>();
+builder.Services.AddSingleton<Collybus.Algo.Engine.IStrategyFactory, Collybus.Algo.Engine.StrategyFactory>();
+builder.Services.AddSingleton<Collybus.Algo.Engine.AlgoEngine>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<Collybus.Algo.Engine.AlgoEngine>());
 
 // Exchange adapters — register as both concrete type and IExchangeAdapter
 builder.Services.AddSingleton<DeribitAdapter>(sp => new DeribitAdapter(

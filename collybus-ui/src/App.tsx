@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { App as AntApp } from 'antd'
-import { ThemeProvider, BlotterPanel, OrderModal, OrderTicket } from '@collybus/components'
-import type { BlotterData, BlotterOrder } from '@collybus/components'
+import { ThemeProvider, BlotterPanel, OrderModal, OrderTicket, AlgoMonitor } from '@collybus/components'
+import type { BlotterData, BlotterOrder, AlgoStatusReportUI } from '@collybus/components'
 import { signalRClient } from './services/signalRClient'
 import { api, venuesApi, marketDataApi } from './services/apiClient'
 import { useMarketDataStore } from './stores/marketDataStore'
@@ -19,6 +19,8 @@ export default function App() {
   const [availableExchanges, setAvailableExchanges] = useState<string[]>([])
   const [amendOrder, setAmendOrder] = useState<BlotterOrder | null>(null)
   const [viewOrder, setViewOrder] = useState<BlotterOrder | null>(null)
+  const [algoStatuses, setAlgoStatuses] = useState<Record<string, AlgoStatusReportUI>>({})
+  const [closedMonitors, setClosedMonitors] = useState<Set<string>>(new Set())
   const [blotterHeight, setBlotterHeight] = useState(() => {
     const saved = localStorage.getItem('collybus-blotter-height')
     return saved ? Math.max(80, parseInt(saved)) : 200
@@ -97,7 +99,13 @@ export default function App() {
       console.log('[App] panels in active:', s.layouts.find(l => l.id === s.activeLayoutId)?.panels?.length)
     })
     useBlotterStore.getState().fetchHistory('week')
-    return () => signalRClient.disconnect()
+    // Algo status listener
+    const algoHandler = (e: Event) => {
+      const data = (e as CustomEvent).detail
+      if (data?.strategyId) setAlgoStatuses(prev => ({ ...prev, [data.strategyId]: data }))
+    }
+    window.addEventListener('algo-status-update', algoHandler)
+    return () => { signalRClient.disconnect(); window.removeEventListener('algo-status-update', algoHandler) }
   }, [])
 
   useEffect(() => {
@@ -364,11 +372,17 @@ export default function App() {
           )
         })()}
         {viewOrder && (
-          <OrderTicket
-            order={viewOrder}
-            onClose={() => setViewOrder(null)}
-          />
+          <OrderTicket order={viewOrder} onClose={() => setViewOrder(null)} />
         )}
+        {Object.values(algoStatuses).filter(s => !closedMonitors.has(s.strategyId)).map(s => (
+          <AlgoMonitor key={s.strategyId} status={s}
+            onStop={async sid => { await api.post(`/api/algo/stop/${sid}`); setAlgoStatuses(p => ({ ...p, [sid]: { ...p[sid], status: 'Stopped' } })) }}
+            onPause={async sid => { await api.post(`/api/algo/pause/${sid}`) }}
+            onResume={async sid => { await api.post(`/api/algo/resume/${sid}`) }}
+            onAccelerate={async (sid, qty) => { await api.post(`/api/algo/accelerate/${sid}`, { quantity: qty }) }}
+            onClose={sid => setClosedMonitors(p => new Set([...p, sid]))}
+          />
+        ))}
       </AntApp>
     </ThemeProvider>
   )

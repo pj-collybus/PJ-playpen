@@ -63,7 +63,12 @@ class SignalRClient {
     this.connection.on('FillUpdate', (data) => { if (data?.fillId) useBlotterStore.getState().upsertTrade(data) })
     this.connection.on('PositionUpdate', (data) => { if (data?.symbol) useBlotterStore.getState().upsertPosition(data) })
     this.connection.on('BalanceUpdate', (data) => { if (data?.exchange) useBlotterStore.getState().upsertBalance(data) })
-    this.connection.on('AlgoProgress', upsertStrategy)
+    this.connection.on('AlgoProgress', (data) => {
+      if (data?.strategyId) {
+        upsertStrategy(data)
+        window.dispatchEvent(new CustomEvent('algo-status-update', { detail: data }))
+      }
+    })
     this.connection.on('BlotterUpdate', (snapshot: {
       orders?: Parameters<typeof upsertOrder>[0][]
       trades?: Parameters<typeof upsertTrade>[0][]

@@ -123,6 +123,11 @@ export function PricePanel({ id, x, y, width, exchange, symbol: initialSymbol, o
     onMove,
     onClose,
     onResize,
+    onLaunchAlgo: async (params: any) => {
+      const r = await api.post('/api/algo/start', params)
+      if (!r.data.ok) throw new Error(r.data.error ?? 'Failed to launch')
+      return r.data.strategyId
+    },
     onConfigChange: (_panelId: string, changes: Record<string, unknown>) => {
       if (changes.symbol) {
         const sym = changes.symbol as string

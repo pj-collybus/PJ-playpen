@@ -61,6 +61,7 @@ export interface PricePanelCallbacks {
     orderType: string
     timeInForce?: string
   }) => Promise<void>
+  onLaunchAlgo?: (params: any) => Promise<string>
   onMove?: (id: string, x: number, y: number) => void
   onResize?: (id: string, width: number) => void
   onClose?: (id: string) => void

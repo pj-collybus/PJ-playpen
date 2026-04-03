@@ -19,6 +19,7 @@ export interface OrderModalProps {
   existingOrderId?: string
   onSubmit: (params: OrderSubmitParams) => Promise<void>
   onCancel?: (orderId: string, exchange: string) => Promise<void>
+  onLaunchAlgo?: (params: any) => Promise<string>
   onClose: () => void
 }
 
@@ -268,7 +269,7 @@ function FooterRow({ hidden, setHidden, expiry, setExpiry, gtdDateTime, setGtdDa
 export function OrderModal({
   exchange, symbol, baseCurrency, quoteCurrency, tickSize, lotSize,
   initialSide = 'BUY', initialPrice, initialQty, initialTab = 'LMT',
-  bid, ask, existingOrderId, onSubmit, onCancel, onClose,
+  bid, ask, existingOrderId, onSubmit, onCancel, onLaunchAlgo, onClose,
 }: OrderModalProps) {
   const [tab, setTab] = useState<Tab>(initialTab)
   const [side, setSide] = useState<'BUY' | 'SELL'>(initialSide)
@@ -284,6 +285,9 @@ export function OrderModal({
   const [price3, setPrice3] = useState(bid?.toString() ?? '')
   const [stopType3, setStopType3] = useState<StopType>('limit')
   const [hidden, setHidden] = useState(false)
+  const [discretionEnabled, setDiscretionEnabled] = useState(false)
+  const [discretionBps, setDiscretionBps] = useState('10')
+  const [discretionPct, setDiscretionPct] = useState('50')
   const [expiry, setExpiry] = useState('GTC')
   const [gtdDateTime, setGtdDateTime] = useState('')
   const [priceTrigger, setPriceTrigger] = useState<PriceTrigger>('N/A')
@@ -309,6 +313,20 @@ export function OrderModal({
       const q = parseFloat(qty)
       const p = parseFloat(price)
       if (!q || q <= 0) throw new Error('Invalid quantity')
+
+      // Discretion: convert to Sniper post+snipe algo
+      if (tab === 'LMT' && discretionEnabled && onLaunchAlgo) {
+        const bps = parseFloat(discretionBps) || 10
+        const snipeCeiling = side === 'BUY' ? p * (1 + bps / 10000) : p * (1 - bps / 10000)
+        await onLaunchAlgo({
+          strategyType: 'SNIPER', exchange, symbol, side, totalSize: q,
+          tickSize, lotSize, arrivalMid: ((bid ?? 0) + (ask ?? 0)) / 2,
+          arrivalBid: bid ?? 0, arrivalAsk: ask ?? 0,
+          sniperMode: 'post_snipe', levelMode: 'simultaneous',
+          postPrice: p, snipeCeiling, snipeCap: parseFloat(discretionPct) || 50,
+        })
+        setError(''); onClose(); return
+      }
 
       const isStop = tab === 'S/L' || (stopType === 'stop' && (tab === 'ID' || tab === 'OCO'))
       const params: OrderSubmitParams = {
@@ -401,13 +419,36 @@ export function OrderModal({
             </div>
           )}
 
-          {tab === 'LMT' && (
+          {tab === 'LMT' && (<>
             <OrderLeg side={side} qty={qty} price={price} stopType="limit"
               baseCurrency={baseCurrency} quoteCurrency={quoteCurrency}
               tickSize={tickSize} lotSize={lotSize}
               onSideChange={setSide} onQtyChange={setQty} onPriceChange={setPrice}
               onStopTypeChange={() => {}} />
-          )}
+            <div style={{ border: `1px solid ${discretionEnabled ? 'rgba(43,121,221,0.4)' : S.border}`, borderRadius: 5, padding: '8px 10px', background: discretionEnabled ? 'rgba(43,121,221,0.06)' : 'transparent', transition: 'all 0.2s' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', marginBottom: discretionEnabled ? 10 : 0 }}>
+                <input type="checkbox" checked={discretionEnabled} onChange={e => setDiscretionEnabled(e.target.checked)} />
+                <span style={{ fontSize: 11, color: discretionEnabled ? '#2B79DD' : S.muted, fontWeight: discretionEnabled ? 700 : 400 }}>Discretion</span>
+                {discretionEnabled && <span style={{ fontSize: 9, color: S.muted, marginLeft: 4 }}>post+snipe within band</span>}
+              </label>
+              {discretionEnabled && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div>
+                    <span style={{ fontSize: 9, color: S.muted, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' as const, display: 'block', marginBottom: 3 }}>Discretion (bps)</span>
+                    <input value={discretionBps} onChange={e => setDiscretionBps(e.target.value)} style={{ width: '100%', height: 26, background: S.bgInput, border: `1px solid ${S.border}`, borderRadius: 4, color: S.text, fontSize: 11, padding: '0 6px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+                    {price && parseFloat(discretionBps) > 0 && <div style={{ fontSize: 9, color: '#2B79DD', marginTop: 3 }}>
+                      {side === 'BUY' ? `Snipe ≤ ${(parseFloat(price) * (1 + parseFloat(discretionBps) / 10000)).toFixed(4)}` : `Snipe ≥ ${(parseFloat(price) * (1 - parseFloat(discretionBps) / 10000)).toFixed(4)}`}
+                    </div>}
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 9, color: S.muted, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' as const, display: 'block', marginBottom: 3 }}>Snipe Cap (%)</span>
+                    <input value={discretionPct} onChange={e => setDiscretionPct(e.target.value)} style={{ width: '100%', height: 26, background: S.bgInput, border: `1px solid ${S.border}`, borderRadius: 4, color: S.text, fontSize: 11, padding: '0 6px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+                    <div style={{ fontSize: 9, color: S.muted, marginTop: 3 }}>{discretionPct}% snipe / {100 - (parseInt(discretionPct) || 50)}% post</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>)}
           {tab === 'S/L' && (
             <OrderLeg side={side} qty={qty} price={price} stopType="stop"
               baseCurrency={baseCurrency} quoteCurrency={quoteCurrency}
