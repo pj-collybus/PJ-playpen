@@ -16,9 +16,13 @@ public record SubmitOrderRequest
     public string Side { get; init; } = "";
     public decimal Quantity { get; init; }
     public decimal? LimitPrice { get; init; }
+    public decimal? TriggerPrice { get; init; }
     public string OrderType { get; init; } = "LIMIT";
     public string TimeInForce { get; init; } = "IOC";
     public string AlgoType { get; init; } = "MANUAL";
+    public bool? ReduceOnly { get; init; }
+    public bool? PostOnly { get; init; }
+    public decimal? TickSize { get; init; }
     public string? ParentOrderId { get; init; }
     public Dictionary<string, string>? Credentials { get; init; }
 }

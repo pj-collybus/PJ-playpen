@@ -10,10 +10,12 @@ interface DepthChartProps {
   sizeUnit?: 'base' | 'quote' | 'contracts'
   lotSize?: number
   midPrice?: number
+  globalCumMax?: number
+  onVisibleTotalChange?: (total: number) => void
   onPriceClick?: (price: number) => void
 }
 
-export function DepthChart({ levels, side, tickSize, granularity, highlightQty, sizeUnit, lotSize, midPrice, onPriceClick }: DepthChartProps) {
+export function DepthChart({ levels, side, tickSize, granularity, highlightQty, sizeUnit, lotSize, midPrice, globalCumMax, onVisibleTotalChange, onPriceClick }: DepthChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const metaRef = useRef<{ pMin: number; pMax: number; PL: number; PR: number; cW: number } | null>(null)
   const [redrawTick, setRedrawTick] = useState(0)
@@ -107,7 +109,7 @@ export function DepthChart({ levels, side, tickSize, granularity, highlightQty, 
     const cumBuckets = buckets.map(b => { run += b.size; return { ...b, cumulative: run } })
     const lastNonEmptyIdx = cumBuckets.reduce((last, b, i) => b.size > 0 ? i : last, 0)
     const totalCum = cumBuckets[lastNonEmptyIdx]?.cumulative ?? 0
-    const cMax = totalCum
+    const cMax = (globalCumMax && globalCumMax > 0) ? globalCumMax : totalCum
     if (cMax === 0) return
 
     const barX = (i: number): number => isBid
@@ -122,6 +124,7 @@ export function DepthChart({ levels, side, tickSize, granularity, highlightQty, 
     const barColorTop = 'rgba(115,120,140,0.80)'
     const barColorBot = 'rgba(90,95,115,0.65)'
     const visibleTotal = cumBuckets.reduce((s, b) => s + b.size, 0)
+    onVisibleTotalChange?.(visibleTotal)
 
     // ── 1. Cumulative fill (deepest layer) ──
     let lastFillY = PT + cH
@@ -237,7 +240,7 @@ export function DepthChart({ levels, side, tickSize, granularity, highlightQty, 
       pMax: isBid ? bestBucket + bucketSize : bestBucket + maxBars * bucketSize,
       PL, PR, cW,
     }
-  }, [levels, side, tickSize, granularity, highlightQty, sizeUnit, lotSize, midPrice, redrawTick])
+  }, [levels, side, tickSize, granularity, highlightQty, sizeUnit, lotSize, midPrice, globalCumMax, redrawTick])
 
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!onPriceClick || !metaRef.current) return

@@ -29,23 +29,23 @@ export default function App() {
   }
   const storeOrders = useBlotterStore(s => s.orders)
   const storeTrades = useBlotterStore(s => s.trades)
+  const allInstruments = useMarketDataStore(s => s.instruments)
   const storePositions = useBlotterStore(s => s.positions)
   const storeBalances = useBlotterStore(s => s.balances)
 
   const blotterData: BlotterData = {
-    orders: Object.values(storeOrders).map(o => ({
-      id: o.orderId,
-      exchange: o.exchange,
-      timestamp: o.createdAt,
-      instrument: o.symbol,
-      type: (o.orderType ?? 'LIMIT').toUpperCase(),
-      side: String(o.side).toUpperCase(),
-      amount: o.quantity,
-      filled: o.filledQuantity,
-      price: o.limitPrice ?? 0,
-      status: (o.state ?? '').toLowerCase(),
-      rejectReason: o.rejectReason,
-    })),
+    orders: Object.values(storeOrders).map(o => {
+      const instrList = allInstruments[o.exchange?.toUpperCase()] ?? []
+      const spec = instrList.find((i: any) => i.symbol === o.symbol)
+      return {
+        id: o.orderId, exchange: o.exchange, timestamp: o.createdAt,
+        instrument: o.symbol, type: (o.orderType ?? 'LIMIT').toUpperCase(),
+        side: String(o.side).toUpperCase(), amount: o.quantity,
+        filled: o.filledQuantity, price: o.limitPrice || o.stopPrice || 0,
+        tickSize: spec?.tickSize, status: (o.state ?? '').toLowerCase(),
+        rejectReason: o.rejectReason,
+      }
+    }),
     trades: Object.values(storeTrades).map(t => ({
       id: t.fillId,
       exchange: t.exchange,

@@ -105,12 +105,7 @@ export function OrderTicket({ order, onClose }: OrderTicketProps) {
           <Row label="Filled" value={order.filled.toLocaleString('en-US', { maximumFractionDigits: 8 })} />
           <Row label="Price" value={order.price.toLocaleString('en-US', { maximumFractionDigits: 8 })} />
           <Row label="Transaction Time" value={formattedTime} />
-          {order.rejectReason && (
-            <div style={{ marginTop: 12, borderTop: `1px solid ${S.border}`, paddingTop: 10 }}>
-              <div style={{ fontSize: 10, color: S.negative, fontWeight: 700, marginBottom: 6 }}>Rejection Information</div>
-              <Row label="Rejection Reason" value={order.rejectReason} color={S.negative} />
-            </div>
-          )}
+          <Row label="Rejection Reason" value={order.rejectReason ?? '—'} color={order.rejectReason ? S.negative : undefined} />
         </div>
       </div>
     </div>

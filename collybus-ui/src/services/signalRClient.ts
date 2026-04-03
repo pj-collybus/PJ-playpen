@@ -59,10 +59,10 @@ class SignalRClient {
     this.connection.on('OrderBookUpdate', (payload: { key: string; book: Parameters<typeof setOrderBook>[1] }) => {
       setOrderBook(payload.key, payload.book)
     })
-    this.connection.on('OrderUpdate', (data) => useBlotterStore.getState().upsertOrder(data))
-    this.connection.on('FillUpdate', (data) => useBlotterStore.getState().upsertTrade(data))
-    this.connection.on('PositionUpdate', (data) => useBlotterStore.getState().upsertPosition(data))
-    this.connection.on('BalanceUpdate', (data) => useBlotterStore.getState().upsertBalance(data))
+    this.connection.on('OrderUpdate', (data) => { if (data?.orderId) useBlotterStore.getState().upsertOrder(data) })
+    this.connection.on('FillUpdate', (data) => { if (data?.fillId) useBlotterStore.getState().upsertTrade(data) })
+    this.connection.on('PositionUpdate', (data) => { if (data?.symbol) useBlotterStore.getState().upsertPosition(data) })
+    this.connection.on('BalanceUpdate', (data) => { if (data?.exchange) useBlotterStore.getState().upsertBalance(data) })
     this.connection.on('AlgoProgress', upsertStrategy)
     this.connection.on('BlotterUpdate', (snapshot: {
       orders?: Parameters<typeof upsertOrder>[0][]

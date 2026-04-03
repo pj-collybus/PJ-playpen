@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { formatPrice } from '../PricePanel/utils'
 
+let savedModalPos: { x: number; y: number } | null = null
+
 export interface OrderModalProps {
   exchange: string
   symbol: string
@@ -288,12 +290,12 @@ export function OrderModal({
   const [orCondition, setOrCondition] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [pos, setPos] = useState({ x: 0, y: 0 })
+  const [pos, setPos] = useState(() =>
+    savedModalPos ?? { x: Math.max(0, (window.innerWidth - 480) / 2), y: Math.max(0, (window.innerHeight - 600) / 2) }
+  )
   const dragRef = useRef<{ ox: number; oy: number } | null>(null)
 
-  useEffect(() => {
-    setPos({ x: Math.max(0, (window.innerWidth - 480) / 2), y: Math.max(0, (window.innerHeight - 600) / 2) })
-  }, [])
+  useEffect(() => { savedModalPos = pos }, [pos])
 
   useEffect(() => {
     if (tab === 'LMT') setPriceTrigger('N/A')
@@ -302,21 +304,22 @@ export function OrderModal({
   }, [tab])
 
   const handleSubmit = async () => {
-    setError('')
     setSubmitting(true)
     try {
       const q = parseFloat(qty)
       const p = parseFloat(price)
       if (!q || q <= 0) throw new Error('Invalid quantity')
 
+      const isStop = tab === 'S/L' || (stopType === 'stop' && (tab === 'ID' || tab === 'OCO'))
       const params: OrderSubmitParams = {
         exchange, symbol, side,
-        orderType: (stopType === 'stop' || tab === 'S/L') ? 'STOP' : 'LIMIT',
+        orderType: isStop ? 'STOP' : 'LIMIT',
         quantity: q,
-        limitPrice: stopType === 'limit' ? p : undefined,
-        triggerPrice: (stopType === 'stop' || tab === 'S/L') ? p : undefined,
+        triggerPrice: isStop ? p : undefined,
+        limitPrice: isStop ? undefined : p,
         timeInForce: expiry,
         hidden,
+        reduceOnly: false,
       }
 
       if (tab === 'ID' || tab === 'OCO') {
@@ -332,6 +335,7 @@ export function OrderModal({
       }
 
       await onSubmit(params)
+      setError('')
       onClose()
     } catch (e: any) {
       setError(e.message ?? 'Order failed')
@@ -463,7 +467,14 @@ export function OrderModal({
             priceTrigger={priceTrigger} setPriceTrigger={setPriceTrigger}
             showPriceTrigger={tab !== 'LMT'} />
 
-          {error && <div style={{ fontSize: 10, color: S.negative, textAlign: 'center' }}>{error}</div>}
+          {error && (
+            <div style={{
+              background: 'rgba(251,44,54,0.1)', border: '1px solid rgba(251,44,54,0.3)',
+              borderRadius: 4, padding: '8px 12px', fontSize: 11, color: '#FB2C36', lineHeight: 1.4,
+            }}>
+              <span style={{ fontWeight: 700 }}>Order Rejected: </span>{error}
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             {existingOrderId ? (

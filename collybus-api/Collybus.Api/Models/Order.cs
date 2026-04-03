@@ -3,7 +3,7 @@ namespace Collybus.Api.Models;
 public enum OrderSide { Buy, Sell }
 public enum OrderType { Market, Limit, Stop, StopLimit }
 public enum OrderState { Open, Filled, Cancelled, Rejected, PartiallyFilled }
-public enum TimeInForce { Gtc, Ioc, Fok, Gtd }
+public enum TimeInForce { Gtc, Ioc, Fok, Gtd, Day }
 
 public record Order
 {

@@ -57,7 +57,9 @@ export interface PricePanelCallbacks {
     side: 'BUY' | 'SELL'
     quantity: number
     limitPrice: number
+    triggerPrice?: number
     orderType: string
+    timeInForce?: string
   }) => Promise<void>
   onMove?: (id: string, x: number, y: number) => void
   onResize?: (id: string, width: number) => void

@@ -124,6 +124,9 @@ export function PricePanel({
 
   const sortedBids = useMemo(() => bids.length ? [...bids].sort((a, b) => b.price - a.price) : [], [orderBook])
   const sortedAsks = useMemo(() => asks.length ? [...asks].sort((a, b) => a.price - b.price) : [], [orderBook])
+  const [bidVisibleTotal, setBidVisibleTotal] = useState(0)
+  const [askVisibleTotal, setAskVisibleTotal] = useState(0)
+  const sharedCumMax = Math.max(bidVisibleTotal, askVisibleTotal)
 
   let sellPrice: string, buyPrice: string
   const d = tickDecimals(tickSize)
@@ -193,7 +196,7 @@ export function PricePanel({
     if (!qtyNum || submitting) return
     const price = side === 'sell' ? parseFloat(sellPrice.replace('$','')) || bid : parseFloat(buyPrice.replace('$','')) || ask
     setSubmitting(side)
-    try { await callbacks.onSubmitOrder({ exchange, symbol, side: side.toUpperCase() as 'BUY'|'SELL', quantity: qtyNum, limitPrice: price, orderType }) }
+    try { await callbacks.onSubmitOrder({ exchange, symbol, side: side.toUpperCase() as 'BUY'|'SELL', quantity: qtyNum, limitPrice: price, orderType, timeInForce: 'FOK' }) }
     finally { setSubmitting(null) }
   }
 
@@ -235,6 +238,8 @@ export function PricePanel({
           <div style={{ flex: 1, minWidth: 0, height: '100%', overflow: 'hidden' }}>
             <DepthChart levels={sortedBids} side="bid" tickSize={tickSize} granularity={granNum}
               highlightQty={qtyNum} sizeUnit={spec?.sizeUnit} lotSize={spec?.lotSize} midPrice={bid > 0 && ask > 0 ? (bid + ask) / 2 : undefined}
+              globalCumMax={sharedCumMax > 0 ? sharedCumMax : undefined}
+              onVisibleTotalChange={setBidVisibleTotal}
               onPriceClick={p => callbacks.onSubmitOrder?.({ exchange, symbol, side: 'SELL', quantity: qtyNum || 0, limitPrice: p, orderType })} />
           </div>
         )}
@@ -303,6 +308,8 @@ export function PricePanel({
           <div style={{ flex: 1, minWidth: 0, height: '100%', overflow: 'hidden' }}>
             <DepthChart levels={sortedAsks} side="ask" tickSize={tickSize} granularity={granNum}
               highlightQty={qtyNum} sizeUnit={spec?.sizeUnit} lotSize={spec?.lotSize} midPrice={bid > 0 && ask > 0 ? (bid + ask) / 2 : undefined}
+              globalCumMax={sharedCumMax > 0 ? sharedCumMax : undefined}
+              onVisibleTotalChange={setAskVisibleTotal}
               onPriceClick={p => callbacks.onSubmitOrder?.({ exchange, symbol, side: 'BUY', quantity: qtyNum || 0, limitPrice: p, orderType })} />
           </div>
         )}
@@ -385,7 +392,9 @@ export function PricePanel({
               side: params.side,
               quantity: params.quantity,
               limitPrice: params.limitPrice ?? 0,
+              triggerPrice: params.triggerPrice,
               orderType: params.orderType,
+              timeInForce: params.timeInForce,
             })
           }}
           onClose={() => setOrderModal(null)}

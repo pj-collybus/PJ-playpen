@@ -15,6 +15,7 @@ export interface Order {
   filledQuantity: number
   remainingQuantity: number
   limitPrice?: number
+  stopPrice?: number
   avgFillPrice?: number
   state: OrderState
   algoType?: string
@@ -79,7 +80,7 @@ export const useBlotterStore = create<BlotterStore>((set) => ({
   positions: {},
   balances: {},
   upsertOrder: (order) =>
-    set((s) => ({ orders: { ...s.orders, [order.orderId]: order } })),
+    set((s) => ({ orders: { ...s.orders, [order.orderId]: { ...s.orders[order.orderId], ...order } } })),
   upsertTrade: (trade) =>
     set((s) => ({ trades: { ...s.trades, [trade.fillId]: trade } })),
   upsertPosition: (position) => {

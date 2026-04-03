@@ -51,7 +51,10 @@ public class RealOrderService : IOrderService
 
         try
         {
+            _logger.LogInformation("[RealOrder] Routing {Type} to {Exchange} adapter", request.OrderType, exchange);
             var result = await adapter.SubmitOrderAsync(request, creds);
+            _logger.LogInformation("[RealOrder] Result: ok={Ok} id={Id} state={State} error={Error}",
+                result.Ok, result.VenueOrderId, result.Status, result.RejectReason);
 
             var order = new Order
             {
@@ -59,8 +62,8 @@ public class RealOrderService : IOrderService
                 VenueOrderId = result.VenueOrderId,
                 Exchange = exchange,
                 Symbol = request.Symbol,
-                Side = Enum.Parse<OrderSide>(request.Side, ignoreCase: true),
-                OrderType = Enum.Parse<OrderType>(request.OrderType, ignoreCase: true),
+                Side = Enum.TryParse<OrderSide>(request.Side, ignoreCase: true, out var side) ? side : OrderSide.Buy,
+                OrderType = Enum.TryParse<OrderType>(request.OrderType, ignoreCase: true, out var ot) ? ot : OrderType.Limit,
                 Quantity = request.Quantity,
                 FilledQuantity = result.FilledQty,
                 RemainingQuantity = request.Quantity - result.FilledQty,
@@ -69,7 +72,7 @@ public class RealOrderService : IOrderService
                 State = result.FilledQty >= request.Quantity ? OrderState.Filled
                     : result.FilledQty > 0 ? OrderState.PartiallyFilled
                     : result.Ok ? OrderState.Open : OrderState.Rejected,
-                TimeInForce = Enum.Parse<TimeInForce>(request.TimeInForce, ignoreCase: true),
+                TimeInForce = Enum.TryParse<TimeInForce>(request.TimeInForce, ignoreCase: true, out var tif) ? tif : TimeInForce.Gtc,
                 AlgoType = request.AlgoType,
                 RejectReason = result.RejectReason,
                 CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -104,14 +107,14 @@ public class RealOrderService : IOrderService
         OrderId = Guid.NewGuid().ToString(),
         Exchange = exchange,
         Symbol = request.Symbol,
-        Side = Enum.Parse<OrderSide>(request.Side, ignoreCase: true),
-        OrderType = Enum.Parse<OrderType>(request.OrderType, ignoreCase: true),
+        Side = Enum.TryParse<OrderSide>(request.Side, ignoreCase: true, out var side) ? side : OrderSide.Buy,
+        OrderType = Enum.TryParse<OrderType>(request.OrderType, ignoreCase: true, out var ot) ? ot : OrderType.Limit,
         Quantity = request.Quantity,
         FilledQuantity = 0,
         RemainingQuantity = request.Quantity,
         LimitPrice = request.LimitPrice,
         State = OrderState.Open,
-        TimeInForce = Enum.Parse<TimeInForce>(request.TimeInForce, ignoreCase: true),
+        TimeInForce = Enum.TryParse<TimeInForce>(request.TimeInForce, ignoreCase: true, out var tif) ? tif : TimeInForce.Gtc,
         AlgoType = request.AlgoType,
         CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),

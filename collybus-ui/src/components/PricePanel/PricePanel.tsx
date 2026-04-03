@@ -137,17 +137,23 @@ export function PricePanel({ id, x, y, width, exchange, symbol: initialSymbol, o
       parentOnConfigChange?.(id, changes)
     },
     onSubmitOrder: async (params: any) => {
+      const instr = useMarketDataStore.getState().instruments[params.exchange?.toUpperCase()]
+      const spec = instr?.find((i: any) => i.symbol === params.symbol)
       const r = await api.post('/order/submit', {
         exchange: params.exchange,
         symbol: params.symbol,
         side: params.side,
         quantity: params.quantity,
         limitPrice: params.limitPrice,
-        orderType: 'LIMIT',
-        timeInForce: 'FOK',
+        triggerPrice: params.triggerPrice,
+        orderType: params.orderType === 'STOP' ? 'STOP' : params.orderType ?? 'LIMIT',
+        timeInForce: params.timeInForce ?? 'GTC',
+        reduceOnly: params.reduceOnly,
+        postOnly: params.postOnly,
+        tickSize: spec?.tickSize,
         algoType: 'MANUAL',
       })
-      if (!r.data.ok) throw new Error(r.data.error)
+      if (!r.data.ok) throw new Error(r.data.error ?? r.data.rejectReason ?? 'Order failed')
     },
   }), [id, onMove, onClose, onResize, parentOnConfigChange])
 

@@ -7,11 +7,14 @@ namespace Collybus.Api.Controllers;
 
 [ApiController]
 [Route("api/order")]
-public class OrderController(IOrderService orderService, IRiskService riskService, IKeyStore keyStore, IEnumerable<IExchangeAdapter> adapters) : ControllerBase
+public class OrderController(IOrderService orderService, IRiskService riskService, IKeyStore keyStore, IEnumerable<IExchangeAdapter> adapters, ILogger<OrderController> logger) : ControllerBase
 {
     [HttpPost("submit")]
     public async Task<IActionResult> Submit([FromBody] SubmitOrderRequest request)
     {
+        logger.LogInformation("[Order] Submit: {Exchange} {Symbol} {Side} {Type} {Qty}@{Price} TIF={Tif} Trigger={Trigger}",
+            request.Exchange, request.Symbol, request.Side, request.OrderType,
+            request.Quantity, request.LimitPrice, request.TimeInForce, request.TriggerPrice);
         var risk = riskService.Check(new RiskCheckRequest
         {
             Symbol = request.Symbol,

@@ -117,21 +117,30 @@ public class BitmexAdapter : BaseExchangeAdapter, IExchangeAdapter
 
         var path = "/api/v1/order";
         var expires = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 60;
-        var body = JsonSerializer.Serialize(new
+        var isStop = request.OrderType.Equals("STOP", StringComparison.OrdinalIgnoreCase) || request.TriggerPrice.HasValue;
+        var ordType = isStop
+            ? (request.LimitPrice.HasValue && request.LimitPrice > 0 ? "StopLimit" : "Stop")
+            : "Limit";
+        var tif = request.TimeInForce?.ToUpperInvariant() switch
         {
-            symbol = request.Symbol,
-            side = request.Side.Equals("BUY", StringComparison.OrdinalIgnoreCase) ? "Buy" : "Sell",
-            orderQty = (int)request.Quantity,
-            price = request.LimitPrice,
-            ordType = "Limit",
-            timeInForce = request.TimeInForce?.ToUpperInvariant() switch
-            {
-                "FOK" => "FillOrKill",
-                "IOC" => "ImmediateOrCancel",
-                _ => "GoodTillCancel",
-            },
-            text = "Collybus",
-        });
+            "FOK" => "FillOrKill", "IOC" => "ImmediateOrCancel", _ => "GoodTillCancel",
+        };
+        var bodyDict = new Dictionary<string, object>
+        {
+            ["symbol"] = request.Symbol,
+            ["side"] = request.Side.Equals("BUY", StringComparison.OrdinalIgnoreCase) ? "Buy" : "Sell",
+            ["orderQty"] = (int)request.Quantity,
+            ["ordType"] = ordType,
+            ["timeInForce"] = tif,
+            ["text"] = "Collybus",
+        };
+        var tick = request.TickSize ?? 0.5m;
+        if (request.LimitPrice.HasValue && request.LimitPrice > 0)
+            bodyDict["price"] = Math.Round(request.LimitPrice.Value / tick) * tick;
+        if (request.TriggerPrice.HasValue && request.TriggerPrice > 0)
+            bodyDict["stopPx"] = Math.Round(request.TriggerPrice.Value / tick) * tick;
+        var body = JsonSerializer.Serialize(bodyDict);
+        Logger.LogInformation("[BitMEX] Order: {Body}", body);
 
         var sig = ComputeHmac(apiSecret, $"POST{path}{expires}{body}");
         var baseUrl = _testnet ? "https://testnet.bitmex.com" : "https://www.bitmex.com";
@@ -144,11 +153,13 @@ public class BitmexAdapter : BaseExchangeAdapter, IExchangeAdapter
 
         var r = await http.SendAsync(req);
         var json = await r.Content.ReadAsStringAsync();
+        Logger.LogInformation("[BitMEX] Response ({Status}): {Body}", r.StatusCode, json[..Math.Min(500, json.Length)]);
         var doc = JsonNode.Parse(json);
 
         if (!r.IsSuccessStatusCode)
         {
             var error = doc?["error"]?["message"]?.GetValue<string>() ?? json;
+            Logger.LogError("[BitMEX] Order rejected: {Error}", error);
             return new OrderResult { Ok = false, RejectReason = error };
         }
 
@@ -397,11 +408,29 @@ public class BitmexAdapter : BaseExchangeAdapter, IExchangeAdapter
 
     // ── Private channel handlers ──────────────────────────────────────────────
 
+    private readonly Dictionary<string, Order> _orderCache = new();
+
+    private static decimal? SafeDecimal(JsonNode? node)
+    {
+        if (node == null) return null;
+        try
+        {
+            if (node.GetValueKind() == JsonValueKind.Null) return null;
+            if (node.GetValueKind() == JsonValueKind.Number) return node.GetValue<decimal>();
+            return null;
+        }
+        catch { return null; }
+    }
+
     private void HandlePrivateOrder(JsonArray arr, string action)
     {
         foreach (var o in arr)
         {
             if (o is null) continue;
+            var orderId = o["orderID"]?.GetValue<string>() ?? "";
+            if (string.IsNullOrEmpty(orderId)) continue;
+
+            _orderCache.TryGetValue(orderId, out var cached);
             var status = o["ordStatus"]?.GetValue<string>() ?? "";
             var state = status switch
             {
@@ -409,27 +438,33 @@ public class BitmexAdapter : BaseExchangeAdapter, IExchangeAdapter
                 "Canceled" or "Cancelled" => OrderState.Cancelled,
                 "Rejected" => OrderState.Rejected,
                 "PartiallyFilled" => OrderState.PartiallyFilled,
+                "" => cached?.State ?? OrderState.Open,  // no status in update, use cached
                 _ => OrderState.Open,
             };
-            var qty = o["orderQty"]?.GetValue<decimal?>() ?? 0;
-            var filled = o["cumQty"]?.GetValue<decimal?>() ?? 0;
+            var qty = o["orderQty"]?.GetValue<decimal?>() ?? cached?.Quantity ?? 0;
+            var filled = o["cumQty"]?.GetValue<decimal?>() ?? cached?.FilledQuantity ?? 0;
+            var stopPx = SafeDecimal(o["stopPx"]) ?? cached?.StopPrice;
+            var price = SafeDecimal(o["price"]) ?? cached?.LimitPrice;
 
             var order = new Order
             {
-                OrderId = o["orderID"]?.GetValue<string>() ?? "",
+                OrderId = orderId,
                 Exchange = Venue,
-                Symbol = o["symbol"]?.GetValue<string>() ?? "",
-                Side = o["side"]?.GetValue<string>() == "Buy" ? OrderSide.Buy : OrderSide.Sell,
-                OrderType = o["ordType"]?.GetValue<string>() == "Market" ? OrderType.Market : OrderType.Limit,
+                Symbol = o["symbol"]?.GetValue<string>() ?? cached?.Symbol ?? "",
+                Side = o["side"] != null ? (o["side"]?.GetValue<string>() == "Buy" ? OrderSide.Buy : OrderSide.Sell) : cached?.Side ?? OrderSide.Buy,
+                OrderType = o["ordType"] != null ? (o["ordType"]?.GetValue<string>() switch { "Market" => OrderType.Market, "Stop" => OrderType.Stop, "StopLimit" => OrderType.StopLimit, _ => OrderType.Limit }) : cached?.OrderType ?? OrderType.Limit,
                 Quantity = qty,
                 FilledQuantity = filled,
                 RemainingQuantity = o["leavesQty"]?.GetValue<decimal?>() ?? (qty - filled),
-                LimitPrice = o["price"]?.GetValue<decimal?>(),
-                AvgFillPrice = o["avgPx"]?.GetValue<decimal?>(),
+                LimitPrice = price,
+                StopPrice = stopPx,
+                AvgFillPrice = SafeDecimal(o["avgPx"]) ?? cached?.AvgFillPrice,
+                RejectReason = status == "Rejected" ? o["text"]?.GetValue<string>() : null,
                 State = state,
-                CreatedAt = ParseBitmexTimestamp(o["timestamp"]?.GetValue<string>()),
+                CreatedAt = cached?.CreatedAt ?? ParseBitmexTimestamp(o["timestamp"]?.GetValue<string>()),
                 UpdatedAt = ParseBitmexTimestamp(o["timestamp"]?.GetValue<string>()),
             };
+            _orderCache[orderId] = order;
             _ = Hub.Clients.All.SendAsync("OrderUpdate", order);
         }
     }

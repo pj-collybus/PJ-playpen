@@ -3,10 +3,11 @@ import { BlotterTable, type BlotterColumn } from '../shared/BlotterTable'
 import { StatusPill } from '../atoms/StatusPill'
 import { SideChip } from '../atoms/SideChip'
 import { PnlCell } from '../atoms/PnlCell'
+import { tickDecimals } from '../PricePanel/utils'
 
 export interface BlotterOrder {
   id: string; exchange: string; timestamp: number; instrument: string
-  type: string; side: string; amount: number; filled: number; price: number; status: string; rejectReason?: string
+  type: string; side: string; amount: number; filled: number; price: number; tickSize?: number; status: string; rejectReason?: string
 }
 export interface BlotterTrade {
   id: string; exchange: string; timestamp: number; instrument: string
@@ -52,6 +53,11 @@ function ExchPill({ ex }: { ex: string }) {
 
 const fmtTs = (ts: number) => new Date(ts).toLocaleTimeString('en-US', { hour12: false })
 const fmtN = (n: number, dp = 2) => isFinite(n) ? n.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp, useGrouping: true }) : '—'
+const fmtPx = (n: number, ts?: number) => {
+  if (!n || !isFinite(n)) return '—'
+  const d = ts ? tickDecimals(ts) : (n < 0.01 ? 6 : n < 1 ? 4 : n < 100 ? 4 : 2)
+  return n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: true })
+}
 
 export function BlotterPanel({ data, callbacks, height, onHeightChange }: BlotterPanelProps) {
   const [tab, setTab] = useState<TabType>('Orders')
@@ -124,7 +130,7 @@ export function BlotterPanel({ data, callbacks, height, onHeightChange }: Blotte
     { key: 'amount', label: 'Amount', width: 90, render: r => fmtN(r.amount), sortValue: r => r.amount },
     { key: 'filled', label: 'Filled', width: 90, render: r => fmtN(r.filled), sortValue: r => r.filled },
     { key: 'remaining', label: 'Remaining', width: 90, render: r => fmtN(r.amount - r.filled) },
-    { key: 'price', label: 'Price', width: 90, render: r => fmtN(r.price), sortValue: r => r.price },
+    { key: 'price', label: 'Price', width: 90, render: r => fmtPx(r.price, r.tickSize), sortValue: r => r.price },
     { key: 'status', label: 'Status', width: 80, render: r => <StatusPill status={r.status} /> },
     { key: 'id', label: 'Order ID', render: r => <span style={{ color: '#363C4E', fontSize: 10 }}>{r.id}</span> },
   ]
@@ -135,7 +141,7 @@ export function BlotterPanel({ data, callbacks, height, onHeightChange }: Blotte
     { key: 'instrument', label: 'Instrument', render: r => <span style={{ fontWeight: 600 }}>{r.instrument}</span>, sortValue: r => r.instrument },
     { key: 'side', label: 'Side', width: 60, render: r => <SideChip side={r.side} /> },
     { key: 'amount', label: 'Amount', width: 90, render: r => fmtN(r.amount), sortValue: r => r.amount },
-    { key: 'price', label: 'Price', width: 90, render: r => fmtN(r.price), sortValue: r => r.price },
+    { key: 'price', label: 'Price', width: 90, render: r => fmtPx(r.price), sortValue: r => r.price },
     { key: 'fee', label: 'Fee', width: 80, render: r => fmtN(r.fee, 6) },
     { key: 'orderId', label: 'Order ID', render: r => <span style={{ color: '#363C4E', fontSize: 10 }}>{r.orderId}</span> },
     { key: 'id', label: 'Trade ID', render: r => <span style={{ color: '#363C4E', fontSize: 10 }}>{r.id}</span> },
@@ -146,11 +152,11 @@ export function BlotterPanel({ data, callbacks, height, onHeightChange }: Blotte
     { key: 'instrument', label: 'Instrument', render: r => <span style={{ fontWeight: 600 }}>{r.instrument}</span>, sortValue: r => r.instrument },
     { key: 'side', label: 'Side', width: 70, render: r => <SideChip side={r.side} /> },
     { key: 'size', label: 'Size', width: 90, render: r => `${fmtN(r.size)} ${r.sizeUnit}`, sortValue: r => r.size },
-    { key: 'entry', label: 'Entry', width: 90, render: r => fmtN(r.entryPrice), sortValue: r => r.entryPrice },
-    { key: 'mark', label: 'Mark', width: 90, render: r => fmtN(r.markPrice) },
+    { key: 'entry', label: 'Entry', width: 90, render: r => fmtPx(r.entryPrice), sortValue: r => r.entryPrice },
+    { key: 'mark', label: 'Mark', width: 90, render: r => fmtPx(r.markPrice) },
     { key: 'upnl', label: 'uPnL', width: 100, render: r => <PnlCell value={r.uPnl} />, sortValue: r => r.uPnl },
     { key: 'rpnl', label: 'rPnL', width: 100, render: r => <PnlCell value={r.rPnl} />, sortValue: r => r.rPnl },
-    { key: 'liq', label: 'Liq Price', width: 90, render: r => r.liqPrice > 0 ? fmtN(r.liqPrice) : '—' },
+    { key: 'liq', label: 'Liq Price', width: 90, render: r => r.liqPrice > 0 ? fmtPx(r.liqPrice) : '—' },
     { key: 'margin', label: 'Margin', width: 90, render: r => fmtN(r.margin) },
   ]
 

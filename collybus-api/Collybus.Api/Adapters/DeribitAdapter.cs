@@ -128,32 +128,71 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
             var venueSymbol = MapSymbol(request.Symbol);
             var method = request.Side.Equals("BUY", StringComparison.OrdinalIgnoreCase)
                 ? "private/buy" : "private/sell";
-            var tif = MapTif(request.TimeInForce);
             var clientOid = $"CLBX-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+            var isStop = request.OrderType.Equals("STOP", StringComparison.OrdinalIgnoreCase) || request.TriggerPrice.HasValue;
 
-            var result = await RpcAsync(method, new
+            object orderParams;
+            if (isStop)
             {
-                instrument_name = venueSymbol,
-                type = "limit",
-                price = request.LimitPrice,
-                amount = request.Quantity,
-                time_in_force = tif,
-                label = clientOid
-            }, token);
+                if (request.LimitPrice.HasValue && request.LimitPrice > 0)
+                    orderParams = new
+                    {
+                        instrument_name = venueSymbol, amount = request.Quantity,
+                        type = "stop_limit",
+                        trigger_price = request.TriggerPrice ?? request.LimitPrice,
+                        price = request.LimitPrice,
+                        trigger = "last_price",
+                        time_in_force = MapTif(request.TimeInForce),
+                        reduce_only = request.ReduceOnly ?? false,
+                        label = clientOid,
+                    };
+                else
+                    orderParams = new
+                    {
+                        instrument_name = venueSymbol, amount = request.Quantity,
+                        type = "stop_market",
+                        trigger_price = request.TriggerPrice ?? request.LimitPrice,
+                        trigger = "last_price",
+                        time_in_force = "good_til_cancelled",
+                        reduce_only = request.ReduceOnly ?? false,
+                        label = clientOid,
+                    };
+            }
+            else
+            {
+                orderParams = new
+                {
+                    instrument_name = venueSymbol, amount = request.Quantity,
+                    type = "limit",
+                    price = request.LimitPrice,
+                    time_in_force = MapTif(request.TimeInForce),
+                    post_only = request.PostOnly ?? false,
+                    reduce_only = request.ReduceOnly ?? false,
+                    label = clientOid,
+                };
+            }
 
+            var result = await RpcAsync(method, orderParams, token);
             var order = result?["order"];
-            var filled = order?["filled_amount"]?.GetValue<decimal>() ?? 0;
-            var avg = order?["average_price"]?.GetValue<decimal>() ?? 0;
-            var status = filled >= request.Quantity ? "FILLED" : filled > 0 ? "PARTIAL" : "OPEN";
+            if (order == null)
+            {
+                var error = result?["message"]?.GetValue<string>() ?? "Order failed";
+                Logger.LogError("[Deribit] Order rejected: {Error}", error);
+                return new OrderResult { Ok = false, RejectReason = error };
+            }
+
+            var filled = order["filled_amount"]?.GetValue<decimal>() ?? 0;
+            Logger.LogInformation("[Deribit] Order placed: {Id} {State}",
+                order["order_id"]?.GetValue<string>(), order["order_state"]?.GetValue<string>());
 
             return new OrderResult
             {
                 Ok = true,
-                VenueOrderId = order?["order_id"]?.GetValue<string>(),
+                VenueOrderId = order["order_id"]?.GetValue<string>(),
                 ClientOrderId = clientOid,
-                Status = status,
+                Status = order["order_state"]?.GetValue<string>()?.ToLower() ?? "open",
                 FilledQty = filled,
-                AvgFillPrice = avg,
+                AvgFillPrice = order["average_price"]?.GetValue<decimal>() ?? 0,
             };
         }
         catch (Exception ex)
@@ -367,9 +406,6 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
     private void HandleUserChanges(JsonNode? data, long receivedTs)
     {
         if (data is null) return;
-        var raw = data.ToJsonString();
-        Logger.LogInformation("[Deribit] UserChanges raw: {Raw}", raw[..Math.Min(500, raw.Length)]);
-
         if (data["positions"] is JsonArray positions)
         {
             foreach (var p in positions)
@@ -403,15 +439,12 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
 
     private void HandleUserTrades(JsonNode? data, long receivedTs)
     {
-        var raw = data?.ToJsonString() ?? "null";
-        Logger.LogInformation("[Deribit] UserTrades raw: {Raw}", raw[..Math.Min(500, raw.Length)]);
-        if (data is not JsonArray trades) { Logger.LogWarning("[Deribit] UserTrades data is NOT JsonArray, type={Type}", data?.GetType().Name); return; }
-        Logger.LogInformation("[Deribit] HandleUserTrades fired, count={Count}", trades.Count);
-        foreach (var t in trades)
+        if (data is null) return;
+        var items = data is JsonArray arr ? arr.Select(x => x).ToList()
+                  : data is JsonObject ? [data] : [];
+        foreach (var t in items)
         {
             if (t is null) continue;
-            Logger.LogInformation("[Deribit] Trade: {Symbol} {Side} {Size}@{Price}",
-                t["instrument_name"], t["direction"], t["amount"], t["price"]);
             var fill = new Fill
             {
                 FillId = t["trade_id"]?.GetValue<string>() ?? "",
@@ -431,11 +464,10 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
 
     private void HandleUserOrders(JsonNode? data, long receivedTs)
     {
-        var raw = data?.ToJsonString() ?? "null";
-        Logger.LogInformation("[Deribit] UserOrders raw: {Raw}", raw[..Math.Min(500, raw.Length)]);
-        if (data is not JsonArray orders) { Logger.LogWarning("[Deribit] UserOrders data is NOT JsonArray, type={Type}", data?.GetType().Name); return; }
-        Logger.LogInformation("[Deribit] HandleUserOrders fired, count={Count}", orders.Count);
-        foreach (var o in orders)
+        if (data is null) return;
+        var items = data is JsonArray arr ? arr.Select(x => x).ToList()
+                  : data is JsonObject ? [data] : [];
+        foreach (var o in items)
         {
             if (o is null) continue;
             var stateStr = o["order_state"]?.GetValue<string>() ?? "";
@@ -455,11 +487,12 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
                 Exchange = Venue,
                 Symbol = o["instrument_name"]?.GetValue<string>() ?? "",
                 Side = o["direction"]?.GetValue<string>() == "buy" ? OrderSide.Buy : OrderSide.Sell,
-                OrderType = OrderType.Limit,
+                OrderType = o["order_type"]?.GetValue<string>() switch { "stop_limit" => OrderType.StopLimit, "stop_market" => OrderType.Stop, _ => OrderType.Limit },
                 Quantity = qty,
                 FilledQuantity = filled,
                 RemainingQuantity = qty - filled,
                 LimitPrice = o["price"]?.GetValue<decimal?>(),
+                StopPrice = o["trigger_price"]?.GetValue<decimal?>(),
                 AvgFillPrice = o["average_price"]?.GetValue<decimal?>(),
                 State = state,
                 TimeInForce = TimeInForce.Gtc,
@@ -552,7 +585,12 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
             var node = JsonNode.Parse(j);
             _pending.TryRemove(id, out _);
             if (node?["error"] is not null)
-                throw new Exception(node["error"]!["message"]?.GetValue<string>() ?? "API error");
+            {
+                var errMsg = node["error"]!["message"]?.GetValue<string>() ?? "API error";
+                var errData = node["error"]!["data"]?.ToJsonString() ?? "";
+                Logger.LogError("[Deribit] RPC error for {Method}: {Msg} {Data}", method, errMsg, errData);
+                throw new Exception($"{errMsg} {errData}".Trim());
+            }
             return node?["result"];
         }
 
@@ -591,7 +629,17 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
         var json = JsonSerializer.Serialize(obj);
         var dict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json);
         if (dict is null) return "";
-        return string.Join("&", dict.Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value.ToString())}"));
+        return string.Join("&", dict.Select(kv =>
+        {
+            var val = kv.Value.ValueKind switch
+            {
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                JsonValueKind.Number => kv.Value.GetRawText(),
+                _ => kv.Value.ToString(),
+            };
+            return $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(val)}";
+        }));
     }
 
 
