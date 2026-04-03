@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { App as AntApp } from 'antd'
-import { ThemeProvider } from '@collybus/components'
+import { ThemeProvider, BlotterPanel } from '@collybus/components'
+import type { BlotterData } from '@collybus/components'
 import { signalRClient } from './services/signalRClient'
 import { venuesApi, marketDataApi } from './services/apiClient'
 import { useMarketDataStore } from './stores/marketDataStore'
+import { useBlotterStore } from './stores/blotterStore'
 import { ExchangeManager } from './components/ExchangeManager/ExchangeManager'
 import { AdminPanel } from './components/Admin/AdminPanel'
 import { PanelCanvas } from './components/PanelCanvas/PanelCanvas'
@@ -15,6 +17,62 @@ export default function App() {
   const [exchangeManagerOpen, setExchangeManagerOpen] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
   const [availableExchanges, setAvailableExchanges] = useState<string[]>([])
+  const [blotterHeight, setBlotterHeight] = useState(200)
+  const storeOrders = useBlotterStore(s => s.orders)
+  const storeTrades = useBlotterStore(s => s.trades)
+  const storePositions = useBlotterStore(s => s.positions)
+  const storeBalances = useBlotterStore(s => s.balances)
+
+  const blotterData: BlotterData = {
+    orders: Object.values(storeOrders).map(o => ({
+      id: o.orderId,
+      exchange: o.exchange,
+      timestamp: o.createdAt,
+      instrument: o.symbol,
+      type: (o.orderType ?? 'LIMIT').toUpperCase(),
+      side: String(o.side).toUpperCase(),
+      amount: o.quantity,
+      filled: o.filledQuantity,
+      price: o.limitPrice ?? 0,
+      status: (o.state ?? '').toLowerCase(),
+    })),
+    trades: Object.values(storeTrades).map(t => ({
+      id: t.fillId,
+      exchange: t.exchange,
+      timestamp: t.fillTs,
+      instrument: t.symbol,
+      side: String(t.side).toUpperCase(),
+      amount: t.fillSize,
+      price: t.fillPrice,
+      fee: t.commission,
+      orderId: t.orderId,
+    })),
+    positions: Object.values(storePositions).map(p => ({
+      id: `${p.exchange}:${p.symbol}`,
+      exchange: p.exchange,
+      instrument: p.symbol,
+      side: p.side,
+      size: p.size,
+      sizeUnit: p.sizeUnit ?? '',
+      entryPrice: p.avgEntryPrice,
+      markPrice: p.markPrice,
+      uPnl: p.unrealisedPnl,
+      rPnl: p.realisedPnl,
+      liqPrice: 0,
+      margin: 0,
+      updatedAt: p.timestamp,
+    })),
+    balances: Object.values(storeBalances).map(b => ({
+      exchange: b.exchange,
+      currency: b.currency,
+      available: b.available,
+      total: b.total,
+      reservedMargin: 0,
+      unrealisedPnl: b.unrealisedPnl,
+      equity: b.total + (b.unrealisedPnl ?? 0),
+    })),
+  }
+
   const [editingId, setEditingId] = useState<string | null>(null)
   const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
@@ -28,6 +86,7 @@ export default function App() {
       console.log('[App] active:', s.activeLayoutId)
       console.log('[App] panels in active:', s.layouts.find(l => l.id === s.activeLayoutId)?.panels?.length)
     })
+    useBlotterStore.getState().fetchHistory('week')
     return () => signalRClient.disconnect()
   }, [])
 
@@ -238,24 +297,13 @@ export default function App() {
             <PanelCanvas availableExchanges={availableExchanges} />
           </main>
 
-          {/* Bottom bar */}
-          <div style={{
-            background: 'linear-gradient(to bottom, #1F1E23 0%, #1E1D22 50%, #1B1A1F 100%)',
-            borderTop: '1.25px solid #363C4E',
-            height: 50, flexShrink: 0,
-            display: 'flex', alignItems: 'center', padding: '0 16px',
-            gap: 24,
-          }}>
-            {['Trades', 'Orders', 'Positions', 'Options Trades', 'Options Orders', 'Alerts'].map((tab, i) => (
-              <button key={tab} style={{
-                background: 'transparent', border: 'none',
-                borderBottom: i === 0 ? '2px solid #793ef6' : '2px solid transparent',
-                color: i === 0 ? '#8761f5' : '#636e82',
-                fontSize: 14, fontWeight: 500, padding: '4px',
-                cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
-              }}>{tab}</button>
-            ))}
-          </div>
+          {/* Blotter */}
+          <BlotterPanel
+            data={blotterData}
+            height={blotterHeight}
+            onHeightChange={setBlotterHeight}
+            callbacks={{ onCancelOrder: (id, ex) => console.log('cancel', id, ex) }}
+          />
         </div>
 
         <ExchangeManager

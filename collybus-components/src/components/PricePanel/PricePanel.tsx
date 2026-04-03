@@ -87,7 +87,7 @@ export function PricePanel({
   const posRef = useRef({ x, y })
   const instrDragRef = useRef<{ ox: number; oy: number } | null>(null)
 
-  const spec = instruments.find(i => i.symbol === symbol)
+  const spec = useMemo(() => instruments.find(i => i.symbol === symbol), [instruments, symbol])
   const tickSize = spec?.tickSize ?? 0.5
   const sizeUnit = spec?.sizeUnit ?? 'base'
   const isPerp = symbol.includes('PERPETUAL')

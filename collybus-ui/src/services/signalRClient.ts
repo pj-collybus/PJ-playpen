@@ -25,6 +25,9 @@ class SignalRClient {
       if (this.subscribedChannels.size > 0) {
         await this.subscribe([...this.subscribedChannels])
       }
+      // Request re-push of cached positions/balances, then fetch history
+      fetch('/api/blotter/snapshot', { method: 'POST' }).catch(() => {})
+      setTimeout(() => useBlotterStore.getState().fetchHistory('week'), 500)
     } catch (err) {
       console.error('[SignalR] Connection failed:', err)
     }
@@ -56,10 +59,10 @@ class SignalRClient {
     this.connection.on('OrderBookUpdate', (payload: { key: string; book: Parameters<typeof setOrderBook>[1] }) => {
       setOrderBook(payload.key, payload.book)
     })
-    this.connection.on('OrderUpdate', upsertOrder)
-    this.connection.on('FillUpdate', upsertTrade)
-    this.connection.on('PositionUpdate', upsertPosition)
-    this.connection.on('BalanceUpdate', upsertBalance)
+    this.connection.on('OrderUpdate', (data) => useBlotterStore.getState().upsertOrder(data))
+    this.connection.on('FillUpdate', (data) => useBlotterStore.getState().upsertTrade(data))
+    this.connection.on('PositionUpdate', (data) => useBlotterStore.getState().upsertPosition(data))
+    this.connection.on('BalanceUpdate', (data) => useBlotterStore.getState().upsertBalance(data))
     this.connection.on('AlgoProgress', upsertStrategy)
     this.connection.on('BlotterUpdate', (snapshot: {
       orders?: Parameters<typeof upsertOrder>[0][]

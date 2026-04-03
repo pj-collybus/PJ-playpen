@@ -25,6 +25,8 @@ export const blotterApi = {
   snapshot: (venue?: string) => api.get('/blotter', { params: { venue } }),
   positions: (venue?: string) => api.get('/blotter/positions', { params: { venue } }),
   balances: (venue?: string) => api.get('/blotter/balances', { params: { venue } }),
+  orders: (exchange: string, period: string) => api.get('/blotter/orders', { params: { exchange, period } }),
+  trades: (exchange: string, period: string) => api.get('/blotter/trades', { params: { exchange, period } }),
 }
 
 export const marketDataApi = {

@@ -14,6 +14,10 @@ public abstract class BaseExchangeAdapter
     private readonly Dictionary<string, long> _lastBookSend = new();
     private readonly Dictionary<string, Ticker> _lastTicker = new();
 
+    // Cached blotter state for re-push on new connections
+    protected readonly Dictionary<string, Position> CachedPositions = new();
+    protected readonly Dictionary<string, Balance> CachedBalances = new();
+
     protected BaseExchangeAdapter(IHubContext<CollybusHub> hub, ILogger logger)
     {
         Hub = hub;
@@ -53,8 +57,16 @@ public abstract class BaseExchangeAdapter
             if (price <= 0) continue;
             if (action == "delete" || size == 0)
             {
-                _bids[symbol].Remove(price);
-                _asks[symbol].Remove(price);
+                if (side is "Buy" or "bid" or "bids")
+                    _bids[symbol].Remove(price);
+                else if (side is "Sell" or "ask" or "asks")
+                    _asks[symbol].Remove(price);
+                else
+                {
+                    // Unknown side — remove from both
+                    _bids[symbol].Remove(price);
+                    _asks[symbol].Remove(price);
+                }
             }
             else if (side is "Buy" or "bid" or "bids")
                 _bids[symbol][price] = size;
@@ -87,10 +99,8 @@ public abstract class BaseExchangeAdapter
         };
 
         if (book.Bids.Count == 0 || book.Asks.Count == 0)
-            Logger.LogWarning("[Book] {Venue}:{Symbol} ONE-SIDED bids={B} asks={A} tracked_bids={TB} tracked_asks={TA}",
-                Venue, symbol, book.Bids.Count, book.Asks.Count,
-                _bids.GetValueOrDefault(symbol)?.Count ?? 0,
-                _asks.GetValueOrDefault(symbol)?.Count ?? 0);
+            Logger.LogWarning("[Book] {Venue}:{Symbol} ONE-SIDED bids={B} asks={A}",
+                Venue, symbol, book.Bids.Count, book.Asks.Count);
 
         _ = Hub.Clients.All.SendAsync("OrderBookUpdate", new { key = $"{Venue}:{symbol}", book });
     }
@@ -134,5 +144,27 @@ public abstract class BaseExchangeAdapter
         _asks.Remove(symbol);
         _lastBookSend.Remove(symbol);
         _lastTicker.Remove(symbol);
+    }
+
+    protected void CacheAndPushPosition(Position position)
+    {
+        var key = $"{position.Exchange}:{position.Symbol}";
+        CachedPositions[key] = position;
+        _ = Hub.Clients.All.SendAsync("PositionUpdate", position);
+    }
+
+    protected void CacheAndPushBalance(Balance balance)
+    {
+        var key = $"{balance.Exchange}:{balance.Currency}";
+        CachedBalances[key] = balance;
+        _ = Hub.Clients.All.SendAsync("BalanceUpdate", balance);
+    }
+
+    public async Task RepushCachedStateAsync()
+    {
+        foreach (var p in CachedPositions.Values)
+            await Hub.Clients.All.SendAsync("PositionUpdate", p);
+        foreach (var b in CachedBalances.Values)
+            await Hub.Clients.All.SendAsync("BalanceUpdate", b);
     }
 }

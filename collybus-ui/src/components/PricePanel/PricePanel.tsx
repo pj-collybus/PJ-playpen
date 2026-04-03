@@ -26,9 +26,6 @@ export function PricePanel({ id, x, y, width, exchange, symbol: initialSymbol, o
   const [currentSymbol, setCurrentSymbol] = useState(initialSymbol)
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([])
 
-  useEffect(() => {
-    console.log('[Panel mount]', id, 'exchange:', exchange, 'symbol:', initialSymbol, 'x:', x, 'y:', y)
-  }, [])
 
   const key = `${currentExchange}:${currentSymbol}`
   const { ticker, orderBook } = useMarketDataStore(
@@ -143,8 +140,8 @@ export function PricePanel({ id, x, y, width, exchange, symbol: initialSymbol, o
         side: params.side,
         quantity: params.quantity,
         limitPrice: params.limitPrice,
-        orderType: params.orderType === 'LMT' ? 'LIMIT' : 'MARKET',
-        timeInForce: params.orderType === 'IOC' ? 'IOC' : 'GTC',
+        orderType: 'LIMIT',
+        timeInForce: 'FOK',
         algoType: 'MANUAL',
       })
       if (!r.data.ok) throw new Error(r.data.error)

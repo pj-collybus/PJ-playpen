@@ -346,6 +346,8 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
     private void HandleUserChanges(JsonNode? data, long receivedTs)
     {
         if (data is null) return;
+        var raw = data.ToJsonString();
+        Logger.LogInformation("[Deribit] UserChanges raw: {Raw}", raw[..Math.Min(500, raw.Length)]);
 
         if (data["positions"] is JsonArray positions)
         {
@@ -373,17 +375,22 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
                     Timestamp = receivedTs,
                 };
 
-                _ = Hub.Clients.All.SendAsync("PositionUpdate", position);
+                CacheAndPushPosition(position);
             }
         }
     }
 
     private void HandleUserTrades(JsonNode? data, long receivedTs)
     {
-        if (data is not JsonArray trades) return;
+        var raw = data?.ToJsonString() ?? "null";
+        Logger.LogInformation("[Deribit] UserTrades raw: {Raw}", raw[..Math.Min(500, raw.Length)]);
+        if (data is not JsonArray trades) { Logger.LogWarning("[Deribit] UserTrades data is NOT JsonArray, type={Type}", data?.GetType().Name); return; }
+        Logger.LogInformation("[Deribit] HandleUserTrades fired, count={Count}", trades.Count);
         foreach (var t in trades)
         {
             if (t is null) continue;
+            Logger.LogInformation("[Deribit] Trade: {Symbol} {Side} {Size}@{Price}",
+                t["instrument_name"], t["direction"], t["amount"], t["price"]);
             var fill = new Fill
             {
                 FillId = t["trade_id"]?.GetValue<string>() ?? "",
@@ -403,7 +410,10 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
 
     private void HandleUserOrders(JsonNode? data, long receivedTs)
     {
-        if (data is not JsonArray orders) return;
+        var raw = data?.ToJsonString() ?? "null";
+        Logger.LogInformation("[Deribit] UserOrders raw: {Raw}", raw[..Math.Min(500, raw.Length)]);
+        if (data is not JsonArray orders) { Logger.LogWarning("[Deribit] UserOrders data is NOT JsonArray, type={Type}", data?.GetType().Name); return; }
+        Logger.LogInformation("[Deribit] HandleUserOrders fired, count={Count}", orders.Count);
         foreach (var o in orders)
         {
             if (o is null) continue;
@@ -452,17 +462,19 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
             UnrealisedPnl = data["futures_session_upl"]?.GetValue<decimal?>() ?? 0,
             Timestamp = receivedTs,
         };
-        _ = Hub.Clients.All.SendAsync("BalanceUpdate", balance);
+        CacheAndPushBalance(balance);
     }
 
     private async Task FetchInitialPositionsAsync()
     {
+        Logger.LogInformation("[Deribit] FetchInitialPositions called");
         foreach (var kind in new[] { "future", "option" })
         {
             try
             {
                 var result = await RpcAsync("private/get_positions", new { currency = "any", kind });
-                if (result is not JsonArray positions) continue;
+                if (result is not JsonArray positions) { Logger.LogInformation("[Deribit] FetchInitialPositions {Kind}: no array result", kind); continue; }
+                Logger.LogInformation("[Deribit] FetchInitialPositions {Kind}: {Count} positions", kind, positions.Count);
 
                 foreach (var p in positions)
                 {
@@ -489,7 +501,7 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
                         LiquidationPrice = p["estimated_liquidation_price"]?.GetValue<decimal?>() ?? 0,
                         Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     };
-                    _ = Hub.Clients.All.SendAsync("PositionUpdate", position);
+                    CacheAndPushPosition(position);
                     Logger.LogInformation("[Deribit] Initial position: {Symbol} {Side} {Size}", instr, positionSide, rawSize);
                 }
             }
@@ -573,6 +585,145 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
             _ when symbol.EndsWith("-PERP") => symbol.Replace("-PERP", "-PERPETUAL"),
             _ => symbol,
         };
+    }
+
+    private static readonly string[] Currencies = ["BTC", "ETH", "USDC", "SOL", "USDT"];
+
+    private static readonly Dictionary<string, string[]> CommonPerps = new()
+    {
+        ["BTC"] = ["BTC-PERPETUAL"],
+        ["ETH"] = ["ETH-PERPETUAL"],
+        ["USDC"] = ["BTC_USDC-PERPETUAL", "ETH_USDC-PERPETUAL", "SOL_USDC-PERPETUAL", "XRP_USDC-PERPETUAL"],
+        ["SOL"] = ["SOL_USDC-PERPETUAL"],
+        ["USDT"] = [],
+    };
+
+    private static object MapOrder(JsonNode? o) => new
+    {
+        id = o?["order_id"]?.GetValue<string>() ?? "",
+        exchange = "DERIBIT",
+        timestamp = o?["creation_timestamp"]?.GetValue<long>() ?? 0,
+        instrument = o?["instrument_name"]?.GetValue<string>() ?? "",
+        type = o?["order_type"]?.GetValue<string>()?.ToUpper() ?? "LIMIT",
+        side = o?["direction"]?.GetValue<string>()?.ToUpper() ?? "",
+        amount = o?["amount"]?.GetValue<decimal>() ?? 0,
+        filled = o?["filled_amount"]?.GetValue<decimal>() ?? 0,
+        price = o?["price"]?.GetValue<decimal>() ?? 0,
+        status = o?["order_state"]?.GetValue<string>() ?? "",
+    };
+
+    private async Task<JsonArray?> DeribitRestGetAsync(HttpClient http, string token, string method, string qs)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Get, $"{RestBase}/{method}?{qs}");
+        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        var r = await http.SendAsync(req);
+        var j = JsonNode.Parse(await r.Content.ReadAsStringAsync());
+        return j?["result"] as JsonArray;
+    }
+
+    public async Task<List<object>> FetchOrderHistoryAsync(ExchangeCredentials creds, DateTime from, DateTime to)
+    {
+        var token = await AuthenticateAsync(creds);
+        using var http = new HttpClient();
+        var startTs = new DateTimeOffset(from).ToUnixTimeMilliseconds();
+        var endTs = new DateTimeOffset(to).ToUnixTimeMilliseconds();
+        var results = new Dictionary<string, object>();
+
+        foreach (var currency in Currencies)
+        {
+            // 1. Fetch by currency first
+            var byCurrencyArr = await DeribitRestGetAsync(http, token, "private/get_order_history_by_currency",
+                $"currency={currency}&kind=any&start_timestamp={startTs}&end_timestamp={endTs}&count=200&include_old=true");
+
+            var instruments = new HashSet<string>();
+            if (byCurrencyArr != null)
+            {
+                foreach (var o in byCurrencyArr)
+                {
+                    var id = o?["order_id"]?.GetValue<string>() ?? "";
+                    var instr = o?["instrument_name"]?.GetValue<string>() ?? "";
+                    if (!string.IsNullOrEmpty(id)) results[id] = MapOrder(o);
+                    if (!string.IsNullOrEmpty(instr)) instruments.Add(instr);
+                }
+            }
+
+            // 2. Get instruments from positions
+            var posArr = await DeribitRestGetAsync(http, token, "private/get_positions",
+                $"currency={currency}&kind=any");
+            if (posArr != null)
+                foreach (var p in posArr)
+                {
+                    var instr = p?["instrument_name"]?.GetValue<string>();
+                    if (!string.IsNullOrEmpty(instr)) instruments.Add(instr);
+                }
+
+            // 3. Add common perps
+            if (CommonPerps.TryGetValue(currency, out var perps))
+                foreach (var p in perps) instruments.Add(p);
+
+            // 4. Fetch by instrument for additional coverage
+            foreach (var instrument in instruments)
+            {
+                try
+                {
+                    var byInstrArr = await DeribitRestGetAsync(http, token, "private/get_order_history_by_instrument",
+                        $"instrument_name={Uri.EscapeDataString(instrument)}&count=200&include_old=true&start_timestamp={startTs}&end_timestamp={endTs}");
+                    if (byInstrArr != null)
+                    {
+                        var added = 0;
+                        foreach (var o in byInstrArr)
+                        {
+                            var id = o?["order_id"]?.GetValue<string>() ?? "";
+                            if (!string.IsNullOrEmpty(id) && !results.ContainsKey(id))
+                            {
+                                results[id] = MapOrder(o);
+                                added++;
+                            }
+                        }
+                        if (added > 0) Logger.LogInformation("[Deribit] +{Added} orders from {Instrument}", added, instrument);
+                    }
+                }
+                catch { }
+            }
+
+            if (results.Count > 0)
+                Logger.LogInformation("[Deribit] FetchOrderHistory {Currency}: {Total} total orders", currency, results.Count);
+        }
+        return results.Values.ToList();
+    }
+
+    public async Task<List<object>> FetchTradeHistoryAsync(ExchangeCredentials creds, DateTime from, DateTime to)
+    {
+        var token = await AuthenticateAsync(creds);
+        using var http = new HttpClient();
+        var startTs = new DateTimeOffset(from).ToUnixTimeMilliseconds();
+        var endTs = new DateTimeOffset(to).ToUnixTimeMilliseconds();
+        var all = new List<object>();
+
+        foreach (var currency in Currencies)
+        {
+            var qs = $"currency={currency}&kind=any&start_timestamp={startTs}&end_timestamp={endTs}&count=200";
+            var req = new HttpRequestMessage(HttpMethod.Get, $"{RestBase}/private/get_user_trades_by_currency?{qs}");
+            req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            var r = await http.SendAsync(req);
+            var rawBody = await r.Content.ReadAsStringAsync();
+            var j = JsonNode.Parse(rawBody);
+            var trades = j?["result"]?["trades"] as JsonArray ?? [];
+            Logger.LogInformation("[Deribit] FetchTradeHistory {Currency}: {Count} trades", currency, trades.Count);
+            all.AddRange(trades.Select(t => (object)new
+            {
+                id = t?["trade_id"]?.GetValue<string>() ?? "",
+                exchange = "DERIBIT",
+                timestamp = t?["timestamp"]?.GetValue<long>() ?? 0,
+                instrument = t?["instrument_name"]?.GetValue<string>() ?? "",
+                side = t?["direction"]?.GetValue<string>()?.ToUpper() ?? "",
+                amount = t?["amount"]?.GetValue<decimal>() ?? 0,
+                price = t?["price"]?.GetValue<decimal>() ?? 0,
+                fee = t?["fee"]?.GetValue<decimal>() ?? 0,
+                orderId = t?["order_id"]?.GetValue<string>() ?? "",
+            }));
+        }
+        return all;
     }
 
     private static string MapTif(string tif) => tif.ToUpper() switch

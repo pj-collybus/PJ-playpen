@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ContractSpecs } from './ContractSpecs'
+import { KeysManager } from './KeysManager'
 
 interface AdminPanelProps {
   open: boolean
@@ -48,7 +49,7 @@ export function AdminPanel({ open, onClose }: AdminPanelProps) {
         </div>
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {tab === 'Contract Specs' && <ContractSpecs />}
-          {tab === 'API Keys' && <div style={{ padding: 20, color: '#636e82', fontSize: 13 }}>API Keys management — coming soon</div>}
+          {tab === 'API Keys' && <KeysManager />}
         </div>
       </div>
     </div>

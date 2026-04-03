@@ -57,3 +57,4 @@ export const useMarketDataStore = create<MarketDataStore>()(
       set((s) => ({ instruments: { ...s.instruments, [exchange]: instruments } })),
   }))
 )
+
