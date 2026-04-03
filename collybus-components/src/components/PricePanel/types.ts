@@ -44,6 +44,8 @@ export interface PricePanelConfig {
   symbol: string
   granularity: number
   presetQtys: number[]
+  defaultQty?: string
+  selectedGranularity?: string
   favourites: string[]
   orderType: OrderTypeMode
 }

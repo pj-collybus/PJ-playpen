@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { App as AntApp } from 'antd'
-import { ThemeProvider, BlotterPanel } from '@collybus/components'
-import type { BlotterData } from '@collybus/components'
+import { ThemeProvider, BlotterPanel, OrderModal, OrderTicket } from '@collybus/components'
+import type { BlotterData, BlotterOrder } from '@collybus/components'
 import { signalRClient } from './services/signalRClient'
-import { venuesApi, marketDataApi } from './services/apiClient'
+import { api, venuesApi, marketDataApi } from './services/apiClient'
 import { useMarketDataStore } from './stores/marketDataStore'
 import { useBlotterStore } from './stores/blotterStore'
 import { ExchangeManager } from './components/ExchangeManager/ExchangeManager'
@@ -17,7 +17,16 @@ export default function App() {
   const [exchangeManagerOpen, setExchangeManagerOpen] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
   const [availableExchanges, setAvailableExchanges] = useState<string[]>([])
-  const [blotterHeight, setBlotterHeight] = useState(200)
+  const [amendOrder, setAmendOrder] = useState<BlotterOrder | null>(null)
+  const [viewOrder, setViewOrder] = useState<BlotterOrder | null>(null)
+  const [blotterHeight, setBlotterHeight] = useState(() => {
+    const saved = localStorage.getItem('collybus-blotter-height')
+    return saved ? Math.max(80, parseInt(saved)) : 200
+  })
+  const handleBlotterHeight = (h: number) => {
+    setBlotterHeight(h)
+    if (h > 0) localStorage.setItem('collybus-blotter-height', String(h))
+  }
   const storeOrders = useBlotterStore(s => s.orders)
   const storeTrades = useBlotterStore(s => s.trades)
   const storePositions = useBlotterStore(s => s.positions)
@@ -35,6 +44,7 @@ export default function App() {
       filled: o.filledQuantity,
       price: o.limitPrice ?? 0,
       status: (o.state ?? '').toLowerCase(),
+      rejectReason: o.rejectReason,
     })),
     trades: Object.values(storeTrades).map(t => ({
       id: t.fillId,
@@ -301,8 +311,19 @@ export default function App() {
           <BlotterPanel
             data={blotterData}
             height={blotterHeight}
-            onHeightChange={setBlotterHeight}
-            callbacks={{ onCancelOrder: (id, ex) => console.log('cancel', id, ex) }}
+            onHeightChange={handleBlotterHeight}
+            callbacks={{
+              onCancelOrder: async (id, ex) => {
+                try { await api.post('/order/cancel', { orderId: id, exchange: ex }); useBlotterStore.getState().removeOrder(id) } catch {}
+              },
+              onCancelAll: async () => {
+                const open = Object.values(useBlotterStore.getState().orders).filter(o => String(o.state).toLowerCase() === 'open')
+                await Promise.allSettled(open.map(o => api.post('/order/cancel', { orderId: o.orderId, exchange: o.exchange })))
+                open.forEach(o => useBlotterStore.getState().removeOrder(o.orderId))
+              },
+              onAmendOrder: (order: BlotterOrder) => setAmendOrder(order),
+              onViewOrder: (order: BlotterOrder) => setViewOrder(order),
+            }}
           />
         </div>
 
@@ -311,6 +332,43 @@ export default function App() {
           onClose={() => setExchangeManagerOpen(false)}
         />
         <AdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} />
+        {amendOrder && (() => {
+          const instruments = useMarketDataStore.getState().instruments[amendOrder.exchange.toUpperCase()] ?? []
+          const spec = instruments.find((i: any) => i.symbol === amendOrder.instrument)
+          return (
+            <OrderModal
+              exchange={amendOrder.exchange}
+              symbol={amendOrder.instrument}
+              baseCurrency={spec?.baseCurrency ?? amendOrder.instrument.split('_')[0].split('-')[0]}
+              quoteCurrency={spec?.quoteCurrency ?? (amendOrder.instrument.includes('USDC') ? 'USDC' : 'USD')}
+              tickSize={spec?.tickSize ?? 0.01}
+              lotSize={spec?.lotSize ?? 1}
+              existingOrderId={amendOrder.id}
+              initialSide={amendOrder.side as 'BUY' | 'SELL'}
+              initialPrice={amendOrder.price}
+              initialQty={amendOrder.amount}
+              initialTab="LMT"
+              onSubmit={async (params) => {
+                const r = await api.post('/order/amend', {
+                  exchange: amendOrder.exchange, orderId: amendOrder.id,
+                  quantity: params.quantity, limitPrice: params.limitPrice,
+                })
+                if (!r.data.ok) throw new Error(r.data.rejectReason ?? r.data.error ?? 'Amend failed')
+              }}
+              onCancel={async (id, exchange) => {
+                await api.post('/order/cancel', { orderId: id, exchange })
+                useBlotterStore.getState().removeOrder(id)
+              }}
+              onClose={() => setAmendOrder(null)}
+            />
+          )
+        })()}
+        {viewOrder && (
+          <OrderTicket
+            order={viewOrder}
+            onClose={() => setViewOrder(null)}
+          />
+        )}
       </AntApp>
     </ThemeProvider>
   )

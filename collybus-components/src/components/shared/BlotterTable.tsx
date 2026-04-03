@@ -14,6 +14,7 @@ interface BlotterTableProps<T> {
   rows: T[]
   rowKey: (row: T) => string
   emptyMessage?: string
+  onRowDoubleClick?: (row: T) => void
 }
 
 const thBaseStyle: React.CSSProperties = {
@@ -25,7 +26,7 @@ const thBaseStyle: React.CSSProperties = {
   boxShadow: '0 1px 0 #1e1e2a',
 }
 
-export function BlotterTable<T>({ columns, rows, rowKey, emptyMessage }: BlotterTableProps<T>) {
+export function BlotterTable<T>({ columns, rows, rowKey, emptyMessage, onRowDoubleClick }: BlotterTableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>('timestamp')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [colWidths, setColWidths] = useState<Record<string, number>>(
@@ -94,7 +95,8 @@ export function BlotterTable<T>({ columns, rows, rowKey, emptyMessage }: Blotter
             <tr><td colSpan={columns.length} style={{ padding: 30, textAlign: 'center', color: '#363C4E', fontSize: 12 }}>{emptyMessage ?? 'No data'}</td></tr>
           ) : sorted.map((row, i) => (
             <tr key={rowKey(row)}
-              style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)' }}
+              onDoubleClick={() => onRowDoubleClick?.(row)}
+              style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)', cursor: onRowDoubleClick ? 'pointer' : 'default' }}
               onMouseEnter={e => e.currentTarget.style.background = 'rgba(43,121,221,0.06)'}
               onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)'}>
               {columns.map(col => (

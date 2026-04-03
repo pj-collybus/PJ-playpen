@@ -33,8 +33,8 @@ export { OrderTypeTabs } from './components/molecules/OrderTypeTabs';
 export { ExchangeSelector } from './components/molecules/ExchangeSelector';
 
 // Organisms
-export { BlotterPanel } from './components/organisms';
-export type { BlotterData, BlotterOrder, BlotterTrade, BlotterPosition, BlotterBalance, BlotterCallbacks } from './components/organisms';
+export { BlotterPanel, OrderModal, OrderTicket } from './components/organisms';
+export type { BlotterData, BlotterOrder, BlotterTrade, BlotterPosition, BlotterBalance, BlotterCallbacks, OrderModalProps, OrderSubmitParams, OrderTicketProps } from './components/organisms';
 
 // Shared — BlotterTable
 export { BlotterTable } from './components/shared/BlotterTable';

@@ -196,6 +196,32 @@ public class BitmexAdapter : BaseExchangeAdapter, IExchangeAdapter
         return Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(message))).ToLower();
     }
 
+    public async Task<OrderResult> AmendOrderAsync(string orderId, decimal? newQty, decimal? newPrice, ExchangeCredentials credentials)
+    {
+        var body = new Dictionary<string, object> { ["orderID"] = orderId };
+        if (newQty.HasValue) body["orderQty"] = (int)newQty.Value;
+        if (newPrice.HasValue) body["price"] = newPrice.Value;
+        var bodyJson = JsonSerializer.Serialize(body);
+        var path = "/api/v1/order";
+        var expires = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 60;
+        var apiKey = credentials.Fields.GetValueOrDefault("apiKey") ?? "";
+        var apiSecret = credentials.Fields.GetValueOrDefault("apiSecret") ?? "";
+        var sig = ComputeHmac(apiSecret, $"PUT{path}{expires}{bodyJson}");
+        var baseUrl = _testnet ? "https://testnet.bitmex.com" : "https://www.bitmex.com";
+        using var http = new HttpClient();
+        var req = new HttpRequestMessage(HttpMethod.Put, $"{baseUrl}{path}");
+        req.Headers.Add("api-key", apiKey);
+        req.Headers.Add("api-expires", expires.ToString());
+        req.Headers.Add("api-signature", sig);
+        req.Content = new StringContent(bodyJson, Encoding.UTF8, "application/json");
+        var r = await http.SendAsync(req);
+        var json = await r.Content.ReadAsStringAsync();
+        var doc = JsonNode.Parse(json);
+        if (!r.IsSuccessStatusCode)
+            return new OrderResult { Ok = false, RejectReason = doc?["error"]?["message"]?.GetValue<string>() ?? json };
+        return new OrderResult { Ok = true, VenueOrderId = doc?["orderID"]?.GetValue<string>(), Status = "open" };
+    }
+
     public void Disconnect() { _dead = true; _cts.Cancel(); _ws?.Abort(); }
 
     private async Task SendAsync(object msg)

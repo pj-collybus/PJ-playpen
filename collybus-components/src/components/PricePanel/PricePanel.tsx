@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
-import { GranButton, ExchangeBadge, SettingsPanel } from '../atoms'
+import { GranButton, SettingsPanel } from '../atoms'
 import { BidAskDisplay, PriceStats, OrderSizeSelector, OrderTypeTabs, ExchangeSelector } from '../molecules'
+import { OrderModal } from '../organisms/OrderModal'
 import { DepthChart } from '../shared/DepthChart'
 import { InstrumentSelector } from '../shared/InstrumentSelector'
 import { formatPrice, tickDecimals } from './utils'
@@ -61,25 +62,29 @@ export function PricePanel({
   const [width, setWidth] = useState(initialWidth)
   const widthRef = useRef(initialWidth)
   useEffect(() => { widthRef.current = width }, [width])
-  const [gran, setGran] = useState('none')
+  const [gran, setGranRaw] = useState(config.selectedGranularity ?? 'none')
+  const handleGranChange = (val: string) => { setGranRaw(val); callbacks.onConfigChange?.(id, { selectedGranularity: val }) }
   const [orderType] = useState<OrderTypeMode>('LMT')
-  const [, setActiveOrderBtn] = useState('LMT')
+  const [, _setActiveOrderBtn] = useState('LMT')
   const [locked, setLocked] = useState(false)
   const [instrOpen, setInstrOpen] = useState(false)
   const [symbol, setSymbol] = useState(config.symbol)
   const [exchange, setExchange] = useState(config.exchange)
   const [favourites, setFavourites] = useState<string[]>(config.favourites ?? [])
-  const [qty, setQty] = useState('')
+  const [qty, setQty] = useState(config.defaultQty ?? '')
   const [submitting, setSubmitting] = useState<'buy' | 'sell' | null>(null)
   const [instrPos, setInstrPos] = useState({ x: 0, y: 60 })
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [orderModal, setOrderModal] = useState<{ tab: 'LMT' | 'S/L' | 'ID' | 'OCO'; side: 'BUY' | 'SELL'; price?: number; qty?: number } | null>(null)
   const settingsBtnRef = useRef<HTMLButtonElement>(null)
   const [granPresets, setGranPresets] = useState(
     config.granularityPresets ?? GRAN_OPTS.map(g => ({ label: g.label, value: g.val }))
   )
+  const [qtyPresets, setQtyPresets] = useState<number[]>(config.presetQtys ?? [1, 5, 10, 25, 100])
 
   useEffect(() => { setExchange(config.exchange) }, [config.exchange])
   useEffect(() => { setSymbol(config.symbol) }, [config.symbol])
+  useEffect(() => { if (config.presetQtys) setQtyPresets(config.presetQtys) }, [config.presetQtys])
 
   const elRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ ox: number; oy: number } | null>(null)
@@ -199,7 +204,6 @@ export function PricePanel({
   }
   const handleExchangeSelect = (ex: string) => { setExchange(ex); callbacks.onConfigChange?.(id, { exchange: ex }) }
 
-  const presetQtys = config.presetQtys ?? [1, 5, 10, 25, 100]
   const showDepth = width >= 320
 
   // ── Render ──
@@ -222,7 +226,7 @@ export function PricePanel({
           borderRight: `1px solid ${S.borderInner}`, background: S.bgCardEnd, justifyContent: 'flex-start',
         }}>
           {granPresets.map(g => (
-            <GranButton key={g.value} label={g.label} active={gran === g.value} onClick={() => setGran(g.value)} />
+            <GranButton key={g.value} label={g.label} active={gran === g.value} onClick={() => handleGranChange(g.value)} />
           ))}
         </div>
 
@@ -248,7 +252,7 @@ export function PricePanel({
             >🔍</button>
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden', padding: '0 4px', position: 'relative' }}>
               <button onClick={() => setInstrOpen(o => !o)} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180, textAlign: 'left' as const }}>{symbol}</button>
-              <ExchangeBadge exchange={exchange} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#CFD1D4', flexShrink: 0, marginLeft: 6 }}>{exchange}</span>
               {instrOpen && (
                 <div className="instr-picker" style={{ position: 'fixed', zIndex: 150,
                   left: (elRef.current?.getBoundingClientRect().left ?? 0) + instrPos.x,
@@ -288,7 +292,10 @@ export function PricePanel({
             onSell={() => handleTrade('sell')} onBuy={() => handleTrade('buy')} />
 
           {/* Qty */}
-          <OrderSizeSelector qty={qty} presetQtys={presetQtys} onChange={setQty} />
+          <OrderSizeSelector qty={qty} presetQtys={qtyPresets}
+            onChange={(v) => { setQty(v); callbacks.onConfigChange?.(id, { defaultQty: v }) }}
+            baseCurrency={spec?.baseCurrency}
+            onBlur={() => callbacks.onConfigChange?.(id, { defaultQty: qty })} />
         </div>
 
         {/* Ask depth */}
@@ -307,7 +314,18 @@ export function PricePanel({
           <div style={{ width: 32, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center',
             padding: '4px 2px', gap: 2, paddingTop: 4, borderRight: `1px solid ${S.borderInner}`, justifyContent: 'flex-start',
           }}>
-            <OrderTypeTabs onSelect={setActiveOrderBtn} />
+            <OrderTypeTabs onSelect={(_label, modalTab) => {
+              if (modalTab === 'LMT' || modalTab === 'S/L' || modalTab === 'ID' || modalTab === 'OCO') {
+                setOrderModal({
+                  tab: modalTab as 'LMT' | 'S/L' | 'ID' | 'OCO',
+                  side: modalTab === 'S/L' ? 'SELL' : 'BUY',
+                  price: modalTab === 'S/L'
+                    ? (bid > 0 ? bid : ask > 0 ? ask : undefined)
+                    : (ask > 0 ? ask : bid > 0 ? bid : undefined),
+                  qty: qtyNum > 0 ? qtyNum : undefined,
+                })
+              }
+            }} />
           </div>
 
           <div style={{ width: 22, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -315,7 +333,6 @@ export function PricePanel({
               onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; e.currentTarget.style.color = '#fff' }}
               onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)' }}
             >×</button>
-            <div style={{ flex: 1 }} />
             <ExchangeSelector exchange={exchange} availableExchanges={config.availableExchanges ?? ['DERIBIT', 'BITMEX']}
               logoUrls={EXCHANGE_LOGOS} colors={EXCHANGE_COLORS} abbrevs={EXCHANGE_ABBREV}
               onSelect={handleExchangeSelect} />
@@ -336,12 +353,42 @@ export function PricePanel({
       {settingsOpen && (
         <SettingsPanel
           granularityPresets={granPresets}
+          qtyPresets={qtyPresets}
           anchorEl={settingsBtnRef.current}
-          onSave={(presets) => {
+          onSave={(presets, newQtyPresets) => {
             setGranPresets(presets)
-            callbacks.onConfigChange?.(id, { granularityPresets: presets })
+            setQtyPresets(newQtyPresets)
+            callbacks.onConfigChange?.(id, { granularityPresets: presets, presetQtys: newQtyPresets })
           }}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {orderModal && (
+        <OrderModal
+          exchange={exchange}
+          symbol={symbol}
+          baseCurrency={spec?.baseCurrency ?? ''}
+          quoteCurrency={spec?.quoteCurrency ?? 'USD'}
+          tickSize={tickSize}
+          lotSize={spec?.lotSize ?? 1}
+          initialSide={orderModal.side}
+          initialPrice={orderModal.price}
+          initialQty={orderModal.qty}
+          initialTab={orderModal.tab}
+          bid={bid > 0 ? bid : undefined}
+          ask={ask > 0 ? ask : undefined}
+          onSubmit={async (params) => {
+            await callbacks.onSubmitOrder({
+              exchange: params.exchange,
+              symbol: params.symbol,
+              side: params.side,
+              quantity: params.quantity,
+              limitPrice: params.limitPrice ?? 0,
+              orderType: params.orderType,
+            })
+          }}
+          onClose={() => setOrderModal(null)}
         />
       )}
     </div>

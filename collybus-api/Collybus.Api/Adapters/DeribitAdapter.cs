@@ -176,6 +176,27 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
         }
     }
 
+    public async Task<OrderResult> AmendOrderAsync(string orderId, decimal? newQty, decimal? newPrice, ExchangeCredentials credentials)
+    {
+        try
+        {
+            var token = await AuthenticateAsync(credentials);
+            var args = new Dictionary<string, object> { ["order_id"] = orderId };
+            if (newQty.HasValue) args["amount"] = newQty.Value;
+            if (newPrice.HasValue) args["price"] = newPrice.Value;
+            var result = await RpcAsync("private/edit", args, token);
+            var order = result?["order"];
+            if (order == null) return new OrderResult { Ok = false, RejectReason = "Amend failed" };
+            return new OrderResult
+            {
+                Ok = true,
+                VenueOrderId = order["order_id"]?.GetValue<string>(),
+                Status = order["order_state"]?.GetValue<string>()?.ToLower() ?? "open",
+            };
+        }
+        catch (Exception ex) { return new OrderResult { Ok = false, RejectReason = ex.Message }; }
+    }
+
     public void Disconnect()
     {
         _dead = true;

@@ -7,7 +7,8 @@ interface GranPreset {
 
 interface SettingsPanelProps {
   granularityPresets: GranPreset[]
-  onSave: (presets: GranPreset[]) => void
+  qtyPresets?: number[]
+  onSave: (presets: GranPreset[], qtyPresets: number[]) => void
   onClose: () => void
   anchorEl: HTMLElement | null
 }
@@ -17,8 +18,15 @@ const blue = '#2B79DD'
 const blueDeep = '#1A3A94'
 const muted = '#636e82'
 
-export function SettingsPanel({ granularityPresets, onSave, onClose, anchorEl }: SettingsPanelProps) {
+const inputStyle: React.CSSProperties = {
+  background: '#141414', border: `1px solid ${border}`, borderRadius: 4,
+  color: 'rgba(255,255,255,0.85)', fontSize: 11, padding: '4px 8px',
+  outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box',
+}
+
+export function SettingsPanel({ granularityPresets, qtyPresets, onSave, onClose, anchorEl }: SettingsPanelProps) {
   const [values, setValues] = useState(granularityPresets.map(p => p.value))
+  const [qtyValues, setQtyValues] = useState((qtyPresets ?? [1, 5, 10, 25, 100]).map(String))
   const panelRef = useRef<HTMLDivElement>(null)
 
   const rect = anchorEl?.getBoundingClientRect()
@@ -35,7 +43,8 @@ export function SettingsPanel({ granularityPresets, onSave, onClose, anchorEl }:
   }, [onClose])
 
   const handleSave = () => {
-    onSave(values.map(v => ({ label: v, value: v })))
+    const parsedQtys = qtyValues.map(v => parseFloat(v)).filter(n => !isNaN(n) && n > 0)
+    onSave(values.map(v => ({ label: v, value: v })), parsedQtys)
     onClose()
   }
 
@@ -51,7 +60,7 @@ export function SettingsPanel({ granularityPresets, onSave, onClose, anchorEl }:
         padding: '8px 12px', borderBottom: `1px solid ${border}`, background: '#1B1A1F',
       }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.85)', letterSpacing: '0.06em', textTransform: 'uppercase' as const }}>
-          Depth Buckets
+          Settings
         </span>
         <button onClick={onClose} style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', fontSize: 14, lineHeight: 1, fontFamily: 'inherit' }}
           onMouseEnter={e => e.currentTarget.style.color = '#fff'}
@@ -61,22 +70,30 @@ export function SettingsPanel({ granularityPresets, onSave, onClose, anchorEl }:
 
       <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
         <span style={{ fontSize: 9, color: muted, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' as const, marginBottom: 2 }}>
-          Bucket Size
+          Depth Buckets
         </span>
         {values.map((val, i) => (
-          <input
-            key={i}
-            value={val}
+          <input key={i} value={val}
             onChange={e => setValues(prev => prev.map((v, idx) => idx === i ? e.target.value : v))}
-            style={{
-              background: '#141414', border: `1px solid ${border}`, borderRadius: 4,
-              color: 'rgba(255,255,255,0.85)', fontSize: 11, padding: '4px 8px',
-              outline: 'none', fontFamily: 'inherit', width: '100%',
-            }}
+            style={inputStyle}
             onFocus={e => e.target.style.borderColor = blue}
             onBlur={e => e.target.style.borderColor = border}
           />
         ))}
+
+        <span style={{ fontSize: 9, color: muted, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' as const, marginBottom: 2, marginTop: 8 }}>
+          Qty Presets
+        </span>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+          {qtyValues.map((val, i) => (
+            <input key={i} value={val}
+              onChange={e => setQtyValues(prev => prev.map((v, idx) => idx === i ? e.target.value : v))}
+              style={inputStyle}
+              onFocus={e => e.target.style.borderColor = blue}
+              onBlur={e => e.target.style.borderColor = border}
+            />
+          ))}
+        </div>
       </div>
 
       <div style={{ padding: '6px 12px 10px', display: 'flex', justifyContent: 'flex-end', gap: 6 }}>

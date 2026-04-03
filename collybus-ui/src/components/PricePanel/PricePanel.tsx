@@ -19,9 +19,10 @@ interface PricePanelProps {
   onConfigChange?: (id: string, changes: Record<string, unknown>) => void
   availableExchanges?: string[]
   granularityPresets?: { label: string; value: string }[]
+  panelConfig?: Record<string, unknown>
 }
 
-export function PricePanel({ id, x, y, width, exchange, symbol: initialSymbol, onMove, onClose, onResize, onConfigChange: parentOnConfigChange, availableExchanges = [], granularityPresets: savedGranPresets }: PricePanelProps) {
+export function PricePanel({ id, x, y, width, exchange, symbol: initialSymbol, onMove, onClose, onResize, onConfigChange: parentOnConfigChange, availableExchanges = [], granularityPresets: savedGranPresets, panelConfig }: PricePanelProps) {
   const [currentExchange, setCurrentExchange] = useState(exchange)
   const [currentSymbol, setCurrentSymbol] = useState(initialSymbol)
   const [instruments, setInstruments] = useState<InstrumentInfo[]>([])
@@ -90,7 +91,9 @@ export function PricePanel({ id, x, y, width, exchange, symbol: initialSymbol, o
     exchange: currentExchange,
     symbol: currentSymbol,
     granularity: 1,
-    presetQtys: [1, 5, 10, 25, 100],
+    presetQtys: (panelConfig?.presetQtys as number[]) ?? [1, 5, 10, 25, 100],
+    defaultQty: (panelConfig?.defaultQty as string) ?? undefined,
+    selectedGranularity: (panelConfig?.selectedGranularity as string) ?? undefined,
     favourites: [],
     orderType: 'LMT',
     availableExchanges,
@@ -124,14 +127,14 @@ export function PricePanel({ id, x, y, width, exchange, symbol: initialSymbol, o
       if (changes.symbol) {
         const sym = changes.symbol as string
         setCurrentSymbol(sym)
-        parentOnConfigChange?.(id, { symbol: sym })
       }
       if (changes.exchange) {
         const newExchange = changes.exchange as string
         setCurrentExchange(newExchange)
         setCurrentSymbol('')
-        parentOnConfigChange?.(id, { exchange: newExchange })
       }
+      // Forward all changes in a single call to avoid stale-config overwrites
+      parentOnConfigChange?.(id, changes)
     },
     onSubmitOrder: async (params: any) => {
       const r = await api.post('/order/submit', {

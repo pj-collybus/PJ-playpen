@@ -1,2 +1,6 @@
 export { BlotterPanel } from './BlotterPanel'
 export type { BlotterData, BlotterOrder, BlotterTrade, BlotterPosition, BlotterBalance, BlotterCallbacks } from './BlotterPanel'
+export { OrderModal } from './OrderModal'
+export type { OrderModalProps, OrderSubmitParams } from './OrderModal'
+export { OrderTicket } from './OrderTicket'
+export type { OrderTicketProps } from './OrderTicket'

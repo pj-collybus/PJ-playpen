@@ -21,6 +21,7 @@ export interface Order {
   strategyId?: string
   createdAt: number
   updatedAt: number
+  rejectReason?: string
 }
 
 export interface Fill {
@@ -68,6 +69,7 @@ interface BlotterStore {
   upsertTrade: (trade: Fill) => void
   upsertPosition: (position: Position) => void
   upsertBalance: (balance: Balance) => void
+  removeOrder: (id: string) => void
   fetchHistory: (period: 'today' | 'yesterday' | 'week') => Promise<void>
 }
 
@@ -88,6 +90,10 @@ export const useBlotterStore = create<BlotterStore>((set) => ({
     const key = `${balance.exchange}:${balance.currency}`
     set((s) => ({ balances: { ...s.balances, [key]: balance } }))
   },
+  removeOrder: (id) => set(s => {
+    const { [id]: _, ...rest } = s.orders
+    return { orders: rest }
+  }),
   fetchHistory: async (period) => {
     try {
       const exchanges = ['DERIBIT', 'BITMEX']

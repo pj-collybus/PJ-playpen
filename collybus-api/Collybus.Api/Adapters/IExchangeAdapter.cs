@@ -12,6 +12,7 @@ public interface IExchangeAdapter
     Task SubscribePrivateAsync(ExchangeCredentials credentials);
     Task<OrderResult> SubmitOrderAsync(SubmitOrderRequest request, ExchangeCredentials credentials);
     Task<OrderResult> CancelOrderAsync(string venueOrderId, ExchangeCredentials credentials);
+    Task<OrderResult> AmendOrderAsync(string orderId, decimal? newQty, decimal? newPrice, ExchangeCredentials credentials);
     void Disconnect();
 }
 

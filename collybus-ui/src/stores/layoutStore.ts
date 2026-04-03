@@ -11,6 +11,7 @@ export interface Panel {
   x: number
   y: number
   width: number
+  height?: number
   config: PanelConfig
 }
 
@@ -142,9 +143,10 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
     if (!activeLayout) return s
     const newPanel: Panel = {
       id: genId(), type,
-      x: 20 + activeLayout.panels.length * 20,
-      y: 20 + activeLayout.panels.length * 20,
-      width: 600, config,
+      x: -1, y: -1,
+      width: 600,
+      height: type === 'price' ? 180 : 400,
+      config,
     }
     return {
       layouts: s.layouts.map(l =>

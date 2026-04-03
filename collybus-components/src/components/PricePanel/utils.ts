@@ -1,13 +1,21 @@
 import type { OrderBookLevel } from './types'
 
 export function formatPrice(price: number, tickSize: number): string {
-  if (!price) return '—'
-  const decimals = tickSize < 1
-    ? Math.max(0, -Math.floor(Math.log10(tickSize)))
-    : 0
+  if (!price || !isFinite(price)) return '—'
+  const decimals = tickDecimals(tickSize)
   return price.toLocaleString('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
+    useGrouping: true,
+  })
+}
+
+export function formatNumber(n: number, decimals?: number): string {
+  if (!isFinite(n)) return '—'
+  return n.toLocaleString('en-US', {
+    minimumFractionDigits: decimals ?? 0,
+    maximumFractionDigits: decimals ?? 8,
+    useGrouping: true,
   })
 }
 

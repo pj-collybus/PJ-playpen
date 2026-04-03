@@ -6,7 +6,7 @@ import { PnlCell } from '../atoms/PnlCell'
 
 export interface BlotterOrder {
   id: string; exchange: string; timestamp: number; instrument: string
-  type: string; side: string; amount: number; filled: number; price: number; status: string
+  type: string; side: string; amount: number; filled: number; price: number; status: string; rejectReason?: string
 }
 export interface BlotterTrade {
   id: string; exchange: string; timestamp: number; instrument: string
@@ -27,6 +27,9 @@ export interface BlotterData {
 }
 export interface BlotterCallbacks {
   onCancelOrder?: (id: string, exchange: string) => void
+  onCancelAll?: () => void
+  onAmendOrder?: (order: BlotterOrder) => void
+  onViewOrder?: (order: BlotterOrder) => void
 }
 
 interface BlotterPanelProps {
@@ -48,7 +51,7 @@ function ExchPill({ ex }: { ex: string }) {
 }
 
 const fmtTs = (ts: number) => new Date(ts).toLocaleTimeString('en-US', { hour12: false })
-const fmtN = (n: number, dp = 2) => n.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp })
+const fmtN = (n: number, dp = 2) => isFinite(n) ? n.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp, useGrouping: true }) : '—'
 
 export function BlotterPanel({ data, callbacks, height, onHeightChange }: BlotterPanelProps) {
   const [tab, setTab] = useState<TabType>('Orders')
@@ -99,6 +102,20 @@ export function BlotterPanel({ data, callbacks, height, onHeightChange }: Blotte
   }
 
   const orderCols: BlotterColumn<BlotterOrder>[] = [
+    { key: 'actions', label: '', width: 52, render: r => r.status === 'open' ? (
+      <div style={{ display: 'flex', gap: 3, justifyContent: 'center' }}>
+        <button onClick={e => { e.stopPropagation(); callbacks?.onCancelOrder?.(r.id, r.exchange) }} title="Cancel"
+          style={{ width: 22, height: 22, background: 'rgba(251,44,54,0.12)', border: '1px solid rgba(251,44,54,0.25)', borderRadius: 3, color: '#FB2C36', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit', fontWeight: 700 }}
+          onMouseEnter={e => e.currentTarget.style.background = 'rgba(251,44,54,0.3)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'rgba(251,44,54,0.12)'}
+        >✕</button>
+        <button onClick={e => { e.stopPropagation(); callbacks?.onAmendOrder?.(r) }} title="Amend"
+          style={{ width: 22, height: 22, background: 'rgba(43,121,221,0.12)', border: '1px solid rgba(43,121,221,0.25)', borderRadius: 3, color: '#2B79DD', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit' }}
+          onMouseEnter={e => e.currentTarget.style.background = 'rgba(43,121,221,0.3)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'rgba(43,121,221,0.12)'}
+        >✎</button>
+      </div>
+    ) : null },
     { key: 'exchange', label: 'Exch', width: 80, render: r => <ExchPill ex={r.exchange} /> },
     { key: 'timestamp', label: 'Time', width: 80, render: r => <span style={{ color: '#636e82' }}>{fmtTs(r.timestamp)}</span>, sortValue: r => r.timestamp },
     { key: 'instrument', label: 'Instrument', render: r => <span style={{ fontWeight: 600 }}>{r.instrument}</span>, sortValue: r => r.instrument },
@@ -110,13 +127,6 @@ export function BlotterPanel({ data, callbacks, height, onHeightChange }: Blotte
     { key: 'price', label: 'Price', width: 90, render: r => fmtN(r.price), sortValue: r => r.price },
     { key: 'status', label: 'Status', width: 80, render: r => <StatusPill status={r.status} /> },
     { key: 'id', label: 'Order ID', render: r => <span style={{ color: '#363C4E', fontSize: 10 }}>{r.id}</span> },
-    { key: 'actions', label: '', width: 60, render: r => r.status === 'open' ? (
-      <button onClick={() => callbacks?.onCancelOrder?.(r.id, r.exchange)} style={{
-        background: 'rgba(251,44,54,0.12)', border: '1px solid rgba(251,44,54,0.3)',
-        borderRadius: 3, color: '#FB2C36', fontSize: 9, fontWeight: 700,
-        padding: '2px 6px', cursor: 'pointer', fontFamily: 'inherit',
-      }}>Cancel</button>
-    ) : null },
   ]
 
   const tradeCols: BlotterColumn<BlotterTrade>[] = [
@@ -215,7 +225,24 @@ export function BlotterPanel({ data, callbacks, height, onHeightChange }: Blotte
       )}
       {!collapsed && (
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {tab === 'Orders' && <BlotterTable columns={orderCols} rows={filteredOrders} rowKey={r => r.id} emptyMessage="No open orders" />}
+          {tab === 'Orders' && (
+            <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+              {filteredOrders.some(o => o.status === 'open') && (
+                <div style={{ padding: '4px 10px', background: '#18171C', borderBottom: '1px solid #1e1e2a', display: 'flex' }}>
+                  <button onClick={() => callbacks?.onCancelAll?.()} style={{
+                    background: 'rgba(251,44,54,0.12)', border: '1px solid rgba(251,44,54,0.3)',
+                    borderRadius: 4, color: '#FB2C36', fontSize: 9, fontWeight: 700,
+                    padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(251,44,54,0.25)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(251,44,54,0.12)'}
+                  >✕ Cancel All</button>
+                </div>
+              )}
+              <BlotterTable columns={orderCols} rows={filteredOrders} rowKey={r => r.id} emptyMessage="No orders"
+                onRowDoubleClick={o => o.status === 'open' ? callbacks?.onAmendOrder?.(o) : callbacks?.onViewOrder?.(o)} />
+            </div>
+          )}
           {tab === 'Trades' && <BlotterTable columns={tradeCols} rows={filteredTrades} rowKey={r => r.id} emptyMessage="No trades" />}
           {tab === 'Positions' && <BlotterTable columns={posCols} rows={data.positions} rowKey={r => r.id} emptyMessage="No open positions" />}
           {tab === 'Balances' && <BlotterTable columns={balCols} rows={data.balances} rowKey={r => `${r.exchange}-${r.currency}`} emptyMessage="No balance data — connect an exchange" />}

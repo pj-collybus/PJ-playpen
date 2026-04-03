@@ -115,10 +115,15 @@ export function DepthChart({ levels, side, tickSize, granularity, highlightQty, 
       : PL + i * BAR_W
     const yC = (c: number) => PT + (1 - c / cMax) * cH
 
-    // ── 1. Cumulative fill ──
-    const fillHi = isBid ? 'rgba(0,199,88,0.18)' : 'rgba(251,44,54,0.18)'
+    const color = isBid ? '#00C758' : '#FB2C36'
+    const fillHi = isBid ? 'rgba(0,199,88,0.35)' : 'rgba(251,44,54,0.35)'
+    const fillMid = isBid ? 'rgba(0,199,88,0.15)' : 'rgba(251,44,54,0.15)'
     const fillLo = isBid ? 'rgba(0,199,88,0.02)' : 'rgba(251,44,54,0.02)'
+    const barColorTop = 'rgba(115,120,140,0.80)'
+    const barColorBot = 'rgba(90,95,115,0.65)'
+    const visibleTotal = cumBuckets.reduce((s, b) => s + b.size, 0)
 
+    // ── 1. Cumulative fill (deepest layer) ──
     let lastFillY = PT + cH
     ctx.beginPath()
     if (isBid) {
@@ -126,50 +131,48 @@ export function DepthChart({ levels, side, tickSize, granularity, highlightQty, 
       for (let i = 0; i < cumBuckets.length; i++) {
         const x = barX(i) + BAR_W
         ctx.lineTo(x, i === 0 ? PT + cH : yC(cumBuckets[i - 1].cumulative))
-        lastFillY = yC(cumBuckets[i].cumulative)
-        ctx.lineTo(x, lastFillY)
+        lastFillY = yC(cumBuckets[i].cumulative); ctx.lineTo(x, lastFillY)
       }
-      ctx.lineTo(PL, lastFillY)
-      ctx.lineTo(PL, PT + cH)
+      ctx.lineTo(PL, lastFillY); ctx.lineTo(PL, PT + cH)
     } else {
       ctx.moveTo(PL, PT + cH)
       for (let i = 0; i < cumBuckets.length; i++) {
         const x = barX(i)
         ctx.lineTo(x, i === 0 ? PT + cH : yC(cumBuckets[i - 1].cumulative))
-        lastFillY = yC(cumBuckets[i].cumulative)
-        ctx.lineTo(x, lastFillY)
+        lastFillY = yC(cumBuckets[i].cumulative); ctx.lineTo(x, lastFillY)
       }
-      ctx.lineTo(PL + cW, lastFillY)
-      ctx.lineTo(PL + cW, PT + cH)
+      ctx.lineTo(PL + cW, lastFillY); ctx.lineTo(PL + cW, PT + cH)
     }
     ctx.closePath()
-    const g = ctx.createLinearGradient(PL, 0, PL + cW, 0)
-    if (isBid) { g.addColorStop(0, fillLo); g.addColorStop(1, fillHi) }
-    else { g.addColorStop(0, fillHi); g.addColorStop(1, fillLo) }
-    ctx.fillStyle = g
-    ctx.fill()
+    const g = ctx.createLinearGradient(0, PT, 0, PT + cH)
+    g.addColorStop(0, fillHi); g.addColorStop(0.4, fillMid); g.addColorStop(1, fillLo)
+    ctx.fillStyle = g; ctx.fill()
 
-    // ── 2. Histogram bars ──
-    const maxSize = Math.max(...cumBuckets.map(b => b.size), 1)
+    // ── 2. Histogram bars (same Y-axis as cumulative) ──
     for (let i = 0; i < cumBuckets.length; i++) {
       const { size } = cumBuckets[i]
+      if (size === 0) continue
       const bx = barX(i)
-      const barH = (size / maxSize) * cH * 0.85
-      const barY = PT + cH - barH
-      ctx.fillStyle = 'rgba(120, 120, 140, 0.5)'
-      if (barH > 0) ctx.fillRect(bx, barY, BAR_W - 1, barH)
-      if (barH > 12 && size > 0) {
+      const barTop = yC(size)
+      const barH = PT + cH - barTop
+      const barGrad = ctx.createLinearGradient(0, barTop, 0, PT + cH)
+      barGrad.addColorStop(0, barColorTop); barGrad.addColorStop(1, barColorBot)
+      ctx.fillStyle = barGrad
+      ctx.fillRect(bx, barTop, BAR_W - 1, barH)
+      if (size > 0) {
         const label = size >= 1_000_000 ? `${(size / 1_000_000).toFixed(1)}M`
                     : size >= 1_000 ? `${(size / 1_000).toFixed(1)}k`
-                    : size.toFixed(0)
-        ctx.font = '8px monospace'
-        ctx.fillStyle = 'rgba(200,200,220,0.9)'
+                    : size.toFixed(1)
+        ctx.font = 'bold 8px -apple-system, monospace'
+        ctx.fillStyle = 'rgba(220,222,235,0.95)'
         ctx.textAlign = 'center'
-        ctx.fillText(label, bx + (BAR_W - 1) / 2, barY + 10)
+        const labelX = bx + (BAR_W - 1) / 2
+        if (barH >= 18) ctx.fillText(label, labelX, barTop + Math.min(barH * 0.45, 12))
+        else ctx.fillText(label, labelX, barTop - 3)
       }
     }
 
-    // ── 3. Cumulative stepped line — extends to chart edge ──
+    // ── 3. Cumulative stepped line (on top) ──
     let lastLineY = PT + cH
     ctx.beginPath()
     if (isBid) {
@@ -177,8 +180,7 @@ export function DepthChart({ levels, side, tickSize, granularity, highlightQty, 
       for (let i = 0; i < cumBuckets.length; i++) {
         const x = barX(i) + BAR_W
         ctx.lineTo(x, i === 0 ? PT + cH : yC(cumBuckets[i - 1].cumulative))
-        lastLineY = yC(cumBuckets[i].cumulative)
-        ctx.lineTo(x, lastLineY)
+        lastLineY = yC(cumBuckets[i].cumulative); ctx.lineTo(x, lastLineY)
       }
       ctx.lineTo(PL, lastLineY)
     } else {
@@ -186,48 +188,38 @@ export function DepthChart({ levels, side, tickSize, granularity, highlightQty, 
       for (let i = 0; i < cumBuckets.length; i++) {
         const x = barX(i)
         ctx.lineTo(x, i === 0 ? PT + cH : yC(cumBuckets[i - 1].cumulative))
-        lastLineY = yC(cumBuckets[i].cumulative)
-        ctx.lineTo(x, lastLineY)
+        lastLineY = yC(cumBuckets[i].cumulative); ctx.lineTo(x, lastLineY)
       }
       ctx.lineTo(PL + cW, lastLineY)
     }
-    ctx.strokeStyle = isBid ? '#00C758' : '#FB2C36'
-    ctx.lineWidth = 1.5
-    ctx.lineJoin = 'round'
-    ctx.stroke()
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.stroke()
 
-    // ── 4. Total label — visible volume only ──
-    const visibleTotal = cumBuckets.reduce((s, b) => s + b.size, 0)
+    // ── 4. Total label ──
     const totalLabel = visibleTotal >= 1_000_000 ? `${(visibleTotal / 1_000_000).toFixed(1)}M`
                      : visibleTotal >= 1_000 ? `${(visibleTotal / 1_000).toFixed(1)}k`
                      : visibleTotal.toFixed(0)
-    ctx.font = 'bold 9px monospace'
-    ctx.fillStyle = isBid ? '#00C758' : '#FB2C36'
+    ctx.font = 'bold 10px -apple-system, monospace'
+    ctx.fillStyle = color
     if (isBid) { ctx.textAlign = 'right'; ctx.fillText(totalLabel, PL - 2, PT + 10) }
     else { ctx.textAlign = 'left'; ctx.fillText(totalLabel, w - PR + 2, PT + 10) }
 
     // ── 5. Price labels ──
     const d = tickSize < 1 ? Math.max(0, -Math.floor(Math.log10(tickSize))) : 0
-    ctx.font = '8px monospace'
-    ctx.fillStyle = 'rgba(100, 105, 130, 0.9)'
+    ctx.font = '9px -apple-system, monospace'
+    ctx.fillStyle = 'rgba(140,145,170,0.95)'
     ctx.textAlign = 'center'
     for (let i = 0; i < cumBuckets.length; i++) {
-      const bx = barX(i)
-      const cx = bx + (BAR_W - 1) / 2
+      const cx = barX(i) + (BAR_W - 1) / 2
       if (cx < PL + 2 || cx > PL + cW - 2) continue
-      ctx.fillStyle = 'rgba(100, 105, 130, 0.9)'
+      ctx.fillStyle = 'rgba(140,145,170,0.95)'
       ctx.fillText(cumBuckets[i].price.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }), cx, h - 4)
-      ctx.strokeStyle = 'rgba(60, 65, 80, 0.8)'
-      ctx.lineWidth = 1
-      ctx.beginPath()
-      ctx.moveTo(cx, PT + cH)
-      ctx.lineTo(cx, PT + cH + 3)
-      ctx.stroke()
+      ctx.strokeStyle = 'rgba(80,85,110,0.9)'; ctx.lineWidth = 1
+      ctx.beginPath(); ctx.moveTo(cx, PT + cH); ctx.lineTo(cx, PT + cH + 3); ctx.stroke()
     }
 
     // ── 6. Y-axis labels ──
-    ctx.fillStyle = 'rgba(100, 105, 130, 0.9)'
-    ctx.font = '8px monospace'
+    ctx.fillStyle = 'rgba(140,145,170,0.95)'
+    ctx.font = '9px -apple-system, monospace'
     ctx.textAlign = isBid ? 'right' : 'left'
     ;[0.25, 0.5, 0.75, 1].forEach(t => {
       const val = cMax * t

@@ -9,16 +9,27 @@ interface OrderSizeSelectorProps {
   qty: string
   presetQtys: number[]
   onChange: (v: string) => void
+  baseCurrency?: string
+  onBlur?: () => void
 }
 
-export function OrderSizeSelector({ qty, presetQtys, onChange }: OrderSizeSelectorProps) {
+export function OrderSizeSelector({ qty, presetQtys, onChange, baseCurrency, onBlur }: OrderSizeSelectorProps) {
   const qtyNum = parseFloat(qty)
   return (
     <div style={{ marginTop: 'auto', paddingBottom: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <QuantityInput value={qty} onChange={onChange} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <QuantityInput value={qty} onChange={onChange} onBlur={onBlur} />
+        {baseCurrency && (
+          <span style={{ fontSize: 10, color: '#636e82', fontWeight: 600, flexShrink: 0, minWidth: 30 }}>{baseCurrency}</span>
+        )}
+      </div>
       <div style={{ display: 'flex', gap: 3, justifyContent: 'center' }}>
         {presetQtys.map(q => {
           const active = qtyNum === q
+          const label = q >= 1_000_000_000 ? `${q / 1_000_000_000}b`
+            : q >= 1_000_000 ? `${q / 1_000_000}m`
+            : q >= 1_000 ? `${q / 1_000}k`
+            : String(q)
           return (
             <button key={q} onClick={() => onChange(String(q))} style={{
               background: active ? gradAction : gradSecondary,
@@ -28,7 +39,7 @@ export function OrderSizeSelector({ qty, presetQtys, onChange }: OrderSizeSelect
               width: 32, height: 24, padding: 0,
               cursor: 'pointer', fontFamily: 'inherit',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>{q}</button>
+            }}>{label}</button>
           )
         })}
       </div>
