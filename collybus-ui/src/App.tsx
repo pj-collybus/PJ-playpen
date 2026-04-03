@@ -376,10 +376,10 @@ export default function App() {
         )}
         {Object.values(algoStatuses).filter(s => !closedMonitors.has(s.strategyId)).map(s => (
           <AlgoMonitor key={s.strategyId} status={s}
-            onStop={async sid => { await api.post(`/api/algo/stop/${sid}`); setAlgoStatuses(p => ({ ...p, [sid]: { ...p[sid], status: 'Stopped' } })) }}
-            onPause={async sid => { await api.post(`/api/algo/pause/${sid}`) }}
-            onResume={async sid => { await api.post(`/api/algo/resume/${sid}`) }}
-            onAccelerate={async (sid, qty) => { await api.post(`/api/algo/accelerate/${sid}`, { quantity: qty }) }}
+            onStop={async sid => { await api.post(`/algo/stop/${sid}`); setAlgoStatuses(p => ({ ...p, [sid]: { ...p[sid], status: 'Stopped' } })) }}
+            onPause={async sid => { await api.post(`/algo/pause/${sid}`) }}
+            onResume={async sid => { await api.post(`/algo/resume/${sid}`) }}
+            onAccelerate={async (sid, qty) => { await api.post(`/algo/accelerate/${sid}`, { quantity: qty }) }}
             onClose={sid => setClosedMonitors(p => new Set([...p, sid]))}
           />
         ))}

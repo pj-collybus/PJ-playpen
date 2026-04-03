@@ -289,6 +289,15 @@ export function OrderModal({
   const [discretionBps, setDiscretionBps] = useState('10')
   const [discretionPct, setDiscretionPct] = useState('50')
   const [discretionPrice, setDiscretionPrice] = useState('')
+
+  useEffect(() => {
+    if (!discretionEnabled) return
+    const px = parseFloat(price), bps = parseFloat(discretionBps)
+    if (!isNaN(px) && px > 0 && !isNaN(bps)) {
+      const sp = side === 'BUY' ? px * (1 + bps / 10000) : px * (1 - bps / 10000)
+      setDiscretionPrice(sp.toFixed(tickDecimals(tickSize)))
+    }
+  }, [price, discretionBps, side, discretionEnabled, tickSize])
   const [expiry, setExpiry] = useState('GTC')
   const [gtdDateTime, setGtdDateTime] = useState('')
   const [priceTrigger, setPriceTrigger] = useState<PriceTrigger>('N/A')

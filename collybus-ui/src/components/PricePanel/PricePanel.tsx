@@ -124,9 +124,16 @@ export function PricePanel({ id, x, y, width, exchange, symbol: initialSymbol, o
     onClose,
     onResize,
     onLaunchAlgo: async (params: any) => {
-      const r = await api.post('/api/algo/start', params)
-      if (!r.data.ok) throw new Error(r.data.error ?? 'Failed to launch')
-      return r.data.strategyId
+      console.log('[AlgoLaunch] params:', JSON.stringify(params))
+      try {
+        const r = await api.post('/algo/start', params)
+        console.log('[AlgoLaunch] response:', r.data)
+        if (!r.data.ok) throw new Error(r.data.error ?? 'Failed to launch')
+        return r.data.strategyId
+      } catch (e: any) {
+        console.error('[AlgoLaunch] error:', e.response?.status, e.response?.data, e.message)
+        throw e
+      }
     },
     onConfigChange: (_panelId: string, changes: Record<string, unknown>) => {
       if (changes.symbol) {
