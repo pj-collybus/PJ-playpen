@@ -26,6 +26,7 @@ public class AlgoEngine : BackgroundService
     private readonly IOrderPort _orders;
     private readonly IAlgoEventBus _events;
     private readonly ILogger<AlgoEngine> _log;
+    private readonly FillSimulator _sim;
     private int _ordersThisSec;
     private DateTime _rateWindow = DateTime.UtcNow;
 
@@ -35,6 +36,18 @@ public class AlgoEngine : BackgroundService
         _orders = orders;
         _events = events;
         _log = log;
+        _sim = new FillSimulator(log, ["DERIBIT", "BITMEX"]);
+        _sim.OnFill += async fill =>
+        {
+            if (_strategies.TryGetValue(fill.StrategyId, out var s)) s.OnFill(fill);
+            await _events.PublishFillAsync(fill);
+        };
+        _sim.OnSyntheticTrade += async (_, data) =>
+        {
+            foreach (var (_, s) in _strategies)
+                if (s.Status == AlgoStatus.Running) s.OnMarketData(data);
+            await Task.CompletedTask;
+        };
         _channel = Channel.CreateBounded<AlgoMessage>(new BoundedChannelOptions(1000)
         {
             FullMode = BoundedChannelFullMode.DropOldest,
@@ -61,6 +74,7 @@ public class AlgoEngine : BackgroundService
 
     public Task PushMarketDataAsync(MarketDataPoint data)
     {
+        _sim.OnMarketData(data);
         foreach (var (sid, s) in _strategies)
         {
             if (s.Status is AlgoStatus.Running or AlgoStatus.Waiting or AlgoStatus.Completing)
@@ -92,7 +106,7 @@ public class AlgoEngine : BackgroundService
         switch (msg)
         {
             case StartMessage m when _strategies.TryGetValue(m.StrategyId, out var s):
-                await s.StartAsync(m.Params, _orders, _events, ct); break;
+                await s.StartAsync(m.Params, new SimInterceptOrderPort(_orders, _sim), _events, ct); break;
             case StopMessage m when _strategies.TryGetValue(m.StrategyId, out var s):
                 await s.StopAsync(); break;
             case PauseMessage m when _strategies.TryGetValue(m.StrategyId, out var s):
@@ -116,6 +130,7 @@ public class AlgoEngine : BackgroundService
         while (await timer.WaitForNextTickAsync(ct))
         {
             ResetRateWindow();
+            try { await _sim.TickAsync(); } catch (Exception ex) { _log.LogError(ex, "[AlgoEngine] Sim tick error"); }
             foreach (var (sid, strategy) in _strategies.ToArray())
             {
                 if (strategy.Status is AlgoStatus.Running or AlgoStatus.Completing)

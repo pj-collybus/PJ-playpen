@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { formatPrice } from '../PricePanel/utils'
+import { formatPrice, tickDecimals } from '../PricePanel/utils'
 
 let savedModalPos: { x: number; y: number } | null = null
 
@@ -288,6 +288,7 @@ export function OrderModal({
   const [discretionEnabled, setDiscretionEnabled] = useState(false)
   const [discretionBps, setDiscretionBps] = useState('10')
   const [discretionPct, setDiscretionPct] = useState('50')
+  const [discretionPrice, setDiscretionPrice] = useState('')
   const [expiry, setExpiry] = useState('GTC')
   const [gtdDateTime, setGtdDateTime] = useState('')
   const [priceTrigger, setPriceTrigger] = useState<PriceTrigger>('N/A')
@@ -314,16 +315,29 @@ export function OrderModal({
       const p = parseFloat(price)
       if (!q || q <= 0) throw new Error('Invalid quantity')
 
-      // Discretion: convert to Sniper post+snipe algo
-      if (tab === 'LMT' && discretionEnabled && onLaunchAlgo) {
+      // Discretion: 3-level snipe (from monolith DiscretionService)
+      if (tab === 'LMT' && discretionEnabled) {
+        if (!onLaunchAlgo) throw new Error('Algo not configured')
         const bps = parseFloat(discretionBps) || 10
-        const snipeCeiling = side === 'BUY' ? p * (1 + bps / 10000) : p * (1 - bps / 10000)
+        const cap = (parseFloat(discretionPct) || 50) / 100
+        const ceilingPx = side === 'BUY' ? p * (1 + bps / 10000) : p * (1 - bps / 10000)
+        const range = Math.abs(ceilingPx - p)
+        const l1 = side === 'BUY' ? p + range / 3 : p - range / 3
+        const l2 = side === 'BUY' ? p + range * 2 / 3 : p - range * 2 / 3
+        const activeQty = q * cap
+        const sliceQty = Math.floor(activeQty / 3 / lotSize) * lotSize
+        const rnd = (px: number) => Math.round(px / tickSize) * tickSize
         await onLaunchAlgo({
           strategyType: 'SNIPER', exchange, symbol, side, totalSize: q,
           tickSize, lotSize, arrivalMid: ((bid ?? 0) + (ask ?? 0)) / 2,
           arrivalBid: bid ?? 0, arrivalAsk: ask ?? 0,
           sniperMode: 'post_snipe', levelMode: 'simultaneous',
-          postPrice: p, snipeCeiling, snipeCap: parseFloat(discretionPct) || 50,
+          postPrice: p, snipeCeiling: rnd(ceilingPx), snipeCap: parseFloat(discretionPct) || 50,
+          levels: [
+            { index: 0, price: rnd(l1), allocationPct: sliceQty / q * 100, enabled: true },
+            { index: 1, price: rnd(l2), allocationPct: sliceQty / q * 100, enabled: true },
+            { index: 2, price: rnd(ceilingPx), allocationPct: sliceQty / q * 100, enabled: true },
+          ],
         })
         setError(''); onClose(); return
       }
@@ -425,29 +439,51 @@ export function OrderModal({
               tickSize={tickSize} lotSize={lotSize}
               onSideChange={setSide} onQtyChange={setQty} onPriceChange={setPrice}
               onStopTypeChange={() => {}} />
-            <div style={{ border: `1px solid ${discretionEnabled ? 'rgba(43,121,221,0.4)' : S.border}`, borderRadius: 5, padding: '8px 10px', background: discretionEnabled ? 'rgba(43,121,221,0.06)' : 'transparent', transition: 'all 0.2s' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', marginBottom: discretionEnabled ? 10 : 0 }}>
-                <input type="checkbox" checked={discretionEnabled} onChange={e => setDiscretionEnabled(e.target.checked)} />
-                <span style={{ fontSize: 11, color: discretionEnabled ? '#2B79DD' : S.muted, fontWeight: discretionEnabled ? 700 : 400 }}>Discretion</span>
-                {discretionEnabled && <span style={{ fontSize: 9, color: S.muted, marginLeft: 4 }}>post+snipe within band</span>}
-              </label>
-              {discretionEnabled && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <div>
-                    <span style={{ fontSize: 9, color: S.muted, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' as const, display: 'block', marginBottom: 3 }}>Discretion (bps)</span>
-                    <input value={discretionBps} onChange={e => setDiscretionBps(e.target.value)} style={{ width: '100%', height: 26, background: S.bgInput, border: `1px solid ${S.border}`, borderRadius: 4, color: S.text, fontSize: 11, padding: '0 6px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
-                    {price && parseFloat(discretionBps) > 0 && <div style={{ fontSize: 9, color: '#2B79DD', marginTop: 3 }}>
-                      {side === 'BUY' ? `Snipe ≤ ${(parseFloat(price) * (1 + parseFloat(discretionBps) / 10000)).toFixed(4)}` : `Snipe ≥ ${(parseFloat(price) * (1 - parseFloat(discretionBps) / 10000)).toFixed(4)}`}
-                    </div>}
-                  </div>
-                  <div>
-                    <span style={{ fontSize: 9, color: S.muted, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' as const, display: 'block', marginBottom: 3 }}>Snipe Cap (%)</span>
-                    <input value={discretionPct} onChange={e => setDiscretionPct(e.target.value)} style={{ width: '100%', height: 26, background: S.bgInput, border: `1px solid ${S.border}`, borderRadius: 4, color: S.text, fontSize: 11, padding: '0 6px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
-                    <div style={{ fontSize: 9, color: S.muted, marginTop: 3 }}>{discretionPct}% snipe / {100 - (parseInt(discretionPct) || 50)}% post</div>
-                  </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input type="checkbox" checked={discretionEnabled} onChange={e => {
+                setDiscretionEnabled(e.target.checked)
+                if (e.target.checked && price) {
+                  const px = parseFloat(price), bps = parseFloat(discretionBps)
+                  if (!isNaN(px) && !isNaN(bps) && px > 0) {
+                    const sp = side === 'BUY' ? px * (1 + bps / 10000) : px * (1 - bps / 10000)
+                    setDiscretionPrice(sp.toFixed(tickDecimals(tickSize)))
+                  }
+                }
+              }} />
+              <span style={{ fontSize: 11, color: discretionEnabled ? '#2B79DD' : S.muted, fontWeight: discretionEnabled ? 700 : 400 }}>Discretion</span>
+            </label>
+            {discretionEnabled && (
+              <div style={{ background: '#141418', border: '1px solid rgba(43,121,221,0.4)', borderRadius: 6, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                  <span style={{ fontSize: 9, color: S.muted, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' as const }}>DISCRETION (bps)</span>
+                  <span style={{ fontSize: 9, color: S.muted, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' as const }}>{side === 'BUY' ? 'UP TO' : 'DOWN TO'}</span>
+                  <span style={{ fontSize: 9, color: S.muted, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' as const }}>AMOUNT %</span>
                 </div>
-              )}
-            </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                  <InlineInput value={discretionBps} onChange={v => {
+                    setDiscretionBps(v); const bps = parseFloat(v), px = parseFloat(price)
+                    if (!isNaN(bps) && !isNaN(px) && px > 0) setDiscretionPrice((side === 'BUY' ? px * (1 + bps / 10000) : px * (1 - bps / 10000)).toFixed(tickDecimals(tickSize)))
+                  }} currency="bps" onUp={() => {
+                    const v = String(parseFloat(discretionBps || '0') + 1); setDiscretionBps(v)
+                    const px = parseFloat(price); if (!isNaN(px) && px > 0) setDiscretionPrice((side === 'BUY' ? px * (1 + parseFloat(v) / 10000) : px * (1 - parseFloat(v) / 10000)).toFixed(tickDecimals(tickSize)))
+                  }} onDown={() => {
+                    const v = String(Math.max(0, parseFloat(discretionBps || '0') - 1)); setDiscretionBps(v)
+                    const px = parseFloat(price); if (!isNaN(px) && px > 0) setDiscretionPrice((side === 'BUY' ? px * (1 + parseFloat(v) / 10000) : px * (1 - parseFloat(v) / 10000)).toFixed(tickDecimals(tickSize)))
+                  }} />
+                  <InlineInput value={discretionPrice} onChange={v => {
+                    setDiscretionPrice(v); const sp = parseFloat(v), px = parseFloat(price)
+                    if (!isNaN(sp) && !isNaN(px) && px > 0) setDiscretionBps(Math.max(0, side === 'BUY' ? (sp - px) / px * 10000 : (px - sp) / px * 10000).toFixed(1))
+                  }} currency={quoteCurrency} onUp={() => {
+                    const v = (parseFloat(discretionPrice || '0') + tickSize).toFixed(tickDecimals(tickSize)); setDiscretionPrice(v)
+                    const px = parseFloat(price); if (!isNaN(px) && px > 0) setDiscretionBps(Math.max(0, side === 'BUY' ? (parseFloat(v) - px) / px * 10000 : (px - parseFloat(v)) / px * 10000).toFixed(1))
+                  }} onDown={() => {
+                    const v = Math.max(0, parseFloat(discretionPrice || '0') - tickSize).toFixed(tickDecimals(tickSize)); setDiscretionPrice(v)
+                    const px = parseFloat(price); if (!isNaN(px) && px > 0) setDiscretionBps(Math.max(0, side === 'BUY' ? (parseFloat(v) - px) / px * 10000 : (px - parseFloat(v)) / px * 10000).toFixed(1))
+                  }} />
+                  <InlineInput value={discretionPct} onChange={setDiscretionPct} currency="%" onUp={() => setDiscretionPct(String(Math.min(100, parseFloat(discretionPct || '50') + 5)))} onDown={() => setDiscretionPct(String(Math.max(5, parseFloat(discretionPct || '50') - 5)))} />
+                </div>
+              </div>
+            )}
           </>)}
           {tab === 'S/L' && (
             <OrderLeg side={side} qty={qty} price={price} stopType="stop"
