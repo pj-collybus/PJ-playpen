@@ -17,6 +17,7 @@ public class StrategyFactory : IStrategyFactory
         "SNIPER" => new SniperStrategy(strategyId, _services.GetRequiredService<ILogger<SniperStrategy>>()),
         "ICEBERG" => new IcebergStrategy(strategyId, _services.GetRequiredService<ILogger<IcebergStrategy>>()),
         "POV" => new PovStrategy(strategyId, _services.GetRequiredService<ILogger<PovStrategy>>()),
+        "IS" => new IsStrategy(strategyId, _services.GetRequiredService<ILogger<IsStrategy>>()),
         _ => throw new ArgumentException($"Unknown strategy type: {strategyType}")
     };
 }

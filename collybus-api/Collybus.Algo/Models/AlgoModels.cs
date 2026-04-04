@@ -66,7 +66,11 @@ public record AlgoParams(
     decimal? MinChildSize = null,
     decimal? MaxChildSize = null,
     decimal? MaxSpreadBps = 50,
-    decimal? ScheduleVariancePct = 10
+    decimal? ScheduleVariancePct = 10,
+    decimal? RiskAversion = null,
+    int? VolatilityLookbackMinutes = null,
+    decimal? MarketImpactCoeff = null,
+    string? UrgencyBias = null
 );
 
 public record SniperLevel(int Index, decimal Price, decimal AllocationPct, bool Enabled = true);

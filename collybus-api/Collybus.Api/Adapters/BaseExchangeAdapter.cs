@@ -12,6 +12,12 @@ public abstract class BaseExchangeAdapter
     /// <summary>Optional callback for routing fills to the algo engine.</summary>
     public Action<Fill>? OnAlgoFill { get; set; }
 
+    /// <summary>Optional callback for routing ticker updates to the algo engine.</summary>
+    public Action<string, string, Ticker>? OnTickerUpdate { get; set; }
+
+    /// <summary>Optional callback for routing public market trades to the algo engine.</summary>
+    public Action<string, string, decimal, decimal, string, long>? OnTradeUpdate { get; set; }
+
     private readonly Dictionary<string, Dictionary<decimal, decimal>> _bids = new();
     private readonly Dictionary<string, Dictionary<decimal, decimal>> _asks = new();
     private readonly Dictionary<string, long> _lastBookSend = new();
@@ -138,7 +144,10 @@ public abstract class BaseExchangeAdapter
         _lastTicker[symbol] = t;
 
         if (t.BestBid > 0 || t.BestAsk > 0 || t.LastPrice > 0)
+        {
             _ = Hub.Clients.All.SendAsync("TickerUpdate", new { key = $"{Venue}:{symbol}", ticker = t });
+            OnTickerUpdate?.Invoke(Venue, symbol, t);
+        }
     }
 
     protected virtual void ClearSymbolState(string symbol)

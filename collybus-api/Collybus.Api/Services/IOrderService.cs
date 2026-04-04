@@ -24,6 +24,7 @@ public record SubmitOrderRequest
     public bool? PostOnly { get; init; }
     public decimal? TickSize { get; init; }
     public string? ParentOrderId { get; init; }
+    public string? Label { get; init; }
     public Dictionary<string, string>? Credentials { get; init; }
 }
 

@@ -36,7 +36,9 @@ public class AlgoEngine : BackgroundService
         _orders = orders;
         _events = events;
         _log = log;
-        _sim = new FillSimulator(log, ["DERIBIT", "BITMEX"]);
+        // FillSim disabled by default — Deribit/BitMEX testnets fill IOCs correctly
+        // Enable with: _sim = new FillSimulator(log, ["VENUE_NAME"]);
+        _sim = new FillSimulator(log, []);
         _sim.OnFill += async fill =>
         {
             if (_strategies.TryGetValue(fill.StrategyId, out var s)) s.OnFill(fill);

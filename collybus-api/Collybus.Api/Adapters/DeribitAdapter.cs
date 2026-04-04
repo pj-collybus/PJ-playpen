@@ -65,7 +65,7 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
             Logger.LogWarning("[Deribit] WebSocket not connected, connecting before subscribe");
             await ConnectAsync();
         }
-        var channels = new[] { $"book.{venueSymbol}.100ms", $"ticker.{venueSymbol}.100ms" };
+        var channels = new[] { $"book.{venueSymbol}.100ms", $"ticker.{venueSymbol}.100ms", $"trades.{venueSymbol}.100ms" };
         await RpcAsync("public/subscribe", new { channels });
     }
 
@@ -76,7 +76,7 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
         if (_ws?.State != System.Net.WebSockets.WebSocketState.Open) return;
         try
         {
-            var channels = new[] { $"book.{venueSymbol}.100ms", $"ticker.{venueSymbol}.100ms" };
+            var channels = new[] { $"book.{venueSymbol}.100ms", $"ticker.{venueSymbol}.100ms", $"trades.{venueSymbol}.100ms" };
             await RpcAsync("public/unsubscribe", new { channels });
         }
         catch (Exception ex)
@@ -128,7 +128,7 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
             var venueSymbol = MapSymbol(request.Symbol);
             var method = request.Side.Equals("BUY", StringComparison.OrdinalIgnoreCase)
                 ? "private/buy" : "private/sell";
-            var clientOid = $"CLBX-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+            var clientOid = request.Label ?? $"CLBX-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
             var isStop = request.OrderType.Equals("STOP", StringComparison.OrdinalIgnoreCase) || request.TriggerPrice.HasValue;
 
             object orderParams;
@@ -283,7 +283,7 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
                 Logger.LogInformation("[Deribit] Reconnected");
                 foreach (var sym in _subscriptions.ToList())
                 {
-                    var channels = new[] { $"book.{sym}.100ms", $"ticker.{sym}.100ms" };
+                    var channels = new[] { $"book.{sym}.100ms", $"ticker.{sym}.100ms", $"trades.{sym}.raw" };
                     await RpcAsync("public/subscribe", new { channels });
                 }
             }
@@ -325,6 +325,7 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
     {
         if (channel.StartsWith("ticker.")) HandleTicker(channel, data, receivedTs);
         else if (channel.StartsWith("book.")) HandleBook(channel, data, receivedTs);
+        else if (channel.StartsWith("trades.") && !channel.StartsWith("trades.user")) HandlePublicTrades(channel, data, receivedTs);
         else if (channel.StartsWith("user.changes.")) HandleUserChanges(data, receivedTs);
         else if (channel.StartsWith("user.portfolio.")) HandleUserPortfolio(data, receivedTs);
         else if (channel.StartsWith("user.trades.")) HandleUserTrades(data, receivedTs);
@@ -347,6 +348,26 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
             change: data["price_change"]?.GetValue<decimal?>(),
             oi: data["open_interest"]?.GetValue<decimal?>(),
             funding: data["current_funding"]?.GetValue<decimal?>());
+    }
+
+    /// <summary>Handle trades.{instrument}.raw — public market trades for algo strategies.</summary>
+    private void HandlePublicTrades(string channel, JsonNode? data, long receivedTs)
+    {
+        if (data is null) return;
+        var venueSymbol = channel.Split('.')[1];
+        var items = data is JsonArray arr ? arr.Select(x => x).ToList()
+                  : data is JsonObject ? [data] : [];
+        foreach (var t in items)
+        {
+            if (t is null) continue;
+            var price = t["price"]?.GetValue<decimal?>() ?? 0;
+            var size = t["amount"]?.GetValue<decimal?>() ?? 0;
+            var ts = t["timestamp"]?.GetValue<long?>() ?? receivedTs;
+            var direction = t["direction"]?.GetValue<string>() ?? "";
+            if (price <= 0 || size <= 0) continue;
+            Logger.LogDebug("[Deribit] PublicTrade {Symbol}: {Size}@{Price} {Dir}", venueSymbol, size, price, direction);
+            OnTradeUpdate?.Invoke(Venue, venueSymbol, price, size, direction, ts);
+        }
     }
 
     private void HandleBook(string channel, JsonNode? data, long receivedTs)
@@ -459,7 +480,20 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
                 CommissionAsset = t["fee_currency"]?.GetValue<string>() ?? "",
             };
             _ = Hub.Clients.All.SendAsync("FillUpdate", fill);
-            OnAlgoFill?.Invoke(fill);
+            // Also push as a market trade for VWAP/POV/IS strategies
+            OnTradeUpdate?.Invoke(Venue, fill.Symbol, fill.FillPrice, fill.FillSize,
+                fill.Side == OrderSide.Buy ? "buy" : "sell", fill.FillTs);
+            // Try resolving by label first (avoids race with order_id mapping)
+            var label = t["label"]?.GetValue<string>();
+            if (!string.IsNullOrEmpty(label))
+            {
+                var labelFill = fill with { OrderId = label };
+                OnAlgoFill?.Invoke(labelFill);
+            }
+            else
+            {
+                OnAlgoFill?.Invoke(fill);
+            }
         }
     }
 

@@ -31,6 +31,10 @@ public class AlgoOrderPort : IOrderPort
 
     public async Task<string> SubmitAsync(OrderIntent intent)
     {
+        // Pre-register mapping by label (= algo's ClientOrderId) BEFORE submitting
+        // to avoid race condition where websocket fill arrives before RPC response
+        _orderMap[intent.ClientOrderId] = (intent.ClientOrderId, intent.StrategyId);
+
         var request = new SubmitOrderRequest
         {
             Exchange = intent.Exchange,
@@ -44,6 +48,7 @@ public class AlgoOrderPort : IOrderPort
             PostOnly = intent.PostOnly,
             ReduceOnly = intent.ReduceOnly,
             AlgoType = intent.Tag ?? "ALGO",
+            Label = intent.ClientOrderId,  // Pass algo's client ID as exchange label
         };
 
         var order = await _orders.SubmitAsync(request);

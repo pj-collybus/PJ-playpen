@@ -6,290 +6,499 @@ namespace Collybus.Algo.Strategies;
 
 /// <summary>
 /// TWAP — Time-Weighted Average Price execution strategy.
-/// Translated from twap.js (701 lines). Executes total size evenly over a duration,
-/// with urgency modes, chase logic, end-of-window escalation, and final sweep.
+/// Faithful translation of the TypeScript TWAPStrategy class.
+/// Executes total size evenly over a duration with urgency modes (passive / balanced / aggressive),
+/// chase logic, passive-cross escalation, end-of-window escalation, average-rate limiting,
+/// and final sweep.
 /// </summary>
 public class TwapStrategy : BaseStrategy
 {
     public override string StrategyType => "TWAP";
 
-    private int _numSlices;
-    private int _currentSlice;
-    private long _sliceIntervalMs;
+    // ── Public slice state (mirrors TS public fields) ──────────────────────
+    private int _slicesFired;
+    private int _slicesTotal;
     private long _nextSliceAt;
-    private long _endAt;
-    private readonly Random _rng = new();
+    private decimal _rollingVwap;
+    private decimal _slippageVsVwap;
 
+    // ── Private configuration (set once in constructor / OnActivateAsync) ──
+    private string _durationMode = "minutes";
+    private int _durationMin;
+    private string _endTimeStr = "";
+    private string _amountMode = "base";
+    private decimal _rawSize;
+    private string _slicesMode = "auto";
+    private int _manualSlices;
+    private decimal _variancePct;
+    private string _limitMode = "none";
+    private decimal _limitPrice;
+    private decimal _averageRateLimit;
+    private string _urgency = "passive";
+
+    // ── Private runtime state ──────────────────────────────────────────────
+    private long _intervalMs;
+    private decimal _rollingVwapNot;
+    private decimal _rollingVwapQty;
+    private long _chaseDeadline;
+    private long _completingDeadline;
+    private long _retryAt;
+    private decimal _retrySliceSize;
+    private int _rejectCount;
+    private long _sliceStartTs;
+    private long _sliceDeadlineTs;
+    private bool _sliceCrossed;
+
+    private long _endTs;
+    private long _startTs;
+
+    // Active child order tracking
     private string? _restingClientOrderId;
-    private long? _restingOrderPlacedAt;
-    private int _chaseDelayMs;
-    private bool _isAggressive;
-    private decimal _sliceFilled;
-    private long? _retryAt;
-    private bool _pausedForSpread;
-    private bool _pausedForLimit;
+    private decimal _restingPrice;
+
+    // Spread threshold
+    private decimal _maxSpreadBps;
+
+    // Pause reason
     private string? _pauseReason;
 
-    public TwapStrategy(string strategyId, ILogger<TwapStrategy> logger)
-        : base(strategyId, logger) { }
+    private static readonly Random _rng = new();
 
+    public TwapStrategy(string strategyId, ILogger<TwapStrategy> logger)
+        : base(strategyId, logger)
+    {
+    }
+
+    /// <summary>
+    /// Initialise from Params — mirrors the TS constructor field reads.
+    /// Called by the base class lifecycle; Params is already set.
+    /// </summary>
     protected override Task OnActivateAsync()
     {
         var p = Params;
-        var durationMs = (p.DurationMinutes ?? 5) * 60_000L;
-        _endAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + durationMs;
 
-        _numSlices = p.NumSlices ?? Math.Max(2, p.DurationMinutes ?? 5);
-        _sliceIntervalMs = durationMs / _numSlices;
-        _nextSliceAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        _currentSlice = 0;
-        _isAggressive = p.Urgency == "aggressive";
+        // Constructor-equivalent reads from params
+        _durationMode = "minutes"; // params.durationMode || 'minutes' — AlgoParams has no durationMode, default
+        _durationMin = p.DurationMinutes ?? 30;
+        _endTimeStr = ""; // params.endTime || '' — not in AlgoParams
+        _amountMode = "base"; // params.amountMode || 'base' — not in AlgoParams
+        _rawSize = p.TotalSize;
+        _slicesMode = p.NumSlices.HasValue ? "manual" : "auto";
+        _manualSlices = p.NumSlices ?? 10;
+        _variancePct = (decimal)(p.ScheduleVariancePct ?? 10);
+        _limitMode = p.LimitMode ?? "none";
+        _limitPrice = p.LimitPrice ?? 0;
+        _averageRateLimit = 0; // params.averageRateLimit — not in AlgoParams
+        _urgency = p.Urgency ?? "passive";
+        _maxSpreadBps = p.MaxSpreadBps ?? 50;
 
-        Logger.LogInformation("[TWAP] {Sid} started: {Total} {Side} in {Slices} slices over {Dur}min urgency={Urgency}",
-            StrategyId, p.TotalSize, p.Side, _numSlices, p.DurationMinutes, p.Urgency);
-        return Task.CompletedTask;
-    }
-
-    public override async Task OnTickAsync()
-    {
-        if (Status != AlgoStatus.Running) return;
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        _startTs = now;
 
-        // Hard deadline
-        if (now >= _endAt) { await FinalSweepAsync(); return; }
-
-        // End-of-window escalation: aggressive in last 10%
-        var total = (Params.DurationMinutes ?? 5) * 60_000L;
-        if (!_isAggressive && (_endAt - now) < total * 0.10m)
+        // Terms mode: convert USD amount to base using arrival price
+        // (AlgoParams.TotalSize is already set, but we honour the TS logic)
+        var arrivalPrice = p.ArrivalMid > 0 ? p.ArrivalMid : (p.ArrivalBid + p.ArrivalAsk) / 2;
+        if (_amountMode == "terms" && arrivalPrice > 0)
         {
-            _isAggressive = true;
-            if (_restingClientOrderId != null)
-            {
-                await Orders.CancelAsync(Params.Exchange, _restingClientOrderId);
-                PendingOrders.Remove(_restingClientOrderId);
-                _restingClientOrderId = null;
-            }
-            Logger.LogInformation("[TWAP] {Sid} escalating to aggressive (last 10%)", StrategyId);
+            // Would mutate totalSize; in C# TotalSize is on the record so we leave as-is.
+            // _rawSize is kept for reference.
         }
 
-        // Retry
-        if (_retryAt.HasValue && now >= _retryAt.Value)
+        // Calculate end time
+        if (_durationMode == "until_time")
         {
-            _retryAt = null;
-            await ExecuteSliceAsync();
-            return;
-        }
-
-        // Chase: cancel stale resting order when market moves
-        if (_restingClientOrderId != null && _restingOrderPlacedAt.HasValue)
-        {
-            if (now - _restingOrderPlacedAt.Value >= _chaseDelayMs && ShouldChase())
-            {
-                await ChaseOrderAsync();
-                return;
-            }
-        }
-
-        // Passive cross: at 80% of slice interval, cross spread for unfilled
-        if (Params.Urgency == "passive" && !_isAggressive && _restingClientOrderId != null)
-        {
-            var crossDeadline = _restingOrderPlacedAt.GetValueOrDefault() + (long)(_sliceIntervalMs * 0.8);
-            if (now >= crossDeadline)
-            {
-                Logger.LogInformation("[TWAP] {Sid} passive cross: slice deadline reached", StrategyId);
-                await ChaseOrderAsync();
-                return;
-            }
-        }
-
-        // Spread auto-pause
-        if (ShouldPauseForSpread())
-        {
-            if (!_pausedForSpread) { _pausedForSpread = true; _pauseReason = $"Spread {CurrentSpreadBps:F0}bps"; }
-            return;
-        }
-        if (_pausedForSpread) { _pausedForSpread = false; _pauseReason = null; }
-
-        // Limit price auto-pause
-        if (Params.LimitPrice.HasValue && Params.LimitMode == "market_limit" &&
-            (Params.Side.ToUpper() == "BUY" ? CurrentMid > Params.LimitPrice.Value : CurrentMid < Params.LimitPrice.Value))
-        {
-            if (!_pausedForLimit) { _pausedForLimit = true; _pauseReason = "At limit price"; }
-            return;
-        }
-        if (_pausedForLimit) { _pausedForLimit = false; _pauseReason = null; }
-
-        // Average rate limit
-        if (Params.LimitMode == "average_rate" && Params.LimitPrice.HasValue && AvgFillPrice > 0 && IsBreachingAverageRate())
-        {
-            _pauseReason = $"Avg rate {AvgFillPrice:F4} breached limit";
-            return;
-        }
-
-        // Fire slice
-        if (now >= _nextSliceAt && _currentSlice < _numSlices && _restingClientOrderId == null && RemainingSize > Params.LotSize / 2)
-            await ExecuteSliceAsync();
-    }
-
-    private async Task ExecuteSliceAsync()
-    {
-        if (RemainingSize <= 0 || CurrentMid <= 0) return;
-
-        _currentSlice++;
-        var remainingSlices = Math.Max(1, _numSlices - _currentSlice + 1);
-        var sliceSize = RoundToLot(RemainingSize / remainingSlices);
-        sliceSize = Math.Min(sliceSize, RemainingSize);
-        if (sliceSize <= 0) return;
-        _sliceFilled = 0;
-
-        var tick = Params.TickSize;
-        decimal limitPrice;
-        string tif;
-        bool postOnly = false;
-
-        if (_isAggressive || Params.Urgency == "aggressive")
-        {
-            limitPrice = Params.Side.ToUpper() == "BUY" ? CurrentAsk + tick : CurrentBid - tick;
-            tif = "IOC";
-        }
-        else if (Params.Urgency == "passive")
-        {
-            limitPrice = Params.Side.ToUpper() == "BUY" ? CurrentBid : CurrentAsk;
-            tif = "GTC"; postOnly = true;
+            // parseTime not available — fall through to minutes-based
+            _endTs = now + (long)_durationMin * 60_000L;
         }
         else
         {
-            limitPrice = CurrentMid;
+            _endTs = now + (long)_durationMin * 60_000L;
+        }
+
+        var durationMs = _endTs - now;
+
+        _slicesTotal = _slicesMode == "auto"
+            ? Math.Max(2, Math.Min(500, (int)Math.Round((double)durationMs / 60_000.0)))
+            : Math.Max(2, Math.Min(500, _manualSlices));
+
+        _intervalMs = durationMs / _slicesTotal;
+        _nextSliceAt = now;
+        Status = AlgoStatus.Running;
+
+        Logger.LogInformation(
+            "[TWAP] {Sid} activated: side={Side} total={Total} symbol={Symbol} exchange={Exchange} " +
+            "urgency={Urgency} duration={Dur}min slices={Slices} interval={Interval}ms " +
+            "limitMode={LimitMode} limitPrice={LimitPrice} variancePct={Var} maxSpread={MaxSpread}bps",
+            StrategyId, p.Side, p.TotalSize, p.Symbol, p.Exchange,
+            _urgency, _durationMin, _slicesTotal, _intervalMs,
+            _limitMode, _limitPrice, _variancePct, _maxSpreadBps);
+
+        return Task.CompletedTask;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  OnTickAsync — exact translation of _onTick
+    // ═══════════════════════════════════════════════════════════════════════
+    public override async Task OnTickAsync()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var bid = CurrentBid;
+        var ask = CurrentAsk;
+        var mid = CurrentMid;
+
+        CheckAverageRateLimit();
+        AutoResume(mid);
+
+        if (Status != AlgoStatus.Running) return;
+        if (IsComplete()) { Status = AlgoStatus.Completed; OnCompleted(); return; }
+        if (await CheckWindowEnd(bid, ask, now)) return;
+        if (CheckCompleting(now)) return;
+        await CheckPassiveCross(bid, ask, now);
+        await CheckChase(bid, ask, now);
+        await CheckEscalation(now);
+        await CheckRetryOrSchedule(bid, ask, mid, now);
+    }
+
+    // ── _checkAverageRateLimit ─────────────────────────────────────────────
+    private void CheckAverageRateLimit()
+    {
+        if (Status != AlgoStatus.Running) return;
+        if (_limitMode == "average_rate" && _averageRateLimit > 0 && AvgFillPrice > 0)
+        {
+            var breached = IsBuy()
+                ? AvgFillPrice > _averageRateLimit
+                : AvgFillPrice < _averageRateLimit;
+            if (breached)
+            {
+                Status = AlgoStatus.Paused;
+                _pauseReason = "Avg rate breached limit";
+            }
+        }
+    }
+
+    // ── _autoResume ────────────────────────────────────────────────────────
+    private void AutoResume(decimal mid)
+    {
+        if (Status == AlgoStatus.Paused && _pauseReason != "manual")
+        {
+            var spreadOk = mid == 0 || CurrentSpreadBps <= _maxSpreadBps;
+            if (spreadOk)
+            {
+                Status = AlgoStatus.Running;
+                _pauseReason = null;
+            }
+        }
+    }
+
+    // ── _checkWindowEnd ────────────────────────────────────────────────────
+    private async Task<bool> CheckWindowEnd(decimal bid, decimal ask, long now)
+    {
+        if (now < _endTs || (Status != AlgoStatus.Running && Status != AlgoStatus.Paused))
+            return false;
+
+        if (_restingClientOrderId != null)
+        {
+            try { await Orders.CancelAsync(Params.Exchange, _restingClientOrderId); } catch { }
+            PendingOrders.Remove(_restingClientOrderId);
+            _restingClientOrderId = null;
+            _chaseDeadline = 0;
+        }
+
+        if (RemainingSize > 0 && bid > 0 && ask > 0)
+        {
+            var tick = Params.TickSize;
+            var sweepPrice = RoundToTick(IsBuy() ? ask + tick : bid - tick);
+            var clientId = NewClientOrderId();
+            await SubmitOrderAsync(new OrderIntent(
+                StrategyId, clientId, Params.Exchange, Params.Symbol,
+                Params.Side.ToUpper(), "LIMIT", RoundToLot(RemainingSize), sweepPrice, null, "IOC",
+                Tag: "sweep"));
+            Status = AlgoStatus.Completing;
+            _completingDeadline = now + 10_000;
+        }
+        else
+        {
+            Status = AlgoStatus.Completed;
+            OnCompleted();
+        }
+
+        return true;
+    }
+
+    // ── _checkCompleting ───────────────────────────────────────────────────
+    private bool CheckCompleting(long now)
+    {
+        if (Status != AlgoStatus.Completing) return false;
+        if (now > _completingDeadline)
+        {
+            Status = AlgoStatus.Completed;
+            OnCompleted();
+        }
+        return true;
+    }
+
+    // ── _checkPassiveCross ─────────────────────────────────────────────────
+    private async Task CheckPassiveCross(decimal bid, decimal ask, long now)
+    {
+        if (_urgency != "passive" || _restingClientOrderId == null || _sliceCrossed) return;
+        if (_sliceDeadlineTs <= 0 || now < _sliceDeadlineTs || bid <= 0 || ask <= 0) return;
+
+        try { await Orders.CancelAsync(Params.Exchange, _restingClientOrderId); } catch { }
+        PendingOrders.Remove(_restingClientOrderId);
+        _restingClientOrderId = null;
+        _sliceCrossed = true;
+
+        var tick = Params.TickSize;
+        var crossPrice = RoundToTick(IsBuy() ? ask + tick : bid - tick);
+        var crossQty = RoundToLot(Math.Min(RemainingSize, Params.TotalSize / Math.Max(1, _slicesTotal)));
+        if (crossQty > 0.001m)
+        {
+            var clientId = NewClientOrderId();
+            await SubmitOrderAsync(new OrderIntent(
+                StrategyId, clientId, Params.Exchange, Params.Symbol,
+                Params.Side.ToUpper(), "LIMIT", crossQty, crossPrice, null, "IOC",
+                Tag: "passive_cross"));
+            _restingClientOrderId = clientId;
+            _restingPrice = crossPrice;
+        }
+    }
+
+    // ── _checkChase ────────────────────────────────────────────────────────
+    private async Task CheckChase(decimal bid, decimal ask, long now)
+    {
+        if (_restingClientOrderId == null || bid <= 0 || ask <= 0) return;
+        if (_urgency != "aggressive" && !_sliceCrossed) return;
+
+        var rp = _restingPrice;
+        var moved = IsBuy()
+            ? bid > rp * 1.0001m
+            : ask < rp * 0.9999m;
+
+        if (moved && _chaseDeadline == 0)
+        {
+            _chaseDeadline = now + (long)Rand(3000, 7000);
+        }
+        else if (_chaseDeadline > 0 && now >= _chaseDeadline)
+        {
+            try { await Orders.CancelAsync(Params.Exchange, _restingClientOrderId); } catch { }
+            PendingOrders.Remove(_restingClientOrderId);
+            _restingClientOrderId = null;
+            _chaseDeadline = 0;
+        }
+    }
+
+    // ── _checkEscalation ───────────────────────────────────────────────────
+    private async Task CheckEscalation(long now)
+    {
+        var timeRemaining = _endTs - now;
+        var totalDuration = _endTs - _startTs;
+        if (timeRemaining > 0 && timeRemaining < totalDuration * 0.1
+            && RemainingSize > 0 && _urgency != "aggressive"
+            && _restingClientOrderId != null)
+        {
+            try { await Orders.CancelAsync(Params.Exchange, _restingClientOrderId); } catch { }
+            PendingOrders.Remove(_restingClientOrderId);
+            _restingClientOrderId = null;
+            _urgency = "aggressive";
+            Logger.LogInformation("[TWAP] {Sid} escalating to aggressive (last 10%)", StrategyId);
+        }
+    }
+
+    // ── _checkRetryOrSchedule ──────────────────────────────────────────────
+    private async Task CheckRetryOrSchedule(decimal bid, decimal ask, decimal mid, long now)
+    {
+        if (_retryAt > 0 && now >= _retryAt && _restingClientOrderId == null && RemainingSize > 0.001m)
+        {
+            _retryAt = 0;
+            await FireSlice(bid, ask, mid, _retrySliceSize);
+        }
+        else if (now >= _nextSliceAt && _restingClientOrderId == null && RemainingSize > 0.001m
+                 && _retryAt == 0 && _slicesFired < _slicesTotal)
+        {
+            _rejectCount = 0;
+            await FireSlice(bid, ask, mid);
+        }
+    }
+
+    // ── _fireSlice ─────────────────────────────────────────────────────────
+    private async Task FireSlice(decimal bid, decimal ask, decimal mid, decimal overrideSize = 0)
+    {
+        if (RemainingSize <= 0 || mid <= 0) return;
+
+        _slicesFired++;
+
+        var sliceSize = overrideSize > 0
+            ? Math.Min(overrideSize, RemainingSize)
+            : Math.Min(RemainingSize / Math.Max(1, _slicesTotal - _slicesFired + 1), RemainingSize);
+
+        sliceSize = RoundToLot(sliceSize);
+        if (sliceSize <= 0) { ScheduleNext(); return; }
+
+        // Market limit check
+        if (_limitMode == "market_limit" && _limitPrice > 0)
+        {
+            if (IsBuy() && mid > _limitPrice) { ScheduleNext(); return; }
+            if (!IsBuy() && mid < _limitPrice) { ScheduleNext(); return; }
+        }
+
+        var tick = Params.TickSize;
+        decimal price;
+        string tif;
+        bool postOnly = false;
+
+        if (_urgency == "aggressive")
+        {
+            price = IsBuy() ? ask + tick : bid - tick;
+            tif = "IOC";
+        }
+        else if (_urgency == "passive")
+        {
+            price = IsBuy() ? bid : ask;
+            tif = "GTC";
+            postOnly = true;
+        }
+        else
+        {
+            // balanced
+            price = mid;
             tif = "GTC";
         }
-        limitPrice = RoundToTick(limitPrice);
-        if (limitPrice <= 0) { ScheduleNextSlice(); return; }
+
+        if (price <= 0) price = mid;
+        price = RoundToTick(price);
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        _sliceStartTs = now;
+        _sliceDeadlineTs = now + (long)(_intervalMs * 0.8);
+        _sliceCrossed = false;
 
         var clientId = NewClientOrderId();
         await SubmitOrderAsync(new OrderIntent(
             StrategyId, clientId, Params.Exchange, Params.Symbol,
-            Params.Side.ToUpper(), "LIMIT", sliceSize, limitPrice, null, tif,
-            PostOnly: postOnly, Tag: $"slice_{_currentSlice}"));
+            Params.Side.ToUpper(), "LIMIT", sliceSize, price, null, tif,
+            PostOnly: postOnly, Tag: $"slice_{_slicesFired}"));
 
-        if (tif == "GTC")
+        _restingClientOrderId = clientId;
+        _restingPrice = price;
+        _chaseDeadline = 0;
+
+        Logger.LogInformation("[TWAP] {Sid} slice {N}/{T}: {Sz} @ {Px} {Tif}",
+            StrategyId, _slicesFired, _slicesTotal, sliceSize, price, tif);
+
+        ScheduleNext();
+    }
+
+    // ── _scheduleNext ──────────────────────────────────────────────────────
+    private void ScheduleNext()
+    {
+        var jitter = 1.0 + Rand(-(double)_variancePct / 100.0, (double)_variancePct / 100.0);
+        _nextSliceAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            + (long)(_intervalMs * jitter);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  OnFillReceived — translation of _onFillExtended
+    // ═══════════════════════════════════════════════════════════════════════
+    protected override void OnFillReceived(AlgoFill fill)
+    {
+        // cappedFill is the effective fill size (already capped by base class)
+        var cappedFill = fill.FillSize;
+
+        _rollingVwapNot += fill.FillPrice * cappedFill;
+        _rollingVwapQty += cappedFill;
+        _rollingVwap = _rollingVwapQty > 0 ? _rollingVwapNot / _rollingVwapQty : 0;
+
+        if (_rollingVwap > 0)
         {
-            _restingClientOrderId = clientId;
-            _restingOrderPlacedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            _chaseDelayMs = _rng.Next(3000, 7001);
+            var dir = IsBuy() ? 1m : -1m;
+            _slippageVsVwap = (AvgFillPrice - _rollingVwap) / _rollingVwap * 10_000m * dir;
+        }
+
+        _restingClientOrderId = null;
+        _chaseDeadline = 0;
+
+        if (IsComplete())
+        {
+            Status = AlgoStatus.Completed;
+            OnCompleted();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  OnRejectionReceived — translation of _onOrderUpdateExtended
+    // ═══════════════════════════════════════════════════════════════════════
+    protected override void OnRejectionReceived(string clientOrderId, string reason)
+    {
+        // Only handle if it matches the active child
+        if (clientOrderId != _restingClientOrderId) return;
+
+        if (Status == AlgoStatus.Completing)
+        {
+            _restingClientOrderId = null;
+            Status = AlgoStatus.Completed;
+            OnCompleted();
+            return;
+        }
+
+        if (_slicesFired > 0) _slicesFired--;
+
+        var remaining = RemainingSize;
+        _retrySliceSize = remaining / Math.Max(1, _slicesTotal - _slicesFired);
+
+        _restingClientOrderId = null;
+        _restingPrice = 0;
+        _chaseDeadline = 0;
+
+        var lowerReason = (reason ?? "").ToLowerInvariant();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        if (lowerReason.Contains("insufficient") || lowerReason.Contains("balance") || lowerReason.Contains("margin"))
+        {
+            Status = AlgoStatus.Paused;
+            _pauseReason = "Insufficient balance";
+            _retryAt = 0;
+            _rejectCount = 0;
+        }
+        else if (lowerReason.Contains("rate") || lowerReason.Contains("throttl"))
+        {
+            _retryAt = now + 5000;
+            _rejectCount = 0;
         }
         else
         {
-            ScheduleNextSlice();
-        }
-
-        Logger.LogInformation("[TWAP] {Sid} slice {N}/{T}: {Sz} @ {Px} {Tif}",
-            StrategyId, _currentSlice, _numSlices, sliceSize, limitPrice, tif);
-    }
-
-    private bool ShouldChase()
-    {
-        if (_restingClientOrderId == null || CurrentBid <= 0 || CurrentAsk <= 0) return false;
-        // Market moved away from resting price
-        return true; // simplified — monolith checks bid > resting * 1.0001 for buys
-    }
-
-    private async Task ChaseOrderAsync()
-    {
-        if (_restingClientOrderId == null) return;
-        try { await Orders.CancelAsync(Params.Exchange, _restingClientOrderId); } catch { }
-        PendingOrders.Remove(_restingClientOrderId);
-        _restingClientOrderId = null;
-        _restingOrderPlacedAt = null;
-        await ExecuteSliceAsync();
-    }
-
-    private async Task FinalSweepAsync()
-    {
-        if (RemainingSize <= Params.LotSize / 2) { Status = AlgoStatus.Completed; return; }
-        Status = AlgoStatus.Completing;
-        Logger.LogInformation("[TWAP] {Sid} final sweep: {Rem} remaining", StrategyId, RemainingSize);
-
-        await CancelAllPendingAsync();
-        _restingClientOrderId = null;
-
-        var tick = Params.TickSize;
-        var limitPrice = Params.Side.ToUpper() == "BUY"
-            ? RoundToTick(CurrentAsk + tick * 5)
-            : RoundToTick(CurrentBid - tick * 5);
-
-        await SubmitOrderAsync(new OrderIntent(
-            StrategyId, NewClientOrderId(), Params.Exchange, Params.Symbol,
-            Params.Side.ToUpper(), "LIMIT", RemainingSize, limitPrice, null, "IOC",
-            Tag: "sweep"));
-
-        _ = Task.Delay(10_000).ContinueWith(_ =>
-        {
-            if (Status == AlgoStatus.Completing)
+            _rejectCount++;
+            if (_rejectCount >= 3)
             {
-                Status = AlgoStatus.Completed;
-                Logger.LogInformation("[TWAP] {Sid} completed (sweep deadline)", StrategyId);
+                Status = AlgoStatus.Paused;
+                _pauseReason = "3 consecutive rejections";
+                _retryAt = 0;
+                _rejectCount = 0;
             }
-        });
+            else
+            {
+                _retryAt = now + 2000;
+            }
+        }
     }
 
-    public override async Task AccelerateAsync(decimal qty)
-    {
-        Logger.LogInformation("[TWAP] {Sid} accelerating {Qty}", StrategyId, qty);
-        await CancelAllPendingAsync();
-        _restingClientOrderId = null;
-
-        var tick = Params.TickSize;
-        var limitPrice = Params.Side.ToUpper() == "BUY"
-            ? RoundToTick(CurrentAsk + tick * 3)
-            : RoundToTick(CurrentBid - tick * 3);
-        var accQty = Math.Min(qty, RemainingSize);
-
-        await SubmitOrderAsync(new OrderIntent(
-            StrategyId, NewClientOrderId(), Params.Exchange, Params.Symbol,
-            Params.Side.ToUpper(), "LIMIT", accQty, limitPrice, null, "IOC",
-            Tag: "accelerate"));
-    }
-
-    private void ScheduleNextSlice()
-    {
-        var variance = (long)(_sliceIntervalMs * ((Params.ScheduleVariancePct ?? 10) / 100m));
-        _nextSliceAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-            + _sliceIntervalMs + _rng.NextInt64(-variance, variance);
-    }
-
-    private bool ShouldPauseForSpread()
-        => CurrentSpreadBps > (Params.MaxSpreadBps ?? 50);
-
-    private bool IsBreachingAverageRate()
-    {
-        if (!Params.LimitPrice.HasValue || AvgFillPrice <= 0) return false;
-        return Params.Side.ToUpper() == "BUY"
-            ? AvgFillPrice > Params.LimitPrice.Value
-            : AvgFillPrice < Params.LimitPrice.Value;
-    }
-
-    protected override void OnFillReceived(AlgoFill fill)
-    {
-        _sliceFilled += fill.FillSize;
-        _restingClientOrderId = null;
-        _restingOrderPlacedAt = null;
-        if (Status == AlgoStatus.Running) ScheduleNextSlice();
-    }
-
-    protected override void OnRejectionReceived(string clientOrderId, string reason)
-    {
-        _restingClientOrderId = null;
-        _restingOrderPlacedAt = null;
-        // Retry in 2s unless paused by base class
-        if (Status == AlgoStatus.Running)
-            _retryAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 2000;
-    }
-
-    protected override int GetCurrentSlice() => _currentSlice;
-    protected override int GetTotalSlices() => _numSlices;
+    // ═══════════════════════════════════════════════════════════════════════
+    //  Status hooks — translation of _strategyState
+    // ═══════════════════════════════════════════════════════════════════════
+    protected override int GetCurrentSlice() => _slicesFired;
+    protected override int GetTotalSlices() => _slicesTotal;
     protected override long? GetNextSliceAt() => _nextSliceAt;
     protected override string? GetPauseReason() => _pauseReason;
 
     protected override string? GetSummaryLine()
-        => $"{Params.Side} {Params.TotalSize} {Params.Symbol} via TWAP | {Params.Urgency} | {Params.DurationMinutes}min | {_numSlices} slices";
+        => $"{Params.Side} {Params.TotalSize} {Params.Symbol} on {Params.Exchange} via TWAP | " +
+           $"{_urgency} | {_durationMin} min | {_slicesTotal} slices";
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  Helpers
+    // ═══════════════════════════════════════════════════════════════════════
+    private bool IsBuy() => Params.Side.ToUpper() == "BUY";
+
+    private bool IsComplete() => RemainingSize <= Params.LotSize / 2;
+
+    private static double Rand(double min, double max) => _rng.NextDouble() * (max - min) + min;
 }

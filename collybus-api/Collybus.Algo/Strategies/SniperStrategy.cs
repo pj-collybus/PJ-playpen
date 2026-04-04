@@ -77,8 +77,10 @@ public class SniperStrategy : BaseStrategy
             Logger.LogInformation("[Sniper] {Sid} L{Idx}: price={Price} alloc={Pct}% target={Size}",
                 StrategyId, lv.Index, lv.Price, lv.AllocationPct, lv.TargetSize);
 
-        Logger.LogInformation("[Sniper] {Sid} started: mode={Mode} levelMode={LM} levels={N} totalSize={Size}",
-            StrategyId, p.SniperMode, p.LevelMode, _levels.Count, p.TotalSize);
+        Logger.LogInformation("[Sniper] {Sid} started: mode={Mode} levelMode={LM} levels={N} totalSize={Size} " +
+            "postPrice={Post} snipeCeiling={Ceil} snipeCap={Cap} bid={Bid} ask={Ask}",
+            StrategyId, p.SniperMode, p.LevelMode, _levels.Count, p.TotalSize,
+            p.PostPrice, p.SnipeCeiling, p.SnipeCap, CurrentBid, CurrentAsk);
         return Task.CompletedTask;
     }
 

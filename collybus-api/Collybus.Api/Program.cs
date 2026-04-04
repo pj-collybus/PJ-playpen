@@ -98,6 +98,38 @@ app.MapHub<CollybusHub>("/hub");
                 );
                 _ = algoEngine.PushFillAsync(algoFill);
             };
+
+            // Feed ticker updates to algo engine as market data
+            baseAdapter.OnTickerUpdate = (venue, symbol, ticker) =>
+            {
+                if (ticker.BestBid <= 0 || ticker.BestAsk <= 0) return;
+                var mid = (ticker.BestBid + ticker.BestAsk) / 2;
+                var spreadBps = mid > 0 ? (ticker.BestAsk - ticker.BestBid) / mid * 10000 : 0;
+                _ = algoEngine.PushMarketDataAsync(new Collybus.Algo.Models.MarketDataPoint(
+                    Exchange: venue,
+                    Symbol: symbol,
+                    Bid: ticker.BestBid,
+                    Ask: ticker.BestAsk,
+                    Mid: mid,
+                    SpreadBps: spreadBps,
+                    LastTrade: ticker.LastPrice,
+                    LastTradeSize: 0,
+                    Timestamp: ticker.Timestamp
+                ));
+            };
+
+            // Feed public market trades to algo engine (for VWAP, POV, IS)
+            baseAdapter.OnTradeUpdate = (venue, symbol, price, size, direction, ts) =>
+            {
+                _ = algoEngine.PushMarketDataAsync(new Collybus.Algo.Models.MarketDataPoint(
+                    Exchange: venue,
+                    Symbol: symbol,
+                    Bid: 0, Ask: 0, Mid: 0, SpreadBps: 0,
+                    LastTrade: price,
+                    LastTradeSize: size,
+                    Timestamp: ts
+                ));
+            };
         }
     }
 }

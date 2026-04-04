@@ -21,6 +21,11 @@ public class AlgoController(AlgoEngine engine) : ControllerBase
     [HttpPost("start")]
     public async Task<IActionResult> Start([FromBody] AlgoParams p)
     {
+        Console.WriteLine($"[AlgoController] Start received: type={p.StrategyType} exchange={p.Exchange} symbol={p.Symbol} side={p.Side}");
+        Console.WriteLine($"[AlgoController]   totalSize={p.TotalSize} sniperMode={p.SniperMode} levelMode={p.LevelMode}");
+        Console.WriteLine($"[AlgoController]   postPrice={p.PostPrice} snipeCeiling={p.SnipeCeiling} snipeCap={p.SnipeCap}");
+        Console.WriteLine($"[AlgoController]   levels={p.Levels?.Count ?? 0}: {string.Join(", ", p.Levels?.Select(l => $"L{l.Index}@{l.Price}/{l.AllocationPct}%") ?? [])}");
+
         if (string.IsNullOrEmpty(p.StrategyType)) return BadRequest("strategyType required");
         try
         {

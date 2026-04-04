@@ -92,8 +92,11 @@ public abstract class BaseStrategy : IAlgoStrategy
     // ── Data feeds ──────────────────────────────────────────────────────────
     public virtual void OnMarketData(MarketDataPoint data)
     {
-        CurrentBid = data.Bid; CurrentAsk = data.Ask;
-        CurrentMid = data.Mid; CurrentSpreadBps = data.SpreadBps;
+        // Only update bid/ask/mid/spread from ticker data (non-zero), not from trade-only messages
+        if (data.Bid > 0) CurrentBid = data.Bid;
+        if (data.Ask > 0) CurrentAsk = data.Ask;
+        if (data.Mid > 0) CurrentMid = data.Mid;
+        if (data.SpreadBps > 0) CurrentSpreadBps = data.SpreadBps;
 
         if (data.LastTrade > 0 && data.LastTradeSize > 0)
         {
@@ -118,19 +121,29 @@ public abstract class BaseStrategy : IAlgoStrategy
         if (fill.FillSize <= 0) return;
         if (Status is AlgoStatus.Completed or AlgoStatus.Stopped) return;
 
-        FilledSize += fill.FillSize;
-        _weightedFillPrice += fill.FillPrice * fill.FillSize;
+        // Overfill protection — cap to remaining size
+        var effectiveSize = Math.Min(fill.FillSize, RemainingSize);
+        if (effectiveSize <= 0) return;
+        if (effectiveSize < fill.FillSize)
+            Logger.LogWarning("[{Type}] {Sid} overfill capped: {Actual} → {Capped} (remaining was {Rem})",
+                StrategyType, StrategyId, fill.FillSize, effectiveSize, RemainingSize);
+
+        FilledSize += effectiveSize;
+        _weightedFillPrice += fill.FillPrice * effectiveSize;
         if (FirstFillPrice == 0) FirstFillPrice = fill.FillPrice;
         LastFillPrice = fill.FillPrice;
         ConsecutiveRejections = 0;
         UpdatedAt = fill.Timestamp;
-        Fills.Add(fill);
+        var recordedFill = effectiveSize < fill.FillSize
+            ? fill with { FillSize = effectiveSize }
+            : fill;
+        Fills.Add(recordedFill);
         PendingOrders.Remove(fill.ClientOrderId);
 
         Logger.LogInformation("[{Type}] {Sid} fill: {Size}@{Price} total={Filled}/{Total}",
-            StrategyType, StrategyId, fill.FillSize, fill.FillPrice, FilledSize, Params.TotalSize);
+            StrategyType, StrategyId, effectiveSize, fill.FillPrice, FilledSize, Params.TotalSize);
 
-        OnFillReceived(fill);
+        OnFillReceived(recordedFill);
 
         if (FilledSize >= Params.TotalSize - Params.LotSize / 2)
         {
