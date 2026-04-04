@@ -1,233 +1,138 @@
 using Collybus.Algo.Models;
-using Collybus.Algo.Ports;
 using Microsoft.Extensions.Logging;
 
 namespace Collybus.Algo.Strategies;
 
 /// <summary>
-/// ICEBERG — Iceberg execution strategy.
-/// Faithful translation of the TypeScript IcebergStrategy class.
-/// Splits a large order into randomised visible slices with price chase logic,
-/// detection scoring based on fill interval regularity, and configurable urgency.
+/// ICEBERG — place one limit at _fixedPrice for _visibleSize.
+/// When it fills, place another. Repeat until done.
+/// Only randomisation: slice size ± bps variance.
 /// </summary>
 public class IcebergStrategy : BaseStrategy
 {
     public override string StrategyType => "ICEBERG";
 
-    // ── Public slice state (mirrors TS public fields) ──────────────────────
-    private int _slicesFired;
-    private int _slicesFilled;
-    private decimal _currentSliceSize;
-    private int _detectionScore;
-
-    // ── Private configuration (set once in constructor / OnActivateAsync) ──
     private decimal _visibleSize;
-    private decimal _visibleVariance;
-    private string _urgency = "passive";
+    private decimal _sizeVariancePct;
+    private decimal _fixedPrice;
     private long _minRefreshMs;
     private long _maxRefreshMs;
-    private bool _chaseEnabled;
-    private long _chaseDelayMs;
-    private string _limitMode = "none";
-    private decimal _limitPrice;
+    private long _expiryTs;
 
-    // ── Private runtime state ─────────────────────────────────────────────
     private long _refreshAt;
-    private long _chaseAt;
+    private int _slicesFired;
+    private int _slicesFilled;
+    private int _detectionScore;
     private long _lastFillTs;
     private readonly List<long> _fillIntervals = new();
 
-    // Active child order tracking
     private string? _activeClientOrderId;
-    private decimal? _restingPrice;
-    private bool _placing; // atomicity guard for async PlaceSlice
-
-    // Pause reason
+    private volatile bool _placing;
     private string? _pauseReason;
 
     private static readonly Random _rng = new();
 
     public IcebergStrategy(string strategyId, ILogger<IcebergStrategy> logger)
-        : base(strategyId, logger)
-    {
-    }
+        : base(strategyId, logger) { }
 
-    /// <summary>
-    /// Initialise from Params — mirrors the TS constructor field reads.
-    /// Called by the base class lifecycle; Params is already set.
-    /// </summary>
     protected override Task OnActivateAsync()
     {
         var p = Params;
-
         _visibleSize = p.VisibleSize ?? 10;
-        _visibleVariance = p.VisibleVariancePct ?? 20;
-        _urgency = p.Urgency ?? "passive";
+        _sizeVariancePct = p.VisibleVariancePct ?? 20;
+        _fixedPrice = p.LimitPrice ?? 0;
         _minRefreshMs = p.RefreshDelayMs ?? 500;
         _maxRefreshMs = 3000;
-        _chaseEnabled = true; // default: enabled unless explicitly 'false'
-        _chaseDelayMs = 2000;
-        _limitMode = p.LimitMode ?? "none";
-        _limitPrice = p.LimitPrice ?? 0;
 
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        _refreshAt = now;
+        // Expiry
+        var expiry = (p.Expiry ?? "GTC").ToUpperInvariant();
+        if (expiry == "DAY")
+            _expiryTs = new DateTimeOffset(DateTime.UtcNow.Date.AddDays(1).AddSeconds(-1), TimeSpan.Zero).ToUnixTimeMilliseconds();
+        else if (expiry == "GTD" && DateTimeOffset.TryParse(p.GtdDateTime ?? "", out var dto))
+            _expiryTs = dto.ToUnixTimeMilliseconds();
+
+        _refreshAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         Status = AlgoStatus.Running;
 
-        Logger.LogInformation(
-            "[ICEBERG] {Sid} activated: side={Side} total={Total} symbol={Symbol} exchange={Exchange} " +
-            "urgency={Urgency} visibleSize={VisibleSize} visibleVariance={VisibleVariance}% " +
-            "limitMode={LimitMode} limitPrice={LimitPrice} " +
-            "minRefreshMs={MinRefresh} maxRefreshMs={MaxRefresh} chaseEnabled={ChaseEnabled} chaseDelayMs={ChaseDelay}",
-            StrategyId, p.Side, p.TotalSize, p.Symbol, p.Exchange,
-            _urgency, _visibleSize, _visibleVariance,
-            _limitMode, _limitPrice,
-            _minRefreshMs, _maxRefreshMs, _chaseEnabled, _chaseDelayMs);
-
+        Logger.LogInformation("[ICEBERG] {Sid} activated: {Side} {Total} {Symbol} | {Vis}/slice @ {Price} | var={Var}%",
+            StrategyId, p.Side, p.TotalSize, p.Symbol, _visibleSize, _fixedPrice, _sizeVariancePct);
         return Task.CompletedTask;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  OnTickAsync — exact translation of _onTick
-    // ═══════════════════════════════════════════════════════════════════════
+    // ── Tick: the entire strategy ──────────────────────────────────────────
     public override async Task OnTickAsync()
     {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var bid = CurrentBid;
-        var ask = CurrentAsk;
-        var mid = CurrentMid;
-
         if (Status != AlgoStatus.Running) return;
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-        if (IsComplete())
+        if (_expiryTs > 0 && now >= _expiryTs)
         {
-            Status = AlgoStatus.Completed;
-            OnCompleted();
+            _pauseReason = "Expired";
+            await StopAsync();
             return;
         }
 
-        await CheckPriceChase(bid, ask, now);
+        if (RemainingSize <= Params.LotSize / 2) { Status = AlgoStatus.Completed; OnCompleted(); return; }
+        if (_placing || _activeClientOrderId != null) return;
+        if (now < _refreshAt) return;
+        if (_fixedPrice <= 0) { _pauseReason = "No limit price"; return; }
 
-        // Guard: only place if no active child, not mid-placement, and refresh delay elapsed
-        var canPlace = _activeClientOrderId == null && !_placing && now >= _refreshAt && RemainingSize > 0.001m;
-        Logger.LogDebug("[ICEBERG] {Sid} tick: active={Active} placing={Placing} refreshIn={RefreshIn}ms canPlace={Can}",
-            StrategyId, _activeClientOrderId ?? "null", _placing, Math.Max(0, _refreshAt - now), canPlace);
-        if (canPlace)
-        {
-            await PlaceSlice(bid, ask, mid);
-        }
+        await PlaceSlice();
     }
 
-    // ── _checkPriceChase ──────────────────────────────────────────────────
-    private async Task CheckPriceChase(decimal bid, decimal ask, long now)
+    // ── Place one slice ────────────────────────────────────────────────────
+    private async Task PlaceSlice()
     {
-        if (_activeClientOrderId == null || !_chaseEnabled || bid <= 0 || ask <= 0) return;
-
-        var rp = _restingPrice ?? 0;
-        var tick = Params.TickSize;
-
-        var movedAway = IsBuy()
-            ? bid < rp - tick
-            : ask > rp + tick;
-        var movedBack = IsBuy()
-            ? bid >= rp
-            : ask <= rp;
-
-        if (movedAway && _chaseAt == 0)
-        {
-            _chaseAt = now + _chaseDelayMs;
-        }
-        else if (movedBack)
-        {
-            _chaseAt = 0;
-        }
-
-        if (_chaseAt > 0 && now >= _chaseAt)
-        {
-            Logger.LogInformation("[ICEBERG] {Sid} price chase — cancelling {Cid}, repost after {Ms}ms",
-                StrategyId, _activeClientOrderId, _minRefreshMs);
-            try { await Orders.CancelAsync(Params.Exchange, _activeClientOrderId); } catch { }
-            PendingOrders.Remove(_activeClientOrderId);
-            _activeClientOrderId = null;
-            _restingPrice = null;
-            _chaseAt = 0;
-            _refreshAt = now + _minRefreshMs; // delay before repost to prevent chase loop
-        }
-    }
-
-    // ── _placeSlice ───────────────────────────────────────────────────────
-    private async Task PlaceSlice(decimal bid, decimal ask, decimal mid)
-    {
-        if (mid <= 0) return;
+        if (_placing || _activeClientOrderId != null) return;
         _placing = true;
-        try {
-
-        var effectiveVariance = _detectionScore > 70
-            ? Math.Min(50m, _visibleVariance * 1.5m)
-            : _visibleVariance;
-
-        var varianceAmt = _visibleSize * (effectiveVariance / 100m);
-        var size = _visibleSize + ((decimal)_rng.NextDouble() * 2 - 1) * varianceAmt;
-        size = Math.Max(Params.LotSize, Math.Min(size, RemainingSize));
-        size = Math.Max(Params.LotSize, Math.Min(RoundToLot(size), RemainingSize));
-        _currentSliceSize = size;
-
-        // Determine price based on urgency
-        decimal price;
-        if (_urgency == "passive")
-            price = IsBuy() ? bid : ask;
-        else if (_urgency == "aggressive")
-            price = IsBuy() ? ask + Params.TickSize : bid - Params.TickSize;
-        else
-            price = mid;
-
-        if (price <= 0) price = mid;
-        price = RoundToTick(price);
-
-        // Hard limit check
-        if (_limitMode == "hard_limit" && _limitPrice > 0)
+        try
         {
-            if (IsBuy() && price > _limitPrice)
+            // Size: visible ± random variance %
+            var baseSize = _visibleSize;
+            var maxPossibleSlice = baseSize * (1 + _sizeVariancePct / 100m);
+
+            decimal size;
+            if (RemainingSize <= maxPossibleSlice)
             {
-                Status = AlgoStatus.Paused;
-                _pauseReason = "Price > limit";
-                return;
+                // Last slice — use exactly remaining so total fills completely
+                size = RoundToLot(RemainingSize);
+                if (size <= 0) size = RemainingSize; // sub-lot final slice
             }
-            if (!IsBuy() && price < _limitPrice)
+            else
             {
-                Status = AlgoStatus.Paused;
-                _pauseReason = "Price < limit";
-                return;
+                var varianceFraction = (decimal)_rng.NextDouble() * _sizeVariancePct / 100m;
+                var sign = _rng.NextDouble() > 0.5 ? 1m : -1m;
+                var rawSize = baseSize + sign * baseSize * varianceFraction;
+                size = RoundToLot(rawSize);
+                size = Math.Max(Params.LotSize, size);
+                size = Math.Min(size, RemainingSize);
             }
+            if (size <= 0) return;
+
+            var price = RoundToTick(_fixedPrice);
+            _slicesFired++;
+            var clientId = NewClientOrderId();
+            _activeClientOrderId = clientId;
+
+            await SubmitOrderAsync(new OrderIntent(
+                StrategyId, clientId, Params.Exchange, Params.Symbol,
+                Params.Side.ToUpper(), "LIMIT", size, price, null, "GTC",
+                Tag: $"iceberg_{_slicesFired}"));
+
+            Logger.LogInformation("[ICEBERG] {Sid} slice {N}: {Size} @ {Price}",
+                StrategyId, _slicesFired, size, price);
         }
-
-        _slicesFired++;
-
-        var clientId = NewClientOrderId();
-        await SubmitOrderAsync(new OrderIntent(
-            StrategyId, clientId, Params.Exchange, Params.Symbol,
-            Params.Side.ToUpper(), "LIMIT", size, price, null, "GTC",
-            Tag: $"iceberg_slice_{_slicesFired}"));
-
-        _activeClientOrderId = clientId;
-        _restingPrice = price;
-        _chaseAt = 0;
-
-        Logger.LogInformation("[ICEBERG] {Sid} slice {N}: {Size} @ {Price} detection={Det}",
-            StrategyId, _slicesFired, size, price, _detectionScore);
-        } finally { _placing = false; }
+        finally { _placing = false; }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  OnFillReceived — translation of _onFillExtended
-    // ═══════════════════════════════════════════════════════════════════════
+    // ── Fill: clear and schedule next ──────────────────────────────────────
     protected override void OnFillReceived(AlgoFill fill)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
         _slicesFilled++;
+        _activeClientOrderId = null;
 
-        // Track fill intervals for detection scoring
+        // Detection scoring
         if (_lastFillTs > 0)
         {
             _fillIntervals.Add(now - _lastFillTs);
@@ -236,100 +141,56 @@ public class IcebergStrategy : BaseStrategy
         }
         _lastFillTs = now;
 
-        _activeClientOrderId = null;
-        _restingPrice = null;
-        _chaseAt = 0;
-
-        // Randomised delay before next slice
+        // Schedule next slice
         _refreshAt = now + _minRefreshMs + (long)(_rng.NextDouble() * (_maxRefreshMs - _minRefreshMs));
 
-        if (IsComplete())
-        {
-            Status = AlgoStatus.Completed;
-            OnCompleted();
-        }
+        Logger.LogInformation("[ICEBERG] {Sid} fill #{N}: {Size}@{Price} — next in {Delay}ms at {Lim} remaining={Rem}",
+            StrategyId, _slicesFilled, fill.FillSize, fill.FillPrice, _refreshAt - now, _fixedPrice, RemainingSize);
+        // Completion is handled by BaseStrategy.OnFill after this returns
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  OnRejectionReceived — translation of _onOrderUpdateExtended
-    // ═══════════════════════════════════════════════════════════════════════
     protected override void OnRejectionReceived(string clientOrderId, string reason)
     {
         if (clientOrderId != _activeClientOrderId) return;
-
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        Logger.LogWarning("[ICEBERG] {Sid} order rejected: {Cid} reason={Reason}, retry in 5s",
-            StrategyId, clientOrderId, reason);
-
-        // Treat as REJECTED — longer delay to avoid spam on persistent rejections
+        Logger.LogWarning("[ICEBERG] {Sid} slice rejected: {Reason} — retrying in 5s", StrategyId, reason);
         _activeClientOrderId = null;
-        _restingPrice = null;
-        _chaseAt = 0;
-        _refreshAt = now + 5000;
+        _placing = false;
+        _refreshAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 5000;
+        // Override base class auto-pause — Iceberg always retries
+        if (Status == AlgoStatus.Paused)
+        {
+            Status = AlgoStatus.Running;
+            _pauseReason = null;
+            ConsecutiveRejections = 0;
+        }
     }
 
-    // ── _updateDetectionScore ─────────────────────────────────────────────
     private void UpdateDetectionScore()
     {
-        if (_fillIntervals.Count < 3)
-        {
-            _detectionScore = 0;
-            return;
-        }
-
-        // Take last 5 intervals
-        var startIdx = Math.Max(0, _fillIntervals.Count - 5);
-        var count = _fillIntervals.Count - startIdx;
-        var intervals = _fillIntervals.GetRange(startIdx, count);
-        var n = intervals.Count;
-
-        var mean = 0.0;
-        foreach (var v in intervals) mean += v;
-        mean /= n;
-
-        if (mean == 0)
-        {
-            _detectionScore = 0;
-            return;
-        }
-
-        var variance = 0.0;
-        foreach (var v in intervals)
-        {
-            var diff = v - mean;
-            variance += diff * diff;
-        }
-        variance /= n;
-
-        var cv = Math.Sqrt(variance) / mean;
-
-        // CV < 0.2 means very regular = high risk = high score
+        if (_fillIntervals.Count < 3) { _detectionScore = 0; return; }
+        var intervals = _fillIntervals.GetRange(Math.Max(0, _fillIntervals.Count - 5), Math.Min(5, _fillIntervals.Count));
+        double mean = 0; foreach (var v in intervals) mean += v; mean /= intervals.Count;
+        if (mean == 0) { _detectionScore = 0; return; }
+        double var2 = 0; foreach (var v in intervals) { var d = v - mean; var2 += d * d; } var2 /= intervals.Count;
+        var cv = Math.Sqrt(var2) / mean;
         _detectionScore = (int)Math.Max(0, Math.Min(100, Math.Round(100.0 * (0.2 - cv) / 0.2)));
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  Status hooks — translation of _strategyState
-    // ═══════════════════════════════════════════════════════════════════════
     protected override int GetCurrentSlice() => _slicesFired;
-    protected override int GetTotalSlices() => _slicesFired; // childCount == slicesFired in TS
+    protected override int GetTotalSlices() => _slicesFired;
     protected override string? GetPauseReason() => _pauseReason;
-
     protected override string? GetSummaryLine()
-        => $"{Params.Side} {Params.TotalSize} {Params.Symbol} on {Params.Exchange} via ICEBERG | " +
-           $"{_visibleSize} ± {_visibleVariance}% per slice | {_urgency}";
-
-    // ═══════════════════════════════════════════════════════════════════════
-    //  Helpers
-    // ═══════════════════════════════════════════════════════════════════════
-    private bool IsBuy() => Params.Side.ToUpper() == "BUY";
-
-    private bool IsComplete() => RemainingSize <= Params.LotSize / 2;
+    {
+        var expiry = _expiryTs > 0 ? "GTD" : (Params.Expiry ?? "GTC");
+        return $"{Params.Side} {Params.TotalSize} {Params.Symbol} on {Params.Exchange} via ICEBERG | {_visibleSize}±{_sizeVariancePct}%/slice @ {_fixedPrice} | {expiry}";
+    }
 
     protected override void PopulateStrategyState(AlgoStatusReport report)
     {
-        RestingPrice = _restingPrice > 0 ? _restingPrice : null;
+        RestingPrice = _fixedPrice > 0 ? _fixedPrice : null;
         report.VisibleSize = _visibleSize;
         report.DetectionRiskScore = _detectionScore;
-        report.Urgency = _urgency;
+        report.ActiveOrderPrice = _fixedPrice;
+        report.Urgency = "passive";
     }
 }

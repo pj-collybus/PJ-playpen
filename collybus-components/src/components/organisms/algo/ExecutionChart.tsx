@@ -15,6 +15,7 @@ export function ExecutionChart({ status, width = 400, height = 200 }: {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
+    console.log('[ExecutionChart] render:', status.strategyId, 'bids:', status.chartBids?.length, 'fills:', status.chartFills?.length, 'status:', status.status)
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
@@ -28,25 +29,27 @@ export function ExecutionChart({ status, width = 400, height = 200 }: {
     const orders = status.chartOrder ?? []
     const fills = status.chartFills ?? []
     const vwaps = status.chartVwap ?? []
-    if (times.length < 2) return
+    if (times.length < 2) {
+      ctx.font = '10px monospace'; ctx.fillStyle = '#636e82'; ctx.textAlign = 'center'
+      ctx.fillText('Waiting for data...', width / 2, height / 2)
+      return
+    }
 
-    const minT = times[0], maxT = times[times.length - 1]
+    // Time range: include fill times so no triangles are clipped off-canvas
+    let minT = times[0], maxT = times[times.length - 1]
+    fills.forEach(f => { if (f.time < minT) minT = f.time; if (f.time > maxT) maxT = f.time })
     const tRange = maxT - minT || 1
 
-    // Collect all prices for Y range — filter zeros to prevent scale blowout
-    const allPrices = [
-      ...bids.filter(v => v > 0),
-      ...asks.filter(v => v > 0),
-      ...(orders.filter(v => v != null && v > 0) as number[]),
-      ...fills.map(f => f.price).filter(v => v > 0),
-      ...(vwaps.filter(v => v > 0)),
-    ]
-    if (allPrices.length === 0) return
+    // Y axis range: ONLY from bid/ask (actual market prices) — not orders/fills/vwap
+    const validBids = bids.filter(v => v > 0)
+    const validAsks = asks.filter(v => v > 0)
+    if (validBids.length === 0 && validAsks.length === 0) return
 
-    const minP = Math.min(...allPrices)
-    const maxP = Math.max(...allPrices)
-    const padding = (maxP - minP) * 0.1 || maxP * 0.001
-    const pMin = minP - padding, pMax = maxP + padding
+    const fillPrices = fills.map(f => f.price).filter(v => v > 0)
+    const marketPrices = [...validBids, ...validAsks, ...fillPrices]
+    const minP = Math.min(...marketPrices)
+    const maxP = Math.max(...marketPrices)
+    const pMin = minP * 0.9998, pMax = maxP * 1.0002
     const pRange = pMax - pMin || 1
 
     const PAD = { t: 8, b: 16, l: 50, r: 8 }
@@ -65,26 +68,33 @@ export function ExecutionChart({ status, width = 400, height = 200 }: {
       ctx.fillText(price.toFixed(4), PAD.l - 4, y + 3)
     }
 
-    // Bid line (green, thin)
+    // Bid line (green, thin) — extend to maxT with last known value
     if (bids.length > 1) {
       ctx.beginPath(); ctx.strokeStyle = 'rgba(0,199,88,0.5)'; ctx.lineWidth = 1
-      bids.forEach((b, i) => { if (b > 0) { const x = xOf(times[i]); i === 0 ? ctx.moveTo(x, yOf(b)) : ctx.lineTo(x, yOf(b)) } })
+      let lastBid = 0
+      bids.forEach((b, i) => { if (b > 0) { lastBid = b; const x = xOf(times[i]); i === 0 ? ctx.moveTo(x, yOf(b)) : ctx.lineTo(x, yOf(b)) } })
+      if (lastBid > 0 && maxT > times[times.length - 1]) ctx.lineTo(xOf(maxT), yOf(lastBid))
       ctx.stroke()
     }
 
-    // Ask line (red, thin)
+    // Ask line (red, thin) — extend to maxT with last known value
     if (asks.length > 1) {
       ctx.beginPath(); ctx.strokeStyle = 'rgba(251,44,54,0.5)'; ctx.lineWidth = 1
-      asks.forEach((a, i) => { if (a > 0) { const x = xOf(times[i]); i === 0 ? ctx.moveTo(x, yOf(a)) : ctx.lineTo(x, yOf(a)) } })
+      let lastAsk = 0
+      asks.forEach((a, i) => { if (a > 0) { lastAsk = a; const x = xOf(times[i]); i === 0 ? ctx.moveTo(x, yOf(a)) : ctx.lineTo(x, yOf(a)) } })
+      if (lastAsk > 0 && maxT > times[times.length - 1]) ctx.lineTo(xOf(maxT), yOf(lastAsk))
       ctx.stroke()
     }
 
-    // Order/resting price line (dashed white)
+    // Order/resting price line (dashed white) — extend to maxT
     const orderPts = orders.map((o, i) => o != null && o > 0 ? { x: xOf(times[i]), y: yOf(o) } : null).filter(Boolean)
-    if (orderPts.length > 1) {
+    if (orderPts.length > 0) {
       ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1
       ctx.setLineDash([4, 3])
       orderPts.forEach((p, i) => i === 0 ? ctx.moveTo(p!.x, p!.y) : ctx.lineTo(p!.x, p!.y))
+      // Extend last order price to maxT
+      const lastOrd = orders.filter(v => v != null && v > 0).slice(-1)[0]
+      if (lastOrd && maxT > times[times.length - 1]) ctx.lineTo(xOf(maxT), yOf(lastOrd))
       ctx.stroke(); ctx.setLineDash([])
     }
 
@@ -131,8 +141,8 @@ export function ExecutionChart({ status, width = 400, height = 200 }: {
       const sz = 5
 
       if (isLast) {
-        // Square marker for last fill on completion
-        ctx.fillStyle = color
+        // Blue square marker for last fill on completion — same visual size as triangles
+        ctx.fillStyle = '#378ADD'
         ctx.fillRect(x - sz, y - sz, sz * 2, sz * 2)
       } else {
         // Triangle: BUY=up, SELL=down

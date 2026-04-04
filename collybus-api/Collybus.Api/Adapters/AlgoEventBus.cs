@@ -11,7 +11,10 @@ public class AlgoEventBus : IAlgoEventBus
     public AlgoEventBus(IHubContext<CollybusHub> hub) => _hub = hub;
 
     public Task PublishStatusAsync(AlgoStatusReport status)
-        => _hub.Clients.All.SendAsync("AlgoProgress", status);
+    {
+        Console.WriteLine($"[AlgoProgress] sid={status.StrategyId} status={status.Status} bids={status.ChartBids?.Count ?? 0} fills={status.ChartFills?.Count ?? 0} children={status.ChildOrders?.Count ?? 0}");
+        return _hub.Clients.All.SendAsync("AlgoProgress", status);
+    }
 
     public Task PublishFillAsync(AlgoFill fill)
         => _hub.Clients.All.SendAsync("AlgoFillUpdate", fill);

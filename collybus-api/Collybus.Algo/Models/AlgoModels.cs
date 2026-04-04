@@ -16,7 +16,8 @@ public record MarketDataPoint(
 // ── Fill ──────────────────────────────────────────────────────────────────
 public record AlgoFill(
     string StrategyId, string ClientOrderId, string ExchangeOrderId,
-    decimal FillPrice, decimal FillSize, decimal Commission, long Timestamp
+    decimal FillPrice, decimal FillSize, decimal Commission, long Timestamp,
+    string? Tag = null
 );
 
 // ── Order intent ──────────────────────────────────────────────────────────
@@ -70,7 +71,9 @@ public record AlgoParams(
     decimal? RiskAversion = null,
     int? VolatilityLookbackMinutes = null,
     decimal? MarketImpactCoeff = null,
-    string? UrgencyBias = null
+    string? UrgencyBias = null,
+    string? Expiry = null,
+    string? GtdDateTime = null
 );
 
 public record SniperLevel(int Index, decimal Price, decimal AllocationPct, bool Enabled = true);
@@ -165,6 +168,22 @@ public class AlgoStatusReport
     // ICEBERG
     public decimal? VisibleSize { get; set; }
     public int? DetectionRiskScore { get; set; }
+
+    // Child orders blotter
+    public List<ChildOrderSummary>? ChildOrders { get; set; }
+}
+
+public class ChildOrderSummary
+{
+    public long Time { get; set; }
+    public string Side { get; set; } = "";
+    public decimal Size { get; set; }
+    public decimal Price { get; set; }
+    public string Status { get; set; } = "open";
+    public decimal Filled { get; set; }
+    public decimal AvgFillPrice { get; set; }
+    public string? Tag { get; set; }
+    public string ClientOrderId { get; set; } = "";
 }
 
 public class ChartFillPoint

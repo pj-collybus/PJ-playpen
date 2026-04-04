@@ -5,6 +5,7 @@ export interface AlgoModalProps {
   exchange: string; symbol: string; baseCurrency: string; quoteCurrency: string
   tickSize: number; lotSize: number; bid: number; ask: number; mid: number
   initialSide?: 'BUY' | 'SELL'; initialQty?: number
+  qtyPresets?: number[]
   onSubmit: (params: AlgoLaunchParams) => Promise<string>
   onClose: () => void
 }
@@ -15,13 +16,14 @@ export interface AlgoLaunchParams {
   arrivalMid: number; arrivalBid: number; arrivalAsk: number
   durationMinutes?: number; urgency?: string; numSlices?: number
   limitPrice?: number; limitMode?: string; startMode?: string; maxSpreadBps?: number
-  triggerPrice?: number; triggerDirection?: string; scheduleVariancePct?: number
+  triggerPrice?: number; triggerDirection?: string; startScheduled?: string; scheduleVariancePct?: number
   vwapMode?: string; participationBandBps?: number; maxDeviationBps?: number
   sniperMode?: string; levelMode?: string; retriggerMode?: string
   levels?: { index: number; price: number; allocationPct: number; enabled: boolean }[]
   icebergSnipe?: boolean; sniperSlicePct?: number
   postPrice?: number; snipeCeiling?: number; snipeCap?: number
   visibleSize?: number; visibleVariancePct?: number
+  expiry?: string; gtdDateTime?: string
   participationPct?: number; volumeWindowSeconds?: number
 }
 
@@ -64,7 +66,7 @@ function InlineInput({ value, onChange, currency, onUp, onDown }: { value: strin
 
 let savedPos: { x: number; y: number } | null = null
 
-export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickSize, lotSize, bid, ask, mid, initialSide = 'BUY', initialQty, onSubmit, onClose }: AlgoModalProps) {
+export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickSize, lotSize, bid, ask, mid, initialSide = 'BUY', initialQty, qtyPresets, onSubmit, onClose }: AlgoModalProps) {
   const [strat, setStrat] = useState<StrategyType>('TWAP')
   const [side, setSide] = useState<'BUY' | 'SELL'>(initialSide)
   const [qty, setQty] = useState(initialQty?.toString() ?? '')
@@ -79,15 +81,38 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
   const [vwapMode, setVwapMode] = useState('realtime')
   const [bandBps, setBandBps] = useState('20')
   const [maxDevBps, setMaxDevBps] = useState('50')
-  const [sniperMode, setSniperMode] = useState('snipe')
-  const [levelMode, setLevelMode] = useState('sequential')
-  const [levels, setLevels] = useState([{ index: 0, price: String(bid), allocationPct: '100', enabled: true }])
-  const [retrigger, setRetrigger] = useState('same')
-  const [snipeCap, setSnipeCap] = useState('50')
+  const [sniperMode, setSniperMode] = useState<'snipe' | 'post_snipe'>('snipe')
+  const [levelMode, setLevelMode] = useState('simultaneous')
+  const [levels, setLevels] = useState([{ price: String(ask), pct: '100' }])
   const [postPx, setPostPx] = useState(String(bid))
-  const [snipeCeil, setSnipeCeil] = useState(String(ask))
-  const [visSz, setVisSz] = useState('')
+  const [postPct, setPostPct] = useState('50')
+
+  // Sync main price ↔ Sniper L1 price (snipe mode) or Post price (post_snipe mode)
+  useEffect(() => {
+    if (strat !== 'SNIPER') return
+    if (sniperMode === 'snipe' && levels[0]) {
+      if (levels[0].price !== priceRef) setLevels(p => p.map((l, i) => i === 0 ? { ...l, price: priceRef } : l))
+    } else if (sniperMode === 'post_snipe') {
+      if (postPx !== priceRef) setPostPx(priceRef)
+    }
+  }, [priceRef, strat, sniperMode])
+
+  useEffect(() => {
+    if (strat !== 'SNIPER' || sniperMode !== 'snipe') return
+    if (levels[0] && levels[0].price !== priceRef) setPriceRef(levels[0].price)
+  }, [levels[0]?.price])
+
+  useEffect(() => {
+    if (strat !== 'SNIPER' || sniperMode !== 'post_snipe') return
+    if (postPx !== priceRef) setPriceRef(postPx)
+  }, [postPx])
+
+  const [iceSlices, setIceSlices] = useState('10')
+  const [iceSliceMode, setIceSliceMode] = useState<'auto' | 'manual'>('manual')
   const [visVar, setVisVar] = useState('20')
+  const [schedTime, setSchedTime] = useState('')
+  const [iceExpiry, setIceExpiry] = useState<'GTC' | 'Day' | 'GTD'>('GTC')
+  const [iceGtdTime, setIceGtdTime] = useState('')
   const [povPct, setPovPct] = useState('10')
   const [volWin, setVolWin] = useState('60')
   const [submitting, setSubmitting] = useState(false)
@@ -99,6 +124,13 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
   const d = tickDecimals(tickSize)
   const round = (n: number, step: number) => { const dd = Math.max(0, -Math.floor(Math.log10(step))); return parseFloat(n.toFixed(dd)) }
 
+  // Auto-split snipe levels equally (called only on add/remove, not on manual input)
+  const splitLevelsEqually = (lvls: typeof levels, totalPct: number) => {
+    const base = Math.floor(totalPct / lvls.length)
+    const remainder = totalPct - base * lvls.length
+    return lvls.map((l, i) => ({ ...l, pct: String(i === lvls.length - 1 ? base + remainder : base) }))
+  }
+
   const handleSubmit = async () => {
     setSubmitting(true)
     try {
@@ -108,22 +140,25 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
         arrivalMid: mid, arrivalBid: bid, arrivalAsk: ask,
         durationMinutes: ['TWAP','VWAP','ICEBERG','POV'].includes(strat) ? dur : undefined,
         urgency: ['TWAP','VWAP'].includes(strat) ? urg : undefined, startMode,
+        startScheduled: startMode === 'scheduled' && schedTime ? schedTime : undefined,
         triggerPrice: startMode === 'trigger' ? parseFloat(trigPx) : undefined,
         triggerDirection: startMode === 'trigger' ? trigDir : undefined,
-        limitMode: limMode !== 'none' ? limMode : undefined,
-        limitPrice: limMode !== 'none' && limPx ? parseFloat(limPx) : undefined,
+        limitMode: strat === 'ICEBERG' ? 'hard_limit' : (limMode !== 'none' ? limMode : undefined),
+        limitPrice: strat === 'ICEBERG' ? parseFloat(priceRef) : (limMode !== 'none' && limPx ? parseFloat(limPx) : undefined),
         vwapMode: strat === 'VWAP' ? vwapMode : undefined,
         participationBandBps: strat === 'VWAP' ? parseFloat(bandBps) : undefined,
         maxDeviationBps: strat === 'VWAP' ? parseFloat(maxDevBps) : undefined,
         sniperMode: strat === 'SNIPER' ? sniperMode : undefined,
         levelMode: strat === 'SNIPER' ? levelMode : undefined,
-        levels: strat === 'SNIPER' ? levels.map((l, i) => ({ index: i, price: parseFloat(l.price), allocationPct: parseFloat(l.allocationPct), enabled: l.enabled })) : undefined,
-        retriggerMode: strat === 'SNIPER' ? retrigger : undefined,
-        snipeCap: sniperMode === 'post_snipe' ? parseFloat(snipeCap) : undefined,
-        postPrice: sniperMode === 'post_snipe' ? parseFloat(postPx) : undefined,
-        snipeCeiling: sniperMode === 'post_snipe' ? parseFloat(snipeCeil) : undefined,
-        visibleSize: strat === 'ICEBERG' && visSz ? parseFloat(visSz) : undefined,
+        levels: strat === 'SNIPER' ? levels.map((l, i) => ({ index: i, price: parseFloat(l.price), allocationPct: parseFloat(l.pct), enabled: true })) : undefined,
+        postPrice: strat === 'SNIPER' && sniperMode === 'post_snipe' ? parseFloat(postPx) : undefined,
+        snipeCap: strat === 'SNIPER' && sniperMode === 'post_snipe' ? (100 - (parseFloat(postPct) || 50)) : undefined,
+        visibleSize: strat === 'ICEBERG'
+          ? q / Math.max(1, parseInt(iceSlices) || 10)
+          : undefined,
         visibleVariancePct: strat === 'ICEBERG' ? parseFloat(visVar) : undefined,
+        expiry: strat === 'ICEBERG' ? iceExpiry : undefined,
+        gtdDateTime: strat === 'ICEBERG' && iceExpiry === 'GTD' && iceGtdTime ? iceGtdTime : undefined,
         participationPct: strat === 'POV' ? parseFloat(povPct) : undefined,
         volumeWindowSeconds: strat === 'POV' ? parseInt(volWin) : undefined,
       }
@@ -160,7 +195,7 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
           <div style={{ background: S.panel, border: `1px solid ${S.border}`, borderRadius: 6, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 1fr', gap: 8 }}>
               <span style={colH}>SIDE</span><span style={colH}>AMOUNT</span>
-              <span style={colH}>{strat === 'SNIPER' ? 'TRIGGER' : 'REF PRICE'}</span>
+              <span style={colH}>{strat === 'SNIPER' ? 'TRIGGER' : strat === 'ICEBERG' ? 'LIMIT PRICE' : 'REF PRICE'}</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 1fr', gap: 8, alignItems: 'center' }}>
               <div style={{ display: 'flex', height: 32 }}>
@@ -193,7 +228,7 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
           </div>
 
           {/* Duration */}
-          {['TWAP','VWAP','ICEBERG','POV'].includes(strat) && <div>{lbl('Duration')}<div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          {['TWAP','VWAP','POV'].includes(strat) && <div>{lbl('Duration')}<div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             {DUR.map(dd => <button key={dd} onClick={() => setDur(dd)} style={{ padding: '4px 10px', border: 'none', borderRadius: 4, background: dur === dd ? S.gradAction : S.gradSec, color: dur === dd ? '#fff' : S.muted, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>{dd}m</button>)}
             <input type="number" value={dur} onChange={e => setDur(parseInt(e.target.value) || 5)} style={{ ...inp, width: 60, textAlign: 'center' }} />
           </div></div>}
@@ -210,30 +245,139 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
           </div>}
 
           {/* Sniper */}
-          {strat === 'SNIPER' && <div style={{ background: '#1F1E23', border: `1px solid ${S.border}`, borderRadius: 6, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <div>{lbl('Mode')}<select value={sniperMode} onChange={e => setSniperMode(e.target.value)} style={sel}><option value="snipe">Snipe</option><option value="post_snipe">Post+Snipe</option></select></div>
-              <div>{lbl('Level Mode')}<select value={levelMode} onChange={e => setLevelMode(e.target.value)} style={sel}><option value="sequential">Sequential</option><option value="simultaneous">Simultaneous</option></select></div>
+          {strat === 'SNIPER' && (() => {
+            const q = parseFloat(qty || '0')
+            const lvlTotal = levels.reduce((s, l) => s + (parseFloat(l.pct) || 0), 0)
+            const allTotal = sniperMode === 'post_snipe' ? (parseFloat(postPct) || 0) + lvlTotal : lvlTotal
+            const totalOk = Math.abs(allTotal - 100) < 0.1
+            return <div style={{ background: '#1F1E23', border: `1px solid ${S.border}`, borderRadius: 6, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {/* Mode toggle — same style as BUY/SELL buttons */}
+              <div style={{ display: 'flex', height: 32 }}>
+                {(['snipe', 'post_snipe'] as const).map(m => <button key={m} onClick={() => setSniperMode(m)} style={{
+                  flex: 1, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 700,
+                  borderRadius: m === 'snipe' ? '4px 0 0 4px' : '0 4px 4px 0',
+                  background: sniperMode === m ? S.gradAction : '#1a1a22',
+                  color: sniperMode === m ? '#fff' : S.muted,
+                  border: sniperMode === m ? 'none' : `1px solid ${S.border}`,
+                  boxShadow: sniperMode === m ? 'inset 0px 2px 1px rgba(255,255,255,0.15), inset 0px -2px 1px rgba(0,0,0,0.25)' : 'none',
+                }}>{m === 'snipe' ? 'SNIPE' : 'POST + SNIPE'}</button>)}
+              </div>
+
+              {/* Post section (post_snipe only) */}
+              {sniperMode === 'post_snipe' && <div style={{ background: '#181820', border: `1px solid ${S.border}`, borderRadius: 4, padding: 8 }}>
+                <div style={{ fontSize: 9, color: S.muted, fontWeight: 700, marginBottom: 6 }}>PASSIVE POST</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 8, alignItems: 'end' }}>
+                  <div>
+                    <span style={{ fontSize: 8, color: S.muted }}>Limit Price</span>
+                    <InlineInput value={postPx} onChange={setPostPx} currency={quoteCurrency}
+                      onUp={() => setPostPx(round(parseFloat(postPx||'0') + tickSize, tickSize).toFixed(d))}
+                      onDown={() => setPostPx(round(Math.max(0, parseFloat(postPx||'0') - tickSize), tickSize).toFixed(d))} />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 8, color: S.muted }}>Post %</span>
+                    <InlineInput value={postPct} onChange={v => setPostPct(v)} currency="%"
+                      onUp={() => setPostPct(String(Math.min(99, (parseFloat(postPct)||50) + 1)))}
+                      onDown={() => setPostPct(String(Math.max(1, (parseFloat(postPct)||50) - 1)))} />
+                  </div>
+                </div>
+                {q > 0 && <div style={{ fontSize: 9, color: S.muted, marginTop: 4 }}>Post size: <span style={{ color: S.text }}>{(q * (parseFloat(postPct)||0) / 100).toFixed(2)}</span> {baseCurrency}</div>}
+              </div>}
+
+              {/* Snipe levels */}
+              <div>
+                <div style={{ fontSize: 9, color: S.muted, fontWeight: 700, marginBottom: 6 }}>
+                  {sniperMode === 'snipe' ? 'SNIPE LEVELS' : 'SNIPE LEVELS'}
+                </div>
+                {levels.map((lv, i) => <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'end' }}>
+                  <span style={{ fontSize: 9, color: S.blue, fontWeight: 700, minWidth: 20, paddingBottom: 8 }}>L{i + 1}</span>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontSize: 8, color: S.muted }}>{i === 0 && sniperMode === 'snipe' ? 'Trigger / L1 Price' : 'Price'}</span>
+                    <InlineInput value={lv.price}
+                      onChange={v => setLevels(p => p.map((l, j) => j === i ? { ...l, price: v } : l))}
+                      currency={quoteCurrency}
+                      onUp={() => setLevels(p => p.map((l, j) => j === i ? { ...l, price: round(parseFloat(l.price||'0') + tickSize, tickSize).toFixed(d) } : l))}
+                      onDown={() => setLevels(p => p.map((l, j) => j === i ? { ...l, price: round(Math.max(0, parseFloat(l.price||'0') - tickSize), tickSize).toFixed(d) } : l))} />
+                  </div>
+                  <div style={{ width: 70 }}>
+                    <span style={{ fontSize: 8, color: S.muted }}>Alloc %</span>
+                    <InlineInput value={lv.pct}
+                      onChange={v => setLevels(p => p.map((l, j) => j === i ? { ...l, pct: v } : l))}
+                      currency="%"
+                      onUp={() => setLevels(p => p.map((l, j) => j === i ? { ...l, pct: String(Math.min(100, (parseFloat(l.pct)||0) + 1)) } : l))}
+                      onDown={() => setLevels(p => p.map((l, j) => j === i ? { ...l, pct: String(Math.max(1, (parseFloat(l.pct)||0) - 1)) } : l))} />
+                  </div>
+                  {q > 0 && <span style={{ fontSize: 8, color: S.muted, minWidth: 50, paddingBottom: 8, textAlign: 'right' }}>{(q * (parseFloat(lv.pct)||0) / 100).toFixed(1)}</span>}
+                  {levels.length > 1 && <button onClick={() => {
+                    const snipePct = sniperMode === 'post_snipe' ? 100 - (parseFloat(postPct) || 50) : 100
+                    setLevels(p => splitLevelsEqually(p.filter((_, j) => j !== i), snipePct))
+                  }} style={{ background: 'none', border: 'none', color: S.negative, cursor: 'pointer', fontSize: 14, paddingBottom: 6 }}>×</button>}
+                </div>)}
+                <button onClick={() => {
+                  const snipePct = sniperMode === 'post_snipe' ? 100 - (parseFloat(postPct) || 50) : 100
+                  setLevels(p => splitLevelsEqually([...p, { price: String(ask), pct: '0' }], snipePct))
+                }} style={{ background: S.gradSec, border: `1px solid ${S.border}`, borderRadius: 4, color: S.muted, fontSize: 10, padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>+ Add Level</button>
+              </div>
+
+              {/* Allocation total */}
+              <div style={{ fontSize: 10, color: totalOk ? S.positive : S.negative, fontWeight: 600 }}>
+                {sniperMode === 'post_snipe' && `Post: ${postPct}% + `}
+                {levels.map((l, i) => `L${i+1}: ${l.pct}%`).join(' + ')}
+                {` = ${allTotal.toFixed(0)}% `}
+                {totalOk ? '✓' : '✗'}
+              </div>
             </div>
-            {sniperMode === 'snipe' && <>{lbl('Levels')}{levels.map((lv, i) => <div key={i} style={{ display: 'flex', gap: 4, marginBottom: 4, alignItems: 'center' }}>
-              <input type="checkbox" checked={lv.enabled} onChange={e => setLevels(p => p.map((l, j) => j === i ? { ...l, enabled: e.target.checked } : l))} />
-              <input value={lv.price} placeholder="Price" onChange={e => setLevels(p => p.map((l, j) => j === i ? { ...l, price: e.target.value } : l))} style={{ ...inp, width: 100 }} />
-              <input value={lv.allocationPct} placeholder="%" onChange={e => setLevels(p => p.map((l, j) => j === i ? { ...l, allocationPct: e.target.value } : l))} style={{ ...inp, width: 50 }} /><span style={{ fontSize: 10, color: S.muted }}>%</span>
-              {levels.length > 1 && <button onClick={() => setLevels(p => p.filter((_, j) => j !== i))} style={{ background: 'none', border: 'none', color: S.negative, cursor: 'pointer', fontSize: 14 }}>×</button>}
-            </div>)}
-            <button onClick={() => setLevels(p => [...p, { index: p.length, price: '', allocationPct: '', enabled: true }])} style={{ background: S.gradSec, border: `1px solid ${S.border}`, borderRadius: 4, color: S.muted, fontSize: 10, padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>+ Level</button>
-            <div>{lbl('Retrigger')}<select value={retrigger} onChange={e => setRetrigger(e.target.value)} style={sel}><option value="same">Same price</option><option value="better">Better price</option><option value="vwap">VWAP chase</option></select></div></>}
-            {sniperMode === 'post_snipe' && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-              <div>{lbl('Post Price')}<input value={postPx} onChange={e => setPostPx(e.target.value)} style={inp} /></div>
-              <div>{lbl('Snipe Ceiling')}<input value={snipeCeil} onChange={e => setSnipeCeil(e.target.value)} style={inp} /></div>
-              <div>{lbl('Snipe Cap %')}<input value={snipeCap} onChange={e => setSnipeCap(e.target.value)} style={inp} /></div>
-            </div>}
-          </div>}
+          })()}
 
           {/* Iceberg */}
-          {strat === 'ICEBERG' && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, background: '#1F1E23', border: `1px solid ${S.border}`, borderRadius: 6, padding: 10 }}>
-            <div>{lbl('Visible Size')}<input value={visSz} onChange={e => setVisSz(e.target.value)} placeholder="Auto" style={inp} /></div>
-            <div>{lbl('Variance %')}<input value={visVar} onChange={e => setVisVar(e.target.value)} style={inp} /></div>
+          {strat === 'ICEBERG' && <div style={{ background: '#1F1E23', border: `1px solid ${S.border}`, borderRadius: 6, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Qty presets */}
+            {qtyPresets && qtyPresets.length > 0 && <div style={{ display: 'flex', gap: 4 }}>
+              {qtyPresets.map(p => <button key={p} onClick={() => setQty(String(p))} style={{ padding: '3px 10px', border: 'none', borderRadius: 4, background: qty === String(p) ? S.gradAction : S.gradSec, color: qty === String(p) ? '#fff' : S.muted, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>{p}</button>)}
+            </div>}
+            {/* Slices + mode — single row, buttons aligned with input */}
+            {lbl('Slices')}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {(['auto','manual'] as const).map(m => <button key={m} onClick={() => setIceSliceMode(m)} style={{
+                padding: '0 12px', height: 32, border: 'none', borderRadius: 4,
+                background: iceSliceMode === m ? S.gradAction : S.gradSec,
+                color: iceSliceMode === m ? '#fff' : S.muted,
+                fontSize: 9, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', textTransform: 'capitalize',
+              }}>{m}</button>)}
+              <div style={{ width: 120, opacity: iceSliceMode === 'auto' ? 0.4 : 1 }}>
+                <InlineInput value={iceSlices}
+                  onChange={v => { if (iceSliceMode === 'manual') setIceSlices(v) }}
+                  currency="#"
+                  onUp={() => { if (iceSliceMode === 'manual') setIceSlices(String(Math.max(1, (parseInt(iceSlices)||10) + 1))) }}
+                  onDown={() => { if (iceSliceMode === 'manual') setIceSlices(String(Math.max(1, (parseInt(iceSlices)||10) - 1))) }} />
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: S.muted }}>
+              Each slice {'\u2248'} <span style={{ color: S.text, fontWeight: 600 }}>{((parseFloat(qty||'0') / Math.max(1, parseInt(iceSlices)||10)) || 0).toFixed(2)}</span> {baseCurrency}
+            </div>
+            {/* Size variance */}
+            <div>
+              <span style={{ ...colH, display: 'block', marginBottom: 2 }}>SIZE VARIANCE %</span>
+              <span style={{ fontSize: 8, color: S.muted, display: 'block', marginBottom: 4 }}>Randomises slice size ± this %</span>
+              <div style={{ maxWidth: 140 }}>
+                <InlineInput value={visVar} onChange={setVisVar} currency="%"
+                  onUp={() => setVisVar(String(Math.min(50, (parseInt(visVar)||20) + 5)))}
+                  onDown={() => setVisVar(String(Math.max(0, (parseInt(visVar)||20) - 5)))} />
+              </div>
+            </div>
+            {/* Expiry */}
+            <div>
+              {lbl('Expiry')}
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                {(['GTC','Day','GTD'] as const).map(e => <button key={e} onClick={() => setIceExpiry(e)} style={{
+                  padding: '5px 12px', border: 'none', borderRadius: 4,
+                  background: iceExpiry === e ? S.gradAction : S.gradSec,
+                  color: iceExpiry === e ? '#fff' : S.muted,
+                  fontSize: 10, fontWeight: iceExpiry === e ? 700 : 400, cursor: 'pointer', fontFamily: 'inherit',
+                }}>{e === 'Day' ? 'End of Day' : e}</button>)}
+              </div>
+              {iceExpiry === 'GTD' && <input type="datetime-local" value={iceGtdTime} onChange={e => setIceGtdTime(e.target.value)}
+                style={{ ...inp, marginTop: 6, colorScheme: 'dark', maxWidth: 220 }} />}
+            </div>
           </div>}
 
           {/* POV */}
@@ -242,17 +386,24 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
             <div>{lbl('Volume Window (s)')}<input value={volWin} onChange={e => setVolWin(e.target.value)} style={inp} /></div>
           </div>}
 
-          {/* Limit */}
-          <div>{lbl('Limit')}<div style={{ display: 'flex', gap: 4 }}>
+          {/* Limit — not shown for Iceberg or Sniper */}
+          {strat !== 'ICEBERG' && strat !== 'SNIPER' && <div>{lbl('Limit')}<div style={{ display: 'flex', gap: 4 }}>
             {['none','market_limit','average_rate'].map(m => <button key={m} onClick={() => setLimMode(m)} style={{ flex: 1, padding: '5px 0', border: 'none', borderRadius: 4, background: limMode === m ? S.gradAction : S.gradSec, color: limMode === m ? '#fff' : S.muted, fontSize: 9, cursor: 'pointer', fontFamily: 'inherit' }}>{m === 'none' ? 'None' : m === 'market_limit' ? 'Mkt Limit' : 'Avg Rate'}</button>)}
-          </div>{limMode !== 'none' && <input value={limPx} onChange={e => setLimPx(e.target.value)} placeholder="Limit price" style={{ ...inp, marginTop: 6 }} />}</div>
+          </div>{limMode !== 'none' && <input value={limPx} onChange={e => setLimPx(e.target.value)} placeholder="Limit price" style={{ ...inp, marginTop: 6 }} />}</div>}
 
           {/* Start */}
           <div>{lbl('Start')}<div style={{ display: 'flex', gap: 4 }}>
             {(['immediate','scheduled','trigger'] as StartMode[]).map(m => <button key={m} onClick={() => setStartMode(m)} style={{ flex: 1, padding: '5px 0', border: 'none', borderRadius: 4, background: startMode === m ? S.gradAction : S.gradSec, color: startMode === m ? '#fff' : S.muted, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit', textTransform: 'capitalize' }}>{m}</button>)}
           </div>
+          {startMode === 'scheduled' && <div style={{ marginTop: 8 }}>
+            <input type="datetime-local" value={schedTime} onChange={e => setSchedTime(e.target.value)}
+              style={{ ...inp, colorScheme: 'dark' }} />
+          </div>}
           {startMode === 'trigger' && <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <select value={trigDir} onChange={e => setTrigDir(e.target.value as 'above' | 'below')} style={{ ...sel, width: 90 }}><option value="above">Above</option><option value="below">Below</option></select>
+            <select value={trigDir} onChange={e => setTrigDir(e.target.value as 'above' | 'below')} style={{ ...sel, width: 120 }}>
+              <option value="above">Price Above</option>
+              <option value="below">Price Below</option>
+            </select>
             <input value={trigPx} onChange={e => setTrigPx(e.target.value)} placeholder="Trigger price" style={inp} />
           </div>}
           </div>

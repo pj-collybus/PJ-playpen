@@ -41,15 +41,17 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
   useEffect(() => { monitorPositions[status.strategyId] = pos }, [pos, status.strategyId])
   useEffect(() => { if (showChart && !chartDetached) setChartPos({ x: pos.x + 360, y: pos.y }) }, [pos, showChart, chartDetached])
 
-  // ResizeObserver to match chart panel height to monitor panel
+  const [lockedHeight, setLockedHeight] = useState(0)
+
+  // Capture panel height once after first render — lock it forever
   useEffect(() => {
     const el = monitorRef.current
     if (!el) return
-    const update = () => setPanelHeight(el.getBoundingClientRect().height)
-    update()
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    return () => ro.disconnect()
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const h = el.getBoundingClientRect().height
+      setLockedHeight(h)
+      setPanelHeight(h)
+    }))
   }, [])
 
   const pct = status.totalSize > 0 ? Math.min(100, (status.filledSize / status.totalSize) * 100) : 0
@@ -72,7 +74,9 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
         width: 350, background: S.bg, border: `1px solid ${S.border}`,
         borderLeft: `3px solid ${statusColor}`, borderRadius: 8,
         boxShadow: '0 12px 40px rgba(0,0,0,0.8)', userSelect: 'none',
-        maxHeight: '85vh', overflowY: 'auto',
+        height: lockedHeight > 0 ? lockedHeight : undefined,
+        maxHeight: '85vh', overflow: 'hidden',
+        display: 'flex', flexDirection: 'column',
       }}>
         {/* Header — draggable */}
         <div
@@ -99,8 +103,8 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
                 borderRadius: 4, color: showChart ? S.blue : S.muted, cursor: 'pointer', fontSize: 9, fontWeight: 700, padding: '2px 6px', fontFamily: 'inherit',
               }}>CHART</button>
               <button onClick={() => setShowOrders(v => !v)} title="Orders" style={{
-                background: 'none', border: '1px solid #363C4E', borderRadius: 4,
-                color: S.muted, cursor: 'pointer', fontSize: 9, padding: '2px 6px', fontFamily: 'inherit',
+                background: showOrders ? 'rgba(43,121,221,0.2)' : 'none', border: showOrders ? '1px solid rgba(43,121,221,0.4)' : '1px solid #363C4E',
+                borderRadius: 4, color: showOrders ? S.blue : S.muted, cursor: 'pointer', fontSize: 9, fontWeight: 700, padding: '2px 6px', fontFamily: 'inherit',
               }}>FILLS</button>
               <button onClick={() => onClose(status.strategyId)} style={{
                 background: 'none', border: 'none', color: S.muted, cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '0 2px',
@@ -125,14 +129,17 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
           <div style={{ height: '100%', borderRadius: 2, width: `${pct}%`, background: isDone ? statusColor : sideColor, transition: 'width 0.5s' }} />
         </div>
 
-        {/* Metrics grid */}
-        <MetricsGrid s={status} />
-
-        {/* Strategy-specific metrics */}
-        <StrategyMetrics s={status} />
-
-        {/* Child orders table */}
-        {showOrders && <ChildOrdersTable fills={status.fills} />}
+        {/* Metrics or Fills view — toggle between them, scrollable within fixed panel */}
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+          {showOrders ? (
+            <ChildOrdersTable orders={status.childOrders} />
+          ) : (
+            <>
+              <MetricsGrid s={status} />
+              <StrategyMetrics s={status} />
+            </>
+          )}
+        </div>
 
         {/* Error */}
         {status.errorMessage && <div style={{ margin: '4px 10px', padding: '4px 8px', background: 'rgba(251,44,54,0.1)', border: '1px solid rgba(251,44,54,0.3)', borderRadius: 4, fontSize: 9, color: S.negative }}>{status.errorMessage}</div>}

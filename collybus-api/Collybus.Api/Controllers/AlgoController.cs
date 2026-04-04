@@ -21,18 +21,23 @@ public class AlgoController(AlgoEngine engine) : ControllerBase
     [HttpPost("start")]
     public async Task<IActionResult> Start([FromBody] AlgoParams p)
     {
-        Console.WriteLine($"[AlgoController] Start received: type={p.StrategyType} exchange={p.Exchange} symbol={p.Symbol} side={p.Side}");
-        Console.WriteLine($"[AlgoController]   totalSize={p.TotalSize} sniperMode={p.SniperMode} levelMode={p.LevelMode}");
-        Console.WriteLine($"[AlgoController]   postPrice={p.PostPrice} snipeCeiling={p.SnipeCeiling} snipeCap={p.SnipeCap}");
-        Console.WriteLine($"[AlgoController]   levels={p.Levels?.Count ?? 0}: {string.Join(", ", p.Levels?.Select(l => $"L{l.Index}@{l.Price}/{l.AllocationPct}%") ?? [])}");
-
-        if (string.IsNullOrEmpty(p.StrategyType)) return BadRequest("strategyType required");
         try
         {
+            Console.WriteLine($"[AlgoController] Start: type={p.StrategyType} exchange={p.Exchange} symbol={p.Symbol} side={p.Side} " +
+                $"total={p.TotalSize} startMode={p.StartMode} urgency={p.Urgency}");
+            Console.WriteLine($"[AlgoController]   iceberg: visibleSize={p.VisibleSize} varianceBps={p.VisibleVariancePct} limitPrice={p.LimitPrice}");
+            Console.WriteLine($"[AlgoController]   sniper: mode={p.SniperMode} levels={p.Levels?.Count ?? 0}");
+            Console.WriteLine($"[AlgoController]   vwap: mode={p.VwapMode} | pov: pct={p.ParticipationPct}");
+
+            if (string.IsNullOrEmpty(p.StrategyType)) return BadRequest(new { ok = false, error = "strategyType required" });
             var sid = await engine.StartStrategyAsync(p);
             return Ok(new { ok = true, strategyId = sid });
         }
-        catch (Exception ex) { return Ok(new { ok = false, error = ex.Message }); }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[AlgoController] ERROR: {ex}");
+            return BadRequest(new { ok = false, error = ex.Message, stack = ex.StackTrace });
+        }
     }
 
     [HttpGet("status")]

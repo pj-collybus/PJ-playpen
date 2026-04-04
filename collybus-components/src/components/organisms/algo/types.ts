@@ -36,6 +36,14 @@ export interface AlgoStatusReport {
   tickSize?: number
   // Fills list
   fills?: FillEntry[]
+  // Child orders blotter
+  childOrders?: ChildOrder[]
+}
+
+export interface ChildOrder {
+  time: number; side: string; size: number; price: number
+  status: string; filled: number; avgFillPrice?: number
+  tag?: string; clientOrderId?: string
 }
 
 export interface LevelState {

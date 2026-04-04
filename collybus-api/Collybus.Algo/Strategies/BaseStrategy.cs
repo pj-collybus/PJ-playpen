@@ -37,7 +37,7 @@ public abstract class BaseStrategy : IAlgoStrategy
     // Chart + fills
     protected readonly List<AlgoFill> Fills = new();
     protected readonly Dictionary<string, OrderIntent> PendingOrders = new();
-    protected int ConsecutiveRejections { get; private set; }
+    protected int ConsecutiveRejections { get; set; }
     protected long StartedAt { get; private set; }
     protected long UpdatedAt { get; private set; }
 
@@ -48,6 +48,7 @@ public abstract class BaseStrategy : IAlgoStrategy
     private readonly List<decimal?> _chartOrder = new();
     private readonly List<decimal> _chartVwap = new();
     private readonly List<ChartFillPoint> _chartFills = new();
+    private readonly List<ChildOrderSummary> _childOrders = new();
     private const int MaxChartPoints = 3600;
     protected decimal? RestingPrice { get; set; }
 
@@ -130,14 +131,15 @@ public abstract class BaseStrategy : IAlgoStrategy
             CheckTrigger(data);
 
         // Chart sampling — sample once per second from ticker updates (not trade-only messages)
-        if (data.Bid > 0 && data.Ask > 0 && Status is not (AlgoStatus.Completed or AlgoStatus.Stopped))
+        if (data.Bid > 0 && data.Ask > 0 && data.Bid < data.Ask
+            && (data.Ask - data.Bid) / data.Bid <= 0.05m) // skip if spread > 5%
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             if (_chartTimes.Count == 0 || now - _chartTimes[^1] >= 900)
             {
                 _chartTimes.Add(now);
-                _chartBids.Add(CurrentBid);
-                _chartAsks.Add(CurrentAsk);
+                _chartBids.Add(data.Bid);
+                _chartAsks.Add(data.Ask);
                 _chartOrder.Add(RestingPrice > 0 ? RestingPrice : null);
                 _chartVwap.Add(MarketVwap > 0 ? MarketVwap : 0);
                 if (_chartTimes.Count > MaxChartPoints)
@@ -153,39 +155,63 @@ public abstract class BaseStrategy : IAlgoStrategy
     public virtual void OnFill(AlgoFill fill)
     {
         if (fill.FillSize <= 0) return;
-        if (Status is AlgoStatus.Completed or AlgoStatus.Stopped) return;
 
-        // Overfill protection — cap to remaining size
-        var effectiveSize = Math.Min(fill.FillSize, RemainingSize);
-        if (effectiveSize <= 0) return;
-        if (effectiveSize < fill.FillSize)
-            Logger.LogWarning("[{Type}] {Sid} overfill capped: {Actual} → {Capped} (remaining was {Rem})",
-                StrategyType, StrategyId, fill.FillSize, effectiveSize, RemainingSize);
+        // Get order tag before any removal
+        var fillTag = PendingOrders.TryGetValue(fill.ClientOrderId, out var intent) ? intent.Tag : null;
 
+        // ALWAYS record chart fill FIRST — before any guard, before completion check
+        _chartFills.Add(new ChartFillPoint
+        {
+            Time = fill.Timestamp,
+            Price = fill.FillPrice,
+            Size = fill.FillSize,
+            Side = Params?.Side ?? "BUY",
+            FillType = fillTag ?? "fill",
+        });
+
+        // Update child order blotter even if completed (so UI sees all fills)
+        var childOrder = _childOrders.FindLast(c => c.ClientOrderId == fill.ClientOrderId);
+        if (childOrder != null)
+        {
+            childOrder.Filled += fill.FillSize;
+            childOrder.AvgFillPrice = fill.FillPrice;
+            childOrder.Status = "filled";
+        }
+
+        if (Status is AlgoStatus.Completed or AlgoStatus.Stopped)
+        {
+            Logger.LogWarning("[{Type}] {Sid} fill after {Status}: {Size}@{Price} (chart recorded, accounting skipped)",
+                StrategyType, StrategyId, Status, fill.FillSize, fill.FillPrice);
+            return;
+        }
+
+        // Overfill protection — cap to remaining
+        var effectiveSize = Math.Min(fill.FillSize, Math.Max(RemainingSize, 0));
+        if (effectiveSize <= 0)
+        {
+            Logger.LogWarning("[{Type}] {Sid} fill capped to 0: fillSize={Raw} remaining={Rem}",
+                StrategyType, StrategyId, fill.FillSize, RemainingSize);
+            return;
+        }
+
+        var beforeFilled = FilledSize;
         FilledSize += effectiveSize;
         _weightedFillPrice += fill.FillPrice * effectiveSize;
         if (FirstFillPrice == 0) FirstFillPrice = fill.FillPrice;
         LastFillPrice = fill.FillPrice;
         ConsecutiveRejections = 0;
         UpdatedAt = fill.Timestamp;
-        var recordedFill = effectiveSize < fill.FillSize
-            ? fill with { FillSize = effectiveSize }
-            : fill;
-        Fills.Add(recordedFill);
+
         PendingOrders.Remove(fill.ClientOrderId);
+        var recordedFill = effectiveSize < fill.FillSize
+            ? fill with { FillSize = effectiveSize, Tag = fillTag }
+            : fill with { Tag = fillTag };
+        Fills.Add(recordedFill);
 
-        // Chart fill point
-        _chartFills.Add(new ChartFillPoint
-        {
-            Time = fill.Timestamp,
-            Price = fill.FillPrice,
-            Size = effectiveSize,
-            Side = Params?.Side ?? "BUY",
-            FillType = fill.ClientOrderId.Contains("snipe") ? "snipe" : null,
-        });
-
-        Logger.LogInformation("[{Type}] {Sid} fill: {Size}@{Price} total={Filled}/{Total}",
-            StrategyType, StrategyId, effectiveSize, fill.FillPrice, FilledSize, Params.TotalSize);
+        Logger.LogInformation("[{Type}] {Sid} fill: raw={Raw} capped={Capped}@{Price} remaining={RemBefore}→{RemAfter} filled={Before}→{After}/{Total}",
+            StrategyType, StrategyId, fill.FillSize, effectiveSize, fill.FillPrice,
+            beforeFilled > 0 ? Params.TotalSize - beforeFilled : Params.TotalSize, RemainingSize,
+            beforeFilled, FilledSize, Params.TotalSize);
 
         OnFillReceived(recordedFill);
 
@@ -193,6 +219,8 @@ public abstract class BaseStrategy : IAlgoStrategy
         {
             Status = AlgoStatus.Completed;
             OnCompleted();
+            // Force immediate status push so UI gets final state with all fills
+            try { _ = Events.PublishStatusAsync(GetStatus()); } catch { }
         }
     }
 
@@ -200,6 +228,8 @@ public abstract class BaseStrategy : IAlgoStrategy
     {
         ConsecutiveRejections++;
         PendingOrders.Remove(clientOrderId);
+        var co = _childOrders.FindLast(c => c.ClientOrderId == clientOrderId);
+        if (co != null) co.Status = "rejected";
         Logger.LogWarning("[{Type}] {Sid} rejected: {Reason} (x{N})",
             StrategyType, StrategyId, reason, ConsecutiveRejections);
 
@@ -221,12 +251,28 @@ public abstract class BaseStrategy : IAlgoStrategy
         try
         {
             PendingOrders[intent.ClientOrderId] = intent;
+            // Track child order for blotter
+            _childOrders.Add(new ChildOrderSummary
+            {
+                Time = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Side = intent.Side,
+                Size = intent.Quantity,
+                Price = intent.LimitPrice ?? 0,
+                Status = "open",
+                Tag = intent.Tag,
+                ClientOrderId = intent.ClientOrderId,
+            });
+            if (_childOrders.Count > 200) _childOrders.RemoveAt(0);
+
             var exchangeId = await Orders.SubmitAsync(intent);
             return exchangeId;
         }
         catch (Exception ex)
         {
             PendingOrders.Remove(intent.ClientOrderId);
+            // Mark child order as rejected
+            var co = _childOrders.FindLast(c => c.ClientOrderId == intent.ClientOrderId);
+            if (co != null) co.Status = "rejected";
             Logger.LogError(ex, "[{Type}] {Sid} submit failed", StrategyType, StrategyId);
             return null;
         }
@@ -303,6 +349,8 @@ public abstract class BaseStrategy : IAlgoStrategy
             ChartOrder = _chartOrder.ToList(),
             ChartFills = _chartFills.ToList(),
             ChartVwap = _chartVwap.ToList(),
+            // Child orders blotter
+            ChildOrders = _childOrders.TakeLast(50).Reverse().ToList(),
         };
         // Let strategy subclass populate extra fields
         PopulateStrategyState(report);
