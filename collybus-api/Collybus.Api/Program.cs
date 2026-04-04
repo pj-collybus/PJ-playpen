@@ -69,6 +69,39 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHub<CollybusHub>("/hub");
 
+// Wire fill routing: adapter fills → algo engine
+{
+    var algoEngine = app.Services.GetRequiredService<Collybus.Algo.Engine.AlgoEngine>();
+    var algoOrderPort = app.Services.GetRequiredService<Collybus.Algo.Ports.IOrderPort>() as Collybus.Api.Adapters.AlgoOrderPort;
+    var exchangeAdapters = app.Services.GetRequiredService<IEnumerable<IExchangeAdapter>>();
+
+    foreach (var adapter in exchangeAdapters)
+    {
+        if (adapter is BaseExchangeAdapter baseAdapter)
+        {
+            baseAdapter.OnAlgoFill = fill =>
+            {
+                if (algoOrderPort == null) return;
+                // Resolve venue order ID to (clientOrderId, strategyId)
+                var resolved = algoOrderPort.ResolveVenueOrderId(fill.OrderId);
+                if (resolved == null) return; // Not an algo order
+
+                var (clientOrderId, strategyId) = resolved.Value;
+                var algoFill = new Collybus.Algo.Models.AlgoFill(
+                    StrategyId: strategyId,
+                    ClientOrderId: clientOrderId,
+                    ExchangeOrderId: fill.FillId,
+                    FillPrice: fill.FillPrice,
+                    FillSize: fill.FillSize,
+                    Commission: fill.Commission,
+                    Timestamp: fill.FillTs
+                );
+                _ = algoEngine.PushFillAsync(algoFill);
+            };
+        }
+    }
+}
+
 // Auto-connect private channels for saved keys with status "ok"
 app.Lifetime.ApplicationStarted.Register(() => Task.Run(async () =>
 {

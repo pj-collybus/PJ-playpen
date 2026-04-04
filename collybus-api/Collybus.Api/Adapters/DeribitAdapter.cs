@@ -459,6 +459,7 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
                 CommissionAsset = t["fee_currency"]?.GetValue<string>() ?? "",
             };
             _ = Hub.Clients.All.SendAsync("FillUpdate", fill);
+            OnAlgoFill?.Invoke(fill);
         }
     }
 

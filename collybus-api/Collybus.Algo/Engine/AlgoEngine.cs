@@ -108,16 +108,21 @@ public class AlgoEngine : BackgroundService
             case StartMessage m when _strategies.TryGetValue(m.StrategyId, out var s):
                 await s.StartAsync(m.Params, new SimInterceptOrderPort(_orders, _sim), _events, ct); break;
             case StopMessage m when _strategies.TryGetValue(m.StrategyId, out var s):
+                _log.LogInformation("[AlgoEngine] Stop {Sid} (status was {Status})", m.StrategyId, s.Status);
                 await s.StopAsync(); break;
             case PauseMessage m when _strategies.TryGetValue(m.StrategyId, out var s):
+                _log.LogInformation("[AlgoEngine] Pause {Sid} (status was {Status})", m.StrategyId, s.Status);
                 await s.PauseAsync(); break;
             case ResumeMessage m when _strategies.TryGetValue(m.StrategyId, out var s):
+                _log.LogInformation("[AlgoEngine] Resume {Sid} (status was {Status})", m.StrategyId, s.Status);
                 await s.ResumeAsync(); break;
             case AccelerateMessage m when _strategies.TryGetValue(m.StrategyId, out var s):
                 await s.AccelerateAsync(m.Qty); break;
             case MarketDataMessage m when _strategies.TryGetValue(m.StrategyId, out var s):
                 s.OnMarketData(m.Data); break;
             case FillMessage m when _strategies.TryGetValue(m.StrategyId, out var s):
+                _log.LogInformation("[AlgoEngine] Fill for {Sid}: {Size}@{Price} clientId={Cid}",
+                    m.StrategyId, m.Fill.FillSize, m.Fill.FillPrice, m.Fill.ClientOrderId);
                 s.OnFill(m.Fill); break;
             case OrderRejectedMessage m when _strategies.TryGetValue(m.StrategyId, out var s):
                 s.OnOrderRejected(m.ClientOrderId, m.Reason); break;

@@ -9,6 +9,9 @@ public abstract class BaseExchangeAdapter
     protected readonly IHubContext<CollybusHub> Hub;
     protected readonly ILogger Logger;
 
+    /// <summary>Optional callback for routing fills to the algo engine.</summary>
+    public Action<Fill>? OnAlgoFill { get; set; }
+
     private readonly Dictionary<string, Dictionary<decimal, decimal>> _bids = new();
     private readonly Dictionary<string, Dictionary<decimal, decimal>> _asks = new();
     private readonly Dictionary<string, long> _lastBookSend = new();

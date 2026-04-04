@@ -490,6 +490,7 @@ public class BitmexAdapter : BaseExchangeAdapter, IExchangeAdapter
                 Commission = t["commission"]?.GetValue<decimal?>() ?? 0,
             };
             _ = Hub.Clients.All.SendAsync("FillUpdate", fill);
+            OnAlgoFill?.Invoke(fill);
         }
     }
 
