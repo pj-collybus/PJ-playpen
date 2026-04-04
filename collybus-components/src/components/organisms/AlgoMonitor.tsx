@@ -35,9 +35,22 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
   const [showOrders, setShowOrders] = useState(false)
   const dragRef = useRef<{ ox: number; oy: number } | null>(null)
   const chartDragRef = useRef<{ ox: number; oy: number } | null>(null)
+  const monitorRef = useRef<HTMLDivElement>(null)
+  const [panelHeight, setPanelHeight] = useState(0)
 
   useEffect(() => { monitorPositions[status.strategyId] = pos }, [pos, status.strategyId])
   useEffect(() => { if (showChart && !chartDetached) setChartPos({ x: pos.x + 360, y: pos.y }) }, [pos, showChart, chartDetached])
+
+  // ResizeObserver to match chart panel height to monitor panel
+  useEffect(() => {
+    const el = monitorRef.current
+    if (!el) return
+    const update = () => setPanelHeight(el.getBoundingClientRect().height)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const pct = status.totalSize > 0 ? Math.min(100, (status.filledSize / status.totalSize) * 100) : 0
   const statusColor = STATUS_COLORS[status.status] ?? S.muted
@@ -54,7 +67,7 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
   return (
     <>
       {/* Main monitor panel */}
-      <div style={{
+      <div ref={monitorRef} style={{
         position: 'fixed', left: pos.x, top: pos.y, zIndex: 550,
         width: 350, background: S.bg, border: `1px solid ${S.border}`,
         borderLeft: `3px solid ${statusColor}`, borderRadius: 8,
@@ -165,12 +178,14 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
           }) : undefined}
           style={{
             position: 'fixed', left: chartPos.x, top: chartPos.y, zIndex: 549,
+            height: panelHeight > 0 ? panelHeight : undefined,
             background: S.bg, border: `1px solid ${S.border}`, borderRadius: 8,
             boxShadow: '0 8px 24px rgba(0,0,0,0.7)',
             padding: 8, cursor: chartDetached ? 'grab' : 'default',
+            display: 'flex', flexDirection: 'column',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, flexShrink: 0 }}>
             <span style={{ fontSize: 9, color: S.muted, fontWeight: 700 }}>EXECUTION CHART</span>
             <div style={{ display: 'flex', gap: 4 }}>
               <button onClick={() => setChartDetached(v => !v)} title={chartDetached ? 'Attach' : 'Detach'}
@@ -181,7 +196,7 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
                 style={{ background: 'none', border: 'none', color: S.muted, cursor: 'pointer', fontSize: 12 }}>×</button>
             </div>
           </div>
-          <ExecutionChart status={status} width={380} height={180} />
+          <ExecutionChart status={status} width={380} height={Math.max(150, (panelHeight || 200) - 40)} />
         </div>
       )}
     </>

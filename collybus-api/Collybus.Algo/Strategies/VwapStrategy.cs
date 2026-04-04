@@ -49,6 +49,7 @@ public class VwapStrategy : BaseStrategy
     // Active child order tracking
     private string? _restingClientOrderId;
     private decimal _restingPrice;
+    private bool _placing;
 
     // Pause reason
     private string? _pauseReason;
@@ -204,7 +205,7 @@ public class VwapStrategy : BaseStrategy
 
         await CheckChase(bid, ask, now);
 
-        if (_restingClientOrderId == null && now >= _nextSliceAt
+        if (_restingClientOrderId == null && !_placing && now >= _nextSliceAt
             && RemainingSize > 0.001m && _slicesFired < _slicesTotal)
         {
             var canFire = _vwapMode == "realtime" ? _inParticipationBand : true;
@@ -224,15 +225,21 @@ public class VwapStrategy : BaseStrategy
 
         if (RemainingSize > 0.001m && bid > 0 && ask > 0)
         {
+            if (_placing) return;
             var tick = Params.TickSize;
             var sweepPrice = RoundToTick(IsBuy() ? ask + tick : bid - tick);
             var clientId = NewClientOrderId();
-            await SubmitOrderAsync(new OrderIntent(
-                StrategyId, clientId, Params.Exchange, Params.Symbol,
-                Params.Side.ToUpper(), "LIMIT", RoundToLot(RemainingSize), sweepPrice, null, "IOC",
-                Tag: "sweep"));
-            _restingClientOrderId = clientId;
-            _restingPrice = sweepPrice;
+            _placing = true;
+            try
+            {
+                await SubmitOrderAsync(new OrderIntent(
+                    StrategyId, clientId, Params.Exchange, Params.Symbol,
+                    Params.Side.ToUpper(), "LIMIT", RoundToLot(RemainingSize), sweepPrice, null, "IOC",
+                    Tag: "sweep"));
+                _restingClientOrderId = clientId;
+                _restingPrice = sweepPrice;
+            }
+            finally { _placing = false; }
             Status = AlgoStatus.Completing;
             _completingDeadline = now + 10_000;
         }
@@ -327,16 +334,21 @@ public class VwapStrategy : BaseStrategy
 
         var tif = urg == "aggressive" ? "IOC" : urg == "passive" ? "GTC" : "GTC";
         var postOnly = urg == "passive";
+
+        if (_placing) return;
         var clientId = NewClientOrderId();
-
-        await SubmitOrderAsync(new OrderIntent(
-            StrategyId, clientId, Params.Exchange, Params.Symbol,
-            Params.Side.ToUpper(), "LIMIT", size, price, null, tif,
-            PostOnly: postOnly, Tag: $"vwap_{_slicesFired}"));
-
-        _restingClientOrderId = clientId;
-        _restingPrice = price;
-        _chaseAt = 0;
+        _placing = true;
+        try
+        {
+            await SubmitOrderAsync(new OrderIntent(
+                StrategyId, clientId, Params.Exchange, Params.Symbol,
+                Params.Side.ToUpper(), "LIMIT", size, price, null, tif,
+                PostOnly: postOnly, Tag: $"vwap_{_slicesFired}"));
+            _restingClientOrderId = clientId;
+            _restingPrice = price;
+            _chaseAt = 0;
+        }
+        finally { _placing = false; }
 
         Logger.LogInformation("[VWAP] {Sid} slice {N}/{T}: {Sz} @ {Px} urgency={Urg}",
             StrategyId, _slicesFired, _slicesTotal, size, price, urg);
@@ -404,4 +416,13 @@ public class VwapStrategy : BaseStrategy
 
     private static decimal ProfileWeight(decimal pct)
         => 0.5m + 1.0m * (decimal)Math.Pow((double)(2 * Math.Abs(pct - 0.5m)), 2);
+
+    protected override void PopulateStrategyState(AlgoStatusReport report)
+    {
+        RestingPrice = _restingPrice > 0 ? _restingPrice : null;
+        report.RollingVwap = _rollingVwap > 0 ? _rollingVwap : null;
+        report.DeviationFromVwap = _deviationFromVwap;
+        report.InParticipationBand = _inParticipationBand;
+        report.Urgency = _currentUrgency;
+    }
 }

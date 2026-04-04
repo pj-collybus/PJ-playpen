@@ -55,6 +55,7 @@ public class TwapStrategy : BaseStrategy
     // Active child order tracking
     private string? _restingClientOrderId;
     private decimal _restingPrice;
+    private bool _placing;
 
     // Spread threshold
     private decimal _maxSpreadBps;
@@ -206,13 +207,19 @@ public class TwapStrategy : BaseStrategy
 
         if (RemainingSize > 0 && bid > 0 && ask > 0)
         {
+            if (_placing) return true;
             var tick = Params.TickSize;
             var sweepPrice = RoundToTick(IsBuy() ? ask + tick : bid - tick);
             var clientId = NewClientOrderId();
-            await SubmitOrderAsync(new OrderIntent(
-                StrategyId, clientId, Params.Exchange, Params.Symbol,
-                Params.Side.ToUpper(), "LIMIT", RoundToLot(RemainingSize), sweepPrice, null, "IOC",
-                Tag: "sweep"));
+            _placing = true;
+            try
+            {
+                await SubmitOrderAsync(new OrderIntent(
+                    StrategyId, clientId, Params.Exchange, Params.Symbol,
+                    Params.Side.ToUpper(), "LIMIT", RoundToLot(RemainingSize), sweepPrice, null, "IOC",
+                    Tag: "sweep"));
+            }
+            finally { _placing = false; }
             Status = AlgoStatus.Completing;
             _completingDeadline = now + 10_000;
         }
@@ -253,13 +260,19 @@ public class TwapStrategy : BaseStrategy
         var crossQty = RoundToLot(Math.Min(RemainingSize, Params.TotalSize / Math.Max(1, _slicesTotal)));
         if (crossQty > 0.001m)
         {
+            if (_placing) return;
             var clientId = NewClientOrderId();
-            await SubmitOrderAsync(new OrderIntent(
-                StrategyId, clientId, Params.Exchange, Params.Symbol,
-                Params.Side.ToUpper(), "LIMIT", crossQty, crossPrice, null, "IOC",
-                Tag: "passive_cross"));
-            _restingClientOrderId = clientId;
-            _restingPrice = crossPrice;
+            _placing = true;
+            try
+            {
+                await SubmitOrderAsync(new OrderIntent(
+                    StrategyId, clientId, Params.Exchange, Params.Symbol,
+                    Params.Side.ToUpper(), "LIMIT", crossQty, crossPrice, null, "IOC",
+                    Tag: "passive_cross"));
+                _restingClientOrderId = clientId;
+                _restingPrice = crossPrice;
+            }
+            finally { _placing = false; }
         }
     }
 
@@ -307,12 +320,12 @@ public class TwapStrategy : BaseStrategy
     // ── _checkRetryOrSchedule ──────────────────────────────────────────────
     private async Task CheckRetryOrSchedule(decimal bid, decimal ask, decimal mid, long now)
     {
-        if (_retryAt > 0 && now >= _retryAt && _restingClientOrderId == null && RemainingSize > 0.001m)
+        if (_retryAt > 0 && now >= _retryAt && _restingClientOrderId == null && !_placing && RemainingSize > 0.001m)
         {
             _retryAt = 0;
             await FireSlice(bid, ask, mid, _retrySliceSize);
         }
-        else if (now >= _nextSliceAt && _restingClientOrderId == null && RemainingSize > 0.001m
+        else if (now >= _nextSliceAt && _restingClientOrderId == null && !_placing && RemainingSize > 0.001m
                  && _retryAt == 0 && _slicesFired < _slicesTotal)
         {
             _rejectCount = 0;
@@ -372,15 +385,20 @@ public class TwapStrategy : BaseStrategy
         _sliceDeadlineTs = now + (long)(_intervalMs * 0.8);
         _sliceCrossed = false;
 
+        if (_placing) return;
         var clientId = NewClientOrderId();
-        await SubmitOrderAsync(new OrderIntent(
-            StrategyId, clientId, Params.Exchange, Params.Symbol,
-            Params.Side.ToUpper(), "LIMIT", sliceSize, price, null, tif,
-            PostOnly: postOnly, Tag: $"slice_{_slicesFired}"));
-
-        _restingClientOrderId = clientId;
-        _restingPrice = price;
-        _chaseDeadline = 0;
+        _placing = true;
+        try
+        {
+            await SubmitOrderAsync(new OrderIntent(
+                StrategyId, clientId, Params.Exchange, Params.Symbol,
+                Params.Side.ToUpper(), "LIMIT", sliceSize, price, null, tif,
+                PostOnly: postOnly, Tag: $"slice_{_slicesFired}"));
+            _restingClientOrderId = clientId;
+            _restingPrice = price;
+            _chaseDeadline = 0;
+        }
+        finally { _placing = false; }
 
         Logger.LogInformation("[TWAP] {Sid} slice {N}/{T}: {Sz} @ {Px} {Tif}",
             StrategyId, _slicesFired, _slicesTotal, sliceSize, price, tif);
@@ -492,6 +510,13 @@ public class TwapStrategy : BaseStrategy
     protected override string? GetSummaryLine()
         => $"{Params.Side} {Params.TotalSize} {Params.Symbol} on {Params.Exchange} via TWAP | " +
            $"{_urgency} | {_durationMin} min | {_slicesTotal} slices";
+
+    protected override void PopulateStrategyState(AlgoStatusReport report)
+    {
+        RestingPrice = _restingPrice > 0 ? _restingPrice : null;
+        report.Urgency = _urgency;
+        report.RollingVwap = _rollingVwap > 0 ? _rollingVwap : null;
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  Helpers

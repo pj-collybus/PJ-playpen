@@ -41,6 +41,16 @@ public abstract class BaseStrategy : IAlgoStrategy
     protected long StartedAt { get; private set; }
     protected long UpdatedAt { get; private set; }
 
+    // Chart sampling (1 sample per tick, ~1s)
+    private readonly List<long> _chartTimes = new();
+    private readonly List<decimal> _chartBids = new();
+    private readonly List<decimal> _chartAsks = new();
+    private readonly List<decimal?> _chartOrder = new();
+    private readonly List<decimal> _chartVwap = new();
+    private readonly List<ChartFillPoint> _chartFills = new();
+    private const int MaxChartPoints = 3600;
+    protected decimal? RestingPrice { get; set; }
+
     protected BaseStrategy(string strategyId, ILogger logger)
     {
         StrategyId = strategyId;
@@ -70,6 +80,10 @@ public abstract class BaseStrategy : IAlgoStrategy
     public virtual async Task StopAsync()
     {
         Status = AlgoStatus.Stopped;
+        if (PendingOrders.Count > 0)
+            Logger.LogInformation("[{Type}] {Sid} stopping — cancelling {Count} pending orders: {Ids}",
+                StrategyType, StrategyId, PendingOrders.Count,
+                string.Join(", ", PendingOrders.Keys));
         await CancelAllPendingAsync();
         Logger.LogInformation("[{Type}] {Sid} stopped: filled={Filled} avg={Avg}",
             StrategyType, StrategyId, FilledSize, AvgFillPrice);
@@ -114,6 +128,26 @@ public abstract class BaseStrategy : IAlgoStrategy
 
         if (Status == AlgoStatus.Waiting && Params.StartMode == "trigger")
             CheckTrigger(data);
+
+        // Chart sampling — sample once per second from ticker updates (not trade-only messages)
+        if (data.Bid > 0 && data.Ask > 0 && Status is not (AlgoStatus.Completed or AlgoStatus.Stopped))
+        {
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (_chartTimes.Count == 0 || now - _chartTimes[^1] >= 900)
+            {
+                _chartTimes.Add(now);
+                _chartBids.Add(CurrentBid);
+                _chartAsks.Add(CurrentAsk);
+                _chartOrder.Add(RestingPrice > 0 ? RestingPrice : null);
+                _chartVwap.Add(MarketVwap > 0 ? MarketVwap : 0);
+                if (_chartTimes.Count > MaxChartPoints)
+                {
+                    _chartTimes.RemoveAt(0); _chartBids.RemoveAt(0);
+                    _chartAsks.RemoveAt(0); _chartOrder.RemoveAt(0);
+                    _chartVwap.RemoveAt(0);
+                }
+            }
+        }
     }
 
     public virtual void OnFill(AlgoFill fill)
@@ -139,6 +173,16 @@ public abstract class BaseStrategy : IAlgoStrategy
             : fill;
         Fills.Add(recordedFill);
         PendingOrders.Remove(fill.ClientOrderId);
+
+        // Chart fill point
+        _chartFills.Add(new ChartFillPoint
+        {
+            Time = fill.Timestamp,
+            Price = fill.FillPrice,
+            Size = effectiveSize,
+            Side = Params?.Side ?? "BUY",
+            FillType = fill.ClientOrderId.Contains("snipe") ? "snipe" : null,
+        });
 
         Logger.LogInformation("[{Type}] {Sid} fill: {Size}@{Price} total={Filled}/{Total}",
             StrategyType, StrategyId, effectiveSize, fill.FillPrice, FilledSize, Params.TotalSize);
@@ -225,15 +269,48 @@ public abstract class BaseStrategy : IAlgoStrategy
     public AlgoStatusReport GetStatus()
     {
         var slip = Tca.TcaCalculator.ArrivalSlippage(AvgFillPrice, Params?.ArrivalMid ?? 0, Params?.Side ?? "BUY");
-        var vwap = Tca.TcaCalculator.VwapShortfall(AvgFillPrice, MarketVwap > 0 ? MarketVwap : Params?.ArrivalMid ?? 0, Params?.Side ?? "BUY");
-        return new AlgoStatusReport(
-            StrategyId, StrategyType, Params?.Exchange ?? "", Params?.Symbol ?? "", Params?.Side ?? "",
-            Status, Params?.TotalSize ?? 0, FilledSize, RemainingSize, AvgFillPrice, Params?.ArrivalMid ?? 0,
-            slip, vwap, GetCurrentSlice(), GetTotalSlices(), GetNextSliceAt(),
-            GetPauseReason(), GetErrorMessage(), StartedAt, UpdatedAt,
-            GetSummaryLine(), Fills.TakeLast(100).ToList()
-        );
+        var vwapSlip = Tca.TcaCalculator.VwapShortfall(AvgFillPrice, MarketVwap > 0 ? MarketVwap : Params?.ArrivalMid ?? 0, Params?.Side ?? "BUY");
+        var report = new AlgoStatusReport
+        {
+            StrategyId = StrategyId,
+            StrategyType = StrategyType,
+            Exchange = Params?.Exchange ?? "",
+            Symbol = Params?.Symbol ?? "",
+            Side = Params?.Side ?? "",
+            Status = Status,
+            TotalSize = Params?.TotalSize ?? 0,
+            FilledSize = FilledSize,
+            RemainingSize = RemainingSize,
+            AvgFillPrice = AvgFillPrice,
+            ArrivalMid = Params?.ArrivalMid ?? 0,
+            SlippageBps = slip,
+            VwapShortfallBps = vwapSlip,
+            CurrentSlice = GetCurrentSlice(),
+            TotalSlices = GetTotalSlices(),
+            NextSliceAt = GetNextSliceAt(),
+            PauseReason = GetPauseReason(),
+            ErrorMessage = GetErrorMessage(),
+            StartedAt = StartedAt,
+            UpdatedAt = UpdatedAt,
+            SummaryLine = GetSummaryLine(),
+            Fills = Fills.TakeLast(100).ToList(),
+            ActiveOrderPrice = RestingPrice,
+            TickSize = Params?.TickSize,
+            // Chart data
+            ChartTimes = _chartTimes.ToList(),
+            ChartBids = _chartBids.ToList(),
+            ChartAsks = _chartAsks.ToList(),
+            ChartOrder = _chartOrder.ToList(),
+            ChartFills = _chartFills.ToList(),
+            ChartVwap = _chartVwap.ToList(),
+        };
+        // Let strategy subclass populate extra fields
+        PopulateStrategyState(report);
+        return report;
     }
+
+    /// <summary>Override to populate strategy-specific fields on the status report.</summary>
+    protected virtual void PopulateStrategyState(AlgoStatusReport report) { }
 
     // ── Hooks ───────────────────────────────────────────────────────────────
     protected virtual Task OnActivateAsync() => Task.CompletedTask;

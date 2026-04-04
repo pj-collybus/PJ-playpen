@@ -57,6 +57,7 @@ public class IsStrategy : BaseStrategy
     // Active child order tracking
     private string? _activeChildId;
     private decimal? _restingPrice;
+    private bool _placing;
 
     private static readonly Random _rng = new();
 
@@ -161,7 +162,7 @@ public class IsStrategy : BaseStrategy
 
         await CheckChase(bid, ask, now);
 
-        if (_activeChildId == null && now >= _nextSliceAt && RemainingSize > 0.001m)
+        if (_activeChildId == null && !_placing && now >= _nextSliceAt && RemainingSize > 0.001m)
         {
             await FireSlice(bid, ask, mid);
         }
@@ -224,14 +225,20 @@ public class IsStrategy : BaseStrategy
 
         if (RemainingSize > 0.001m && bid > 0 && ask > 0)
         {
+            if (_placing) return;
             var tick = Params.TickSize;
             var sweepPrice = RoundToTick(IsBuy() ? ask + tick : bid - tick);
             var clientId = NewClientOrderId();
-            await SubmitOrderAsync(new OrderIntent(
-                StrategyId, clientId, Params.Exchange, Params.Symbol,
-                Params.Side.ToUpper(), "LIMIT", RoundToLot(RemainingSize), sweepPrice, null, "IOC",
-                Tag: "sweep"));
-            _activeChildId = clientId;
+            _placing = true;
+            try
+            {
+                await SubmitOrderAsync(new OrderIntent(
+                    StrategyId, clientId, Params.Exchange, Params.Symbol,
+                    Params.Side.ToUpper(), "LIMIT", RoundToLot(RemainingSize), sweepPrice, null, "IOC",
+                    Tag: "sweep"));
+                _activeChildId = clientId;
+            }
+            finally { _placing = false; }
             Status = AlgoStatus.Completing;
             _completingDeadline = now + 10_000;
         }
@@ -308,15 +315,20 @@ public class IsStrategy : BaseStrategy
         var tif = _currentUrgency == "aggressive" ? "IOC" : "GTC";
         var postOnly = _currentUrgency == "passive";
 
+        if (_placing) return;
         var clientId = NewClientOrderId();
-        await SubmitOrderAsync(new OrderIntent(
-            StrategyId, clientId, Params.Exchange, Params.Symbol,
-            Params.Side.ToUpper(), "LIMIT", size, price, null, tif,
-            PostOnly: postOnly, Tag: $"slice_{_slicesFired}"));
-
-        _activeChildId = clientId;
-        _restingPrice = price;
-        _chaseAt = 0;
+        _placing = true;
+        try
+        {
+            await SubmitOrderAsync(new OrderIntent(
+                StrategyId, clientId, Params.Exchange, Params.Symbol,
+                Params.Side.ToUpper(), "LIMIT", size, price, null, tif,
+                PostOnly: postOnly, Tag: $"slice_{_slicesFired}"));
+            _activeChildId = clientId;
+            _restingPrice = price;
+            _chaseAt = 0;
+        }
+        finally { _placing = false; }
 
         Logger.LogInformation("[IS] {Sid} slice {N}: {Sz} @ {Px} urgency={Urgency} optRate={Rate}",
             StrategyId, _slicesFired, size, price, _currentUrgency, _optimalRate);
@@ -392,4 +404,17 @@ public class IsStrategy : BaseStrategy
     private bool IsComplete() => RemainingSize <= Params.LotSize / 2;
 
     private static double Rand(double min, double max) => _rng.NextDouble() * (max - min) + min;
+
+    protected override void PopulateStrategyState(AlgoStatusReport report)
+    {
+        RestingPrice = _restingPrice > 0 ? _restingPrice : null;
+        report.IsCostBps = _totalIsCost;
+        report.TimingCostBps = _timingCost;
+        report.ImpactCostBps = _marketImpactCost;
+        report.OptimalRate = _optimalRate;
+        report.EstimatedVolatility = _estimatedVolatility;
+        report.CurrentUrgency = _currentUrgency;
+        report.Urgency = _currentUrgency;
+        report.ChartTargetPrice = _decisionPrice > 0 ? _decisionPrice : null;
+    }
 }

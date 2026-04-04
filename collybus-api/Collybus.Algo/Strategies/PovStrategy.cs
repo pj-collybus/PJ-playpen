@@ -42,6 +42,7 @@ public class PovStrategy : BaseStrategy
     // Active child order tracking
     private string? _activeClientOrderId;
     private decimal _restingPrice;
+    private bool _placing;
 
     // Pause reason
     private string? _pauseReason;
@@ -107,7 +108,7 @@ public class PovStrategy : BaseStrategy
         var deficit = _windowVolume * (_targetPct / 100m) - _myWindowVolume;
         var minSz = Math.Max(_minChildSize, Params.LotSize);
 
-        if (deficit < minSz || RemainingSize < minSz * 0.5m || _activeClientOrderId != null) return;
+        if (deficit < minSz || RemainingSize < minSz * 0.5m || _activeClientOrderId != null || _placing) return;
 
         var bid = CurrentBid;
         var ask = CurrentAsk;
@@ -164,7 +165,7 @@ public class PovStrategy : BaseStrategy
             var deficit = myTarget - _myWindowVolume;
             var minSz = Math.Max(_minChildSize, Params.LotSize);
 
-            if (_activeClientOrderId == null && RemainingSize > minSz * 0.5m)
+            if (_activeClientOrderId == null && !_placing && RemainingSize > minSz * 0.5m)
             {
                 if (_windowVolume > 0 && deficit >= minSz)
                 {
@@ -215,18 +216,23 @@ public class PovStrategy : BaseStrategy
             if (!IsBuy() && projAvg < _averageRateLimit) return;
         }
 
+        if (_placing) return;
         _childCount++;
         size = RoundToLot(Math.Min(size, RemainingSize));
         if (size <= 0) return;
 
         var clientId = NewClientOrderId();
-        await SubmitOrderAsync(new OrderIntent(
-            StrategyId, clientId, Params.Exchange, Params.Symbol,
-            Params.Side.ToUpper(), "LIMIT", size, price, null, "IOC",
-            Tag: $"pov_child_{_childCount}"));
-
-        _activeClientOrderId = clientId;
-        _restingPrice = price;
+        _placing = true;
+        try
+        {
+            await SubmitOrderAsync(new OrderIntent(
+                StrategyId, clientId, Params.Exchange, Params.Symbol,
+                Params.Side.ToUpper(), "LIMIT", size, price, null, "IOC",
+                Tag: $"pov_child_{_childCount}"));
+            _activeClientOrderId = clientId;
+            _restingPrice = price;
+        }
+        finally { _placing = false; }
 
         Logger.LogInformation("[POV] {Sid} child #{N}: {Sz} @ {Px}",
             StrategyId, _childCount, size, price);
@@ -306,4 +312,14 @@ public class PovStrategy : BaseStrategy
     private bool IsBuy() => Params.Side.ToUpper() == "BUY";
 
     private bool IsComplete() => RemainingSize <= Params.LotSize / 2;
+
+    protected override void PopulateStrategyState(AlgoStatusReport report)
+    {
+        RestingPrice = _activeClientOrderId != null ? (decimal?)null : null; // POV doesn't track resting price directly
+        report.ParticipationRate = _participationRate;
+        report.TargetParticipation = _targetPct;
+        report.WindowVolume = _windowVolume;
+        report.Deficit = Math.Max(0m, _windowVolume * (_targetPct / 100m) - _myWindowVolume);
+        report.Urgency = _urgency;
+    }
 }

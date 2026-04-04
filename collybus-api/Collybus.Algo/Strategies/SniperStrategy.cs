@@ -17,6 +17,7 @@ public class SniperStrategy : BaseStrategy
     private string? _postOrderClientId;
     private bool _postOrderActive;
     private string? _snipeChildId;     // active snipe IOC in post_snipe mode
+    private bool _placing;
     private int _round;
     private decimal _lastTradeSize;
     private decimal _priceAtMomentumStart;
@@ -162,6 +163,7 @@ public class SniperStrategy : BaseStrategy
 
     private async Task FireLevelAsync(SniperLevelState level, long now)
     {
+        if (level.Placing) return;
         level.Status = LevelStatus.Firing;
         var qty = Math.Min(level.TargetSize - level.Filled, RemainingSize);
         qty = RoundToLot(qty);
@@ -173,9 +175,14 @@ public class SniperStrategy : BaseStrategy
 
         var tick = Params.TickSize;
         var price = Params.Side.ToUpper() == "BUY" ? CurrentAsk + tick : CurrentBid - tick;
-        await SubmitOrderAsync(new OrderIntent(StrategyId, clientId, Params.Exchange, Params.Symbol,
-            Params.Side.ToUpper(), "LIMIT", qty, RoundToTick(price), null, "IOC",
-            Tag: $"snipe_L{level.Index}"));
+        level.Placing = true;
+        try
+        {
+            await SubmitOrderAsync(new OrderIntent(StrategyId, clientId, Params.Exchange, Params.Symbol,
+                Params.Side.ToUpper(), "LIMIT", qty, RoundToTick(price), null, "IOC",
+                Tag: $"snipe_L{level.Index}"));
+        }
+        finally { level.Placing = false; }
 
         Logger.LogInformation("[Sniper] {Sid} L{Idx} fire: {Qty} @ {Price}",
             StrategyId, level.Index, qty, price);
@@ -197,7 +204,7 @@ public class SniperStrategy : BaseStrategy
         var snipeCap = Params.SnipeCap ?? 50m;
 
         // Place passive resting order (once)
-        if (!_postOrderActive && RemainingSize > 0)
+        if (!_postOrderActive && !_placing && RemainingSize > 0)
         {
             var snipeAlloc = RoundToLot(RemainingSize * snipeCap / 100m);
             var postAlloc = RemainingSize - snipeAlloc;
@@ -206,9 +213,14 @@ public class SniperStrategy : BaseStrategy
                 _round++;
                 _postOrderClientId = NewClientOrderId();
                 _postOrderActive = true;
-                await SubmitOrderAsync(new OrderIntent(StrategyId, _postOrderClientId, Params.Exchange, Params.Symbol,
-                    Params.Side.ToUpper(), "LIMIT", postAlloc, RoundToTick(postPrice), null, "GTC",
-                    PostOnly: true, Tag: $"post_r{_round}"));
+                _placing = true;
+                try
+                {
+                    await SubmitOrderAsync(new OrderIntent(StrategyId, _postOrderClientId, Params.Exchange, Params.Symbol,
+                        Params.Side.ToUpper(), "LIMIT", postAlloc, RoundToTick(postPrice), null, "GTC",
+                        PostOnly: true, Tag: $"post_r{_round}"));
+                }
+                finally { _placing = false; }
             }
         }
 
@@ -236,6 +248,7 @@ public class SniperStrategy : BaseStrategy
                 if (CurrentSpreadBps > (Params.MaxSpreadBps ?? 50)) continue;
 
                 // Fire
+                if (lvl.Placing) continue;
                 lvl.Status = LevelStatus.Firing;
                 var lvlRemaining = Math.Max(0, lvl.TargetSize - lvl.Filled);
                 var qty = RoundToLot(Math.Min(lvlRemaining, RemainingSize));
@@ -246,9 +259,14 @@ public class SniperStrategy : BaseStrategy
                 lvl.IntentSubmittedAt = now;
                 var tick = Params.TickSize;
                 var price = Params.Side.ToUpper() == "BUY" ? CurrentAsk + tick : CurrentBid - tick;
-                await SubmitOrderAsync(new OrderIntent(StrategyId, clientId, Params.Exchange, Params.Symbol,
-                    Params.Side.ToUpper(), "LIMIT", qty, RoundToTick(price), null, "IOC",
-                    Tag: $"snipe_L{lvl.Index}"));
+                lvl.Placing = true;
+                try
+                {
+                    await SubmitOrderAsync(new OrderIntent(StrategyId, clientId, Params.Exchange, Params.Symbol,
+                        Params.Side.ToUpper(), "LIMIT", qty, RoundToTick(price), null, "IOC",
+                        Tag: $"snipe_L{lvl.Index}"));
+                }
+                finally { lvl.Placing = false; }
 
                 Logger.LogInformation("[Sniper] {Sid} post+snipe L{Idx} fire: {Qty} @ {Price}",
                     StrategyId, lvl.Index, qty, price);
@@ -257,7 +275,7 @@ public class SniperStrategy : BaseStrategy
         }
 
         // Sequential snipe (single IOC at a time)
-        if (_snipeChildId != null) return; // guard: snipe already in flight
+        if (_snipeChildId != null || _placing) return; // guard: snipe already in flight
 
         var snipeAllocSeq = RoundToLot(RemainingSize * snipeCap / 100m);
         if (snipeAllocSeq > 0 && IsPriceTriggered(snipeCeiling))
@@ -265,9 +283,14 @@ public class SniperStrategy : BaseStrategy
             var tick = Params.TickSize;
             var price = Params.Side.ToUpper() == "BUY" ? CurrentAsk + tick : CurrentBid - tick;
             _snipeChildId = NewClientOrderId();
-            await SubmitOrderAsync(new OrderIntent(StrategyId, _snipeChildId, Params.Exchange, Params.Symbol,
-                Params.Side.ToUpper(), "LIMIT", snipeAllocSeq, RoundToTick(price), null, "IOC",
-                Tag: $"postsnipe_r{_round}"));
+            _placing = true;
+            try
+            {
+                await SubmitOrderAsync(new OrderIntent(StrategyId, _snipeChildId, Params.Exchange, Params.Symbol,
+                    Params.Side.ToUpper(), "LIMIT", snipeAllocSeq, RoundToTick(price), null, "IOC",
+                    Tag: $"postsnipe_r{_round}"));
+            }
+            finally { _placing = false; }
         }
     }
 
@@ -376,17 +399,47 @@ public class SniperStrategy : BaseStrategy
 
     public override async Task AccelerateAsync(decimal qty)
     {
+        if (_placing) return;
         await CancelAllPendingAsync();
         _postOrderActive = false;
         _snipeChildId = null;
         var tick = Params.TickSize;
         var price = Params.Side.ToUpper() == "BUY" ? RoundToTick(CurrentAsk + tick * 3) : RoundToTick(CurrentBid - tick * 3);
-        await SubmitOrderAsync(new OrderIntent(StrategyId, NewClientOrderId(), Params.Exchange, Params.Symbol,
-            Params.Side.ToUpper(), "LIMIT", Math.Min(qty, RemainingSize), price, null, "IOC", Tag: "accelerate"));
+        _placing = true;
+        try
+        {
+            await SubmitOrderAsync(new OrderIntent(StrategyId, NewClientOrderId(), Params.Exchange, Params.Symbol,
+                Params.Side.ToUpper(), "LIMIT", Math.Min(qty, RemainingSize), price, null, "IOC", Tag: "accelerate"));
+        }
+        finally { _placing = false; }
     }
 
     protected override string? GetSummaryLine()
         => $"{Params.Side} {Params.TotalSize} {Params.Symbol} via SNIPER | {Params.SniperMode} | {_levels.Count} levels";
+
+    protected override void PopulateStrategyState(AlgoStatusReport report)
+    {
+        report.ExecutionMode = Params.SniperMode;
+        report.LevelMode = Params.LevelMode;
+        report.TargetPrice = Params.PostPrice;
+        report.SnipeLevel = Params.SnipeCeiling;
+        report.SnipePct = Params.SnipeCap;
+        report.PostSnipePhase = _postOrderActive ? "ACTIVE" : "REST_ONLY";
+        report.RoundNumber = _round;
+        report.Urgency = "snipe";
+        report.ChartTargetPrice = Params.SniperMode == "post_snipe" ? Params.PostPrice : null;
+        report.ChartSnipeLevel = Params.SniperMode == "post_snipe" && Params.LevelMode != "simultaneous"
+            ? Params.SnipeCeiling : null;
+        report.ChartLevelPrices = _levels.Select(l => new ChartLevelPrice
+        {
+            Price = l.Price, Status = l.Status.ToString()
+        }).ToList();
+        report.Levels = _levels.Select(l => new Models.LevelState
+        {
+            Price = l.Price, AllocatedSize = l.TargetSize, FilledSize = l.Filled,
+            Status = l.Status.ToString(), RetriggerCount = l.RetriggerCount,
+        }).ToList();
+    }
 }
 
 public class SniperLevelState
@@ -401,6 +454,7 @@ public class SniperLevelState
     public long IntentSubmittedAt { get; set; }
     public long RetriggerAt { get; set; }
     public int RetriggerCount { get; set; }
+    public bool Placing { get; set; }
 
     public SniperLevelState(int index, decimal price, decimal allocationPct, decimal targetSize)
     {

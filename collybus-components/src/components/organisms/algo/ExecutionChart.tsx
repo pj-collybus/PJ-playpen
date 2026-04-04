@@ -33,10 +33,14 @@ export function ExecutionChart({ status, width = 400, height = 200 }: {
     const minT = times[0], maxT = times[times.length - 1]
     const tRange = maxT - minT || 1
 
-    // Collect all prices for Y range
-    const allPrices = [...bids, ...asks, ...orders.filter(v => v != null) as number[],
-      ...fills.map(f => f.price), ...(vwaps.length ? vwaps : [])]
-      .filter(v => v > 0)
+    // Collect all prices for Y range — filter zeros to prevent scale blowout
+    const allPrices = [
+      ...bids.filter(v => v > 0),
+      ...asks.filter(v => v > 0),
+      ...(orders.filter(v => v != null && v > 0) as number[]),
+      ...fills.map(f => f.price).filter(v => v > 0),
+      ...(vwaps.filter(v => v > 0)),
+    ]
     if (allPrices.length === 0) return
 
     const minP = Math.min(...allPrices)

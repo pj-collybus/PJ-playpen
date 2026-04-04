@@ -40,6 +40,7 @@ public class IcebergStrategy : BaseStrategy
     // Active child order tracking
     private string? _activeClientOrderId;
     private decimal? _restingPrice;
+    private bool _placing; // atomicity guard for async PlaceSlice
 
     // Pause reason
     private string? _pauseReason;
@@ -107,7 +108,11 @@ public class IcebergStrategy : BaseStrategy
 
         await CheckPriceChase(bid, ask, now);
 
-        if (_activeClientOrderId == null && now >= _refreshAt && RemainingSize > 0.001m)
+        // Guard: only place if no active child, not mid-placement, and refresh delay elapsed
+        var canPlace = _activeClientOrderId == null && !_placing && now >= _refreshAt && RemainingSize > 0.001m;
+        Logger.LogDebug("[ICEBERG] {Sid} tick: active={Active} placing={Placing} refreshIn={RefreshIn}ms canPlace={Can}",
+            StrategyId, _activeClientOrderId ?? "null", _placing, Math.Max(0, _refreshAt - now), canPlace);
+        if (canPlace)
         {
             await PlaceSlice(bid, ask, mid);
         }
@@ -139,12 +144,14 @@ public class IcebergStrategy : BaseStrategy
 
         if (_chaseAt > 0 && now >= _chaseAt)
         {
+            Logger.LogInformation("[ICEBERG] {Sid} price chase — cancelling {Cid}, repost after {Ms}ms",
+                StrategyId, _activeClientOrderId, _minRefreshMs);
             try { await Orders.CancelAsync(Params.Exchange, _activeClientOrderId); } catch { }
             PendingOrders.Remove(_activeClientOrderId);
             _activeClientOrderId = null;
             _restingPrice = null;
             _chaseAt = 0;
-            _refreshAt = now; // repost immediately
+            _refreshAt = now + _minRefreshMs; // delay before repost to prevent chase loop
         }
     }
 
@@ -152,6 +159,8 @@ public class IcebergStrategy : BaseStrategy
     private async Task PlaceSlice(decimal bid, decimal ask, decimal mid)
     {
         if (mid <= 0) return;
+        _placing = true;
+        try {
 
         var effectiveVariance = _detectionScore > 70
             ? Math.Min(50m, _visibleVariance * 1.5m)
@@ -203,6 +212,10 @@ public class IcebergStrategy : BaseStrategy
         _activeClientOrderId = clientId;
         _restingPrice = price;
         _chaseAt = 0;
+
+        Logger.LogInformation("[ICEBERG] {Sid} slice {N}: {Size} @ {Price} detection={Det}",
+            StrategyId, _slicesFired, size, price, _detectionScore);
+        } finally { _placing = false; }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -245,12 +258,14 @@ public class IcebergStrategy : BaseStrategy
         if (clientOrderId != _activeClientOrderId) return;
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        Logger.LogWarning("[ICEBERG] {Sid} order rejected: {Cid} reason={Reason}, retry in 5s",
+            StrategyId, clientOrderId, reason);
 
-        // Treat as REJECTED
+        // Treat as REJECTED — longer delay to avoid spam on persistent rejections
         _activeClientOrderId = null;
         _restingPrice = null;
         _chaseAt = 0;
-        _refreshAt = now + 2000;
+        _refreshAt = now + 5000;
     }
 
     // ── _updateDetectionScore ─────────────────────────────────────────────
@@ -309,4 +324,12 @@ public class IcebergStrategy : BaseStrategy
     private bool IsBuy() => Params.Side.ToUpper() == "BUY";
 
     private bool IsComplete() => RemainingSize <= Params.LotSize / 2;
+
+    protected override void PopulateStrategyState(AlgoStatusReport report)
+    {
+        RestingPrice = _restingPrice > 0 ? _restingPrice : null;
+        report.VisibleSize = _visibleSize;
+        report.DetectionRiskScore = _detectionScore;
+        report.Urgency = _urgency;
+    }
 }
