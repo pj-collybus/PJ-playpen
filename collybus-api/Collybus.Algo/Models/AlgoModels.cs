@@ -57,6 +57,7 @@ public record AlgoParams(
     bool IcebergSnipe = false,
     decimal? SniperSlicePct = null,
     decimal? PostPrice = null,
+    decimal? PostSize = null,
     decimal? SnipeCeiling = null,
     decimal? SnipeCap = null,
     decimal? VisibleSize = null,
@@ -76,7 +77,7 @@ public record AlgoParams(
     string? GtdDateTime = null
 );
 
-public record SniperLevel(int Index, decimal Price, decimal AllocationPct, bool Enabled = true);
+public record SniperLevel(int Index, decimal Price, decimal AllocationPct, bool Enabled = true, decimal Size = 0);
 
 // ── Strategy status output ─────────────────────────────────────────────────
 public class AlgoStatusReport
@@ -108,6 +109,7 @@ public class AlgoStatusReport
     public string? ErrorMessage { get; init; }
     public long StartedAt { get; init; }
     public long UpdatedAt { get; init; }
+    public long Elapsed { get; init; }
     public string? SummaryLine { get; init; }
 
     // Fills list

@@ -29,6 +29,7 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
     return { x: Math.max(0, window.innerWidth - 420 - off), y: 80 + off }
   })
   const [accQty, setAccQty] = useState('')
+  const [accQtyEdited, setAccQtyEdited] = useState(false)
   const [showChart, setShowChart] = useState(false)
   const [chartDetached, setChartDetached] = useState(false)
   const [chartPos, setChartPos] = useState({ x: 0, y: 0 })
@@ -146,12 +147,18 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
 
         {/* Controls */}
         <div style={{ padding: '6px 10px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {/* Accelerate */}
+          {/* Accelerate — defaults to remaining size */}
           {(isActive || isPaused) && (
             <div style={{ display: 'flex', gap: 3 }}>
-              <input value={accQty} onChange={e => setAccQty(e.target.value)} placeholder="Accel qty"
+              <input
+                value={accQtyEdited ? accQty : (status.remainingSize > 0 ? status.remainingSize.toFixed(2) : '')}
+                onChange={e => { setAccQty(e.target.value); setAccQtyEdited(true) }}
+                placeholder={`Remaining: ${status.remainingSize?.toFixed(2) ?? '?'}`}
                 style={{ flex: 1, height: 24, background: S.bgInput, border: `1px solid ${S.border}`, borderRadius: 4, color: S.text, fontSize: 10, padding: '0 6px', outline: 'none', fontFamily: 'inherit' }} />
-              <button onClick={() => { const q = parseFloat(accQty); if (q > 0) onAccelerate(status.strategyId, q) }}
+              <button onClick={() => {
+                const q = accQtyEdited ? parseFloat(accQty) : status.remainingSize
+                if (q > 0) { onAccelerate(status.strategyId, Math.min(q, status.remainingSize)); setAccQty(''); setAccQtyEdited(false) }
+              }}
                 style={{ padding: '0 8px', height: 24, border: '1px solid rgba(245,158,11,0.4)', borderRadius: 4, background: 'rgba(245,158,11,0.15)', color: S.amber, fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>⚡ Accel</button>
             </div>
           )}

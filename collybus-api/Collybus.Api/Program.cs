@@ -137,7 +137,7 @@ app.MapHub<CollybusHub>("/hub");
 // Auto-connect private channels for saved keys with status "ok"
 app.Lifetime.ApplicationStarted.Register(() => Task.Run(async () =>
 {
-    await Task.Delay(2000); // Wait for hub to be ready
+    await Task.Delay(5000); // Wait for adapters to connect
     try
     {
         var keyStore = app.Services.GetRequiredService<IKeyStore>();

@@ -307,6 +307,10 @@ public class PovStrategy : BaseStrategy
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    protected override void OnStop() { _activeClientOrderId = null; _placing = false; }
+    protected override void OnPause() { _activeClientOrderId = null; _placing = false; _pauseReason = "manual"; }
+    protected override Task OnResumeAsync() { _pauseReason = null; return Task.CompletedTask; }
+
     //  Helpers
     // ═══════════════════════════════════════════════════════════════════════
     private bool IsBuy() => Params.Side.ToUpper() == "BUY";

@@ -172,6 +172,8 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
                 };
             }
 
+            Logger.LogInformation("[Deribit] Submit: {Method} {Symbol} {Qty} @ {Price} tif={Tif} label={Label}",
+                method, venueSymbol, request.Quantity, request.LimitPrice, MapTif(request.TimeInForce), clientOid);
             var result = await RpcAsync(method, orderParams, token);
             var order = result?["order"];
             if (order == null)
@@ -835,6 +837,7 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
         "GTC" => "good_til_cancelled",
         "IOC" => "immediate_or_cancel",
         "FOK" => "fill_or_kill",
-        _ => "immediate_or_cancel",
+        "DAY" => "good_til_day",
+        _ => "good_til_cancelled",
     };
 }

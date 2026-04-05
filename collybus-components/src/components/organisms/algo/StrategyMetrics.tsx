@@ -25,31 +25,54 @@ function LevelBar({ level, index, totalSize }: { level: LevelState; index: numbe
 }
 
 function SniperMetrics({ s }: { s: AlgoStatusReport }) {
-  const isDiscretion = s.levelMode === 'simultaneous' && s.executionMode === 'post_snipe'
   const isPostSnipe = s.executionMode === 'post_snipe'
+  const isBuy = s.side === 'BUY'
+
+  // Build combined rows: POST + snipe levels, sorted by price
+  type Row = { label: string; price: number; filled: number; allocated: number; status: string; color: string }
+  const rows: Row[] = []
+
+  // Add POST row if post+snipe
+  if (isPostSnipe && s.targetPrice && s.targetPrice > 0) {
+    const postAlloc = s.totalSize - (s.levels?.reduce((sum, l) => sum + l.allocatedSize, 0) ?? 0)
+    rows.push({
+      label: 'POST', price: s.targetPrice, color: '#ccaa44',
+      filled: s.passiveFillSize ?? 0, allocated: postAlloc,
+      status: (s.passiveFillSize ?? 0) >= postAlloc ? 'Filled' : s.postSnipePhase === 'ACTIVE' ? 'Resting' : 'Waiting',
+    })
+  }
+
+  // Add snipe level rows
+  s.levels?.forEach((lv, i) => {
+    rows.push({
+      label: `L${i + 1}`, price: lv.price, color: LEVEL_COLORS[i % LEVEL_COLORS.length],
+      filled: lv.filledSize, allocated: lv.allocatedSize, status: lv.status,
+    })
+  })
+
+  // Sort: BUY = descending (highest first), SELL = ascending (lowest first)
+  rows.sort((a, b) => isBuy ? b.price - a.price : a.price - b.price)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {/* Level bars */}
-      {s.levels?.map((lv, i) => <LevelBar key={i} level={lv} index={i} totalSize={s.totalSize} />)}
-
-      {/* Passive vs Sniped */}
-      {isPostSnipe && (
-        <div style={{ display: 'flex', gap: 12, fontSize: 9, color: S.muted, marginTop: 2 }}>
-          <span>Passive: <span style={{ color: '#00c896' }}>{fmtN(s.passiveFillSize ?? 0, 2)}</span></span>
-          <span>Sniped: <span style={{ color: '#FF00FF' }}>{fmtN(s.snipedSize ?? 0, 2)}</span></span>
-          {s.snipeCapRemaining != null && <span>Cap left: {fmtN(s.snipeCapRemaining, 2)}</span>}
-        </div>
-      )}
-
-      {/* Post+Snipe sequential state */}
-      {isPostSnipe && !isDiscretion && (
-        <div style={{ fontSize: 9, color: S.muted }}>
-          Round {s.roundNumber ?? 0} · {s.postSnipePhase ?? 'ACTIVE'} ·
-          Resting {fmtN(s.currentPostSize ?? 0, 2)} @ {fmtN(s.targetPrice ?? 0)} ·
-          Snipe {fmtN(s.currentSnipeSize ?? 0, 2)} ceiling {fmtN(s.snipeLevel ?? 0)}
-        </div>
-      )}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      {rows.map((r, i) => {
+        const pct = r.allocated > 0 ? Math.min(100, (r.filled / r.allocated) * 100) : 0
+        return (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 1 }}>
+            <span style={{ fontSize: 9, color: r.color, fontWeight: 700, minWidth: 28 }}>{r.label}</span>
+            <span style={{ fontSize: 9, color: S.muted, minWidth: 50, fontFamily: 'monospace' }}>${r.price.toFixed(4)}</span>
+            <div style={{ flex: 1, height: 6, background: '#1a1a22', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${pct}%`, background: r.color, borderRadius: 3, transition: 'width 0.3s' }} />
+            </div>
+            <span style={{ fontSize: 9, color: S.text, fontFamily: 'monospace', minWidth: 70, textAlign: 'right' }}>
+              {fmtN(r.filled, 2)}/{fmtN(r.allocated, 2)}
+            </span>
+            <span style={{ fontSize: 8, color: r.status === 'Completed' || r.status === 'Filled' ? S.positive : r.status === 'Firing' || r.status === 'FIRING' ? r.color : S.muted, minWidth: 50 }}>
+              {r.status}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }

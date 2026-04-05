@@ -40,6 +40,7 @@ public abstract class BaseStrategy : IAlgoStrategy
     protected int ConsecutiveRejections { get; set; }
     protected long StartedAt { get; private set; }
     protected long UpdatedAt { get; private set; }
+    private long _completedAt;
 
     // Chart sampling (1 sample per tick, ~1s)
     private readonly List<long> _chartTimes = new();
@@ -51,6 +52,9 @@ public abstract class BaseStrategy : IAlgoStrategy
     private readonly List<ChildOrderSummary> _childOrders = new();
     private const int MaxChartPoints = 3600;
     protected decimal? RestingPrice { get; set; }
+
+    // Chart sampling state
+    private long _lastChartSampleTs;
 
     protected BaseStrategy(string strategyId, ILogger logger)
     {
@@ -65,6 +69,7 @@ public abstract class BaseStrategy : IAlgoStrategy
         StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         UpdatedAt = StartedAt;
 
+
         if (p.StartMode == "trigger" && p.TriggerPrice.HasValue)
         {
             Status = AlgoStatus.Waiting;
@@ -78,31 +83,75 @@ public abstract class BaseStrategy : IAlgoStrategy
         }
     }
 
+    // ── STOP — permanent termination ──────────────────────────────────────
     public virtual async Task StopAsync()
     {
         Status = AlgoStatus.Stopped;
-        if (PendingOrders.Count > 0)
-            Logger.LogInformation("[{Type}] {Sid} stopping — cancelling {Count} pending orders: {Ids}",
-                StrategyType, StrategyId, PendingOrders.Count,
-                string.Join(", ", PendingOrders.Keys));
+        if (_completedAt == 0) _completedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        Logger.LogInformation("[{Type}] {Sid} stopping — cancelling {Count} pending orders",
+            StrategyType, StrategyId, PendingOrders.Count);
         await CancelAllPendingAsync();
-        Logger.LogInformation("[{Type}] {Sid} stopped: filled={Filled} avg={Avg}",
-            StrategyType, StrategyId, FilledSize, AvgFillPrice);
+        OnStop();
+        Logger.LogInformation("[{Type}] {Sid} stopped: filled={Filled}/{Total}",
+            StrategyType, StrategyId, FilledSize, Params?.TotalSize);
     }
 
-    public virtual Task PauseAsync()
+    /// <summary>Override to clear strategy-specific child IDs on stop.</summary>
+    protected virtual void OnStop() { }
+
+    // ── PAUSE — cancel orders, preserve state ─────────────────────────────
+    public virtual async Task PauseAsync()
     {
-        if (Status == AlgoStatus.Running) Status = AlgoStatus.Paused;
-        return Task.CompletedTask;
+        if (Status != AlgoStatus.Running) return;
+        Logger.LogInformation("[{Type}] {Sid} pausing — cancelling {Count} pending orders",
+            StrategyType, StrategyId, PendingOrders.Count);
+        await CancelAllPendingAsync();
+        OnPause();
+        Status = AlgoStatus.Paused;
     }
 
-    public virtual Task ResumeAsync()
+    /// <summary>Override to clear strategy-specific active IDs and snapshot state on pause.</summary>
+    protected virtual void OnPause() { }
+
+    // ── RESUME — re-place orders from preserved state ─────────────────────
+    public virtual async Task ResumeAsync()
     {
-        if (Status == AlgoStatus.Paused) Status = AlgoStatus.Running;
-        return Task.CompletedTask;
+        if (Status != AlgoStatus.Paused) return;
+        Status = AlgoStatus.Running;
+        Logger.LogInformation("[{Type}] {Sid} resumed: remaining={Rem}",
+            StrategyType, StrategyId, RemainingSize);
+        await OnResumeAsync();
     }
 
-    public virtual Task AccelerateAsync(decimal qty) => Task.CompletedTask;
+    /// <summary>Override to re-place orders on resume.</summary>
+    protected virtual Task OnResumeAsync() => Task.CompletedTask;
+
+    // ── ACCELERATE — aggressive fill of remaining ─────────────────────────
+    public virtual async Task AccelerateAsync(decimal qty)
+    {
+        if (qty <= 0) return;
+        var accelSize = Math.Min(qty, RemainingSize);
+        if (accelSize <= 0) { Status = AlgoStatus.Completed; OnCompleted(); return; }
+
+        Logger.LogInformation("[{Type}] {Sid} accelerating: {Qty} of remaining {Rem}",
+            StrategyType, StrategyId, accelSize, RemainingSize);
+
+        await CancelAllPendingAsync();
+        OnStop(); // clear all strategy child IDs
+
+        var tick = Params.TickSize;
+        var price = Params.Side.ToUpper() == "BUY"
+            ? RoundToTick(CurrentAsk + tick * 5)
+            : RoundToTick(CurrentBid - tick * 5);
+
+        if (accelSize >= RemainingSize)
+            Status = AlgoStatus.Completing;
+
+        await SubmitOrderAsync(new OrderIntent(
+            StrategyId, NewClientOrderId(), Params.Exchange, Params.Symbol,
+            Params.Side.ToUpper(), "LIMIT", accelSize, price, null, "IOC",
+            Tag: "accelerate"));
+    }
 
     // ── Data feeds ──────────────────────────────────────────────────────────
     public virtual void OnMarketData(MarketDataPoint data)
@@ -130,13 +179,13 @@ public abstract class BaseStrategy : IAlgoStrategy
         if (Status == AlgoStatus.Waiting && Params.StartMode == "trigger")
             CheckTrigger(data);
 
-        // Chart sampling — sample once per second from ticker updates (not trade-only messages)
-        if (data.Bid > 0 && data.Ask > 0 && data.Bid < data.Ask
-            && (data.Ask - data.Bid) / data.Bid <= 0.05m) // skip if spread > 5%
+        // Chart sampling — once per second from ticker data
+        if (data.Bid > 0 && data.Ask > 0 && data.Bid < data.Ask)
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            if (_chartTimes.Count == 0 || now - _chartTimes[^1] >= 900)
+            if (now - _lastChartSampleTs >= 1000)
             {
+                _lastChartSampleTs = now;
                 _chartTimes.Add(now);
                 _chartBids.Add(data.Bid);
                 _chartAsks.Add(data.Ask);
@@ -218,6 +267,7 @@ public abstract class BaseStrategy : IAlgoStrategy
         if (FilledSize >= Params.TotalSize - Params.LotSize / 2)
         {
             Status = AlgoStatus.Completed;
+            if (_completedAt == 0) _completedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             OnCompleted();
             // Force immediate status push so UI gets final state with all fills
             try { _ = Events.PublishStatusAsync(GetStatus()); } catch { }
@@ -338,6 +388,9 @@ public abstract class BaseStrategy : IAlgoStrategy
             ErrorMessage = GetErrorMessage(),
             StartedAt = StartedAt,
             UpdatedAt = UpdatedAt,
+            Elapsed = _completedAt > 0
+                ? _completedAt - StartedAt
+                : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - StartedAt,
             SummaryLine = GetSummaryLine(),
             Fills = Fills.TakeLast(100).ToList(),
             ActiveOrderPrice = RestingPrice,

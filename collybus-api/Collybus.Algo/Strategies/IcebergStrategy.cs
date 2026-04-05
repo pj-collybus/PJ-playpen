@@ -185,6 +185,19 @@ public class IcebergStrategy : BaseStrategy
         return $"{Params.Side} {Params.TotalSize} {Params.Symbol} on {Params.Exchange} via ICEBERG | {_visibleSize}±{_sizeVariancePct}%/slice @ {_fixedPrice} | {expiry}";
     }
 
+    protected override void OnStop() { _activeClientOrderId = null; _placing = false; }
+    protected override void OnPause()
+    {
+        _activeClientOrderId = null; _placing = false;
+        _pauseReason = "manual";
+    }
+    protected override Task OnResumeAsync()
+    {
+        _pauseReason = null;
+        _refreshAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); // re-place immediately
+        return Task.CompletedTask;
+    }
+
     protected override void PopulateStrategyState(AlgoStatusReport report)
     {
         RestingPrice = _fixedPrice > 0 ? _fixedPrice : null;

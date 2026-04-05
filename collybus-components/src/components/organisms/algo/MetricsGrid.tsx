@@ -6,7 +6,9 @@ const fmtN = (n: number, dp = 4) => !n || !isFinite(n) ? '—' : n.toLocaleStrin
 const fmtBps = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(1)}bps`
 
 export function MetricsGrid({ s }: { s: AlgoStatusReport }) {
-  const elapsed = Math.floor((Date.now() - s.startedAt) / 1000)
+  // Use server-provided elapsed (frozen on completion) — not Date.now()
+  const elapsedMs = s.elapsed ?? (Date.now() - s.startedAt)
+  const elapsed = Math.floor(elapsedMs / 1000)
   const elapsedStr = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
   const nextIn = s.nextSliceAt ? Math.max(0, Math.floor((s.nextSliceAt - Date.now()) / 1000)) : null
   const timeLeft = s.nextSliceAt && s.totalSlices > 0 ? `${nextIn}s` : '—'

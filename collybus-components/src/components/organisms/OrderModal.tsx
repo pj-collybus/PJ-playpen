@@ -324,28 +324,29 @@ export function OrderModal({
       const p = parseFloat(price)
       if (!q || q <= 0) throw new Error('Invalid quantity')
 
-      // Discretion: 3-level snipe (from monolith DiscretionService)
+      // Discretion: Post+Snipe with 3 snipe levels (uses discretionService logic)
       if (tab === 'LMT' && discretionEnabled) {
         if (!onLaunchAlgo) throw new Error('Algo not configured')
         const bps = parseFloat(discretionBps) || 10
-        const cap = (parseFloat(discretionPct) || 50) / 100
-        const ceilingPx = side === 'BUY' ? p * (1 + bps / 10000) : p * (1 - bps / 10000)
-        const range = Math.abs(ceilingPx - p)
-        const l1 = side === 'BUY' ? p + range / 3 : p - range / 3
-        const l2 = side === 'BUY' ? p + range * 2 / 3 : p - range * 2 / 3
-        const activeQty = q * cap
-        const sliceQty = Math.floor(activeQty / 3 / lotSize) * lotSize
+        const activePct = parseFloat(discretionPct) || 50
+        const dir = side === 'BUY' ? 1 : -1
+        const ceilingPx = p + dir * (p * bps / 10000)
+        const range = ceilingPx - p
         const rnd = (px: number) => Math.round(px / tickSize) * tickSize
+
+        // Same params format as AlgoModal Post+Snipe:
+        // snipeCap = active%, levels have allocationPct summing to 100% of snipe portion
+        // C# handles the lot rounding and remainder distribution
         await onLaunchAlgo({
           strategyType: 'SNIPER', exchange, symbol, side, totalSize: q,
           tickSize, lotSize, arrivalMid: ((bid ?? 0) + (ask ?? 0)) / 2,
           arrivalBid: bid ?? 0, arrivalAsk: ask ?? 0,
           sniperMode: 'post_snipe', levelMode: 'simultaneous',
-          postPrice: p, snipeCeiling: rnd(ceilingPx), snipeCap: parseFloat(discretionPct) || 50,
+          postPrice: p, snipeCap: activePct,
           levels: [
-            { index: 0, price: rnd(l1), allocationPct: sliceQty / q * 100, enabled: true },
-            { index: 1, price: rnd(l2), allocationPct: sliceQty / q * 100, enabled: true },
-            { index: 2, price: rnd(ceilingPx), allocationPct: sliceQty / q * 100, enabled: true },
+            { index: 0, price: rnd(p + range / 3), allocationPct: 33.33, enabled: true },
+            { index: 1, price: rnd(p + range * 2 / 3), allocationPct: 33.33, enabled: true },
+            { index: 2, price: rnd(ceilingPx), allocationPct: 33.34, enabled: true },
           ],
         })
         setError(''); onClose(); return

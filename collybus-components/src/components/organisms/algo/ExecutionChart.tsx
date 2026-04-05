@@ -40,32 +40,39 @@ export function ExecutionChart({ status, width = 400, height = 200 }: {
     fills.forEach(f => { if (f.time < minT) minT = f.time; if (f.time > maxT) maxT = f.time })
     const tRange = maxT - minT || 1
 
-    // Y axis range: ONLY from bid/ask (actual market prices) — not orders/fills/vwap
+    // Y axis range: include all visible price elements
     const validBids = bids.filter(v => v > 0)
     const validAsks = asks.filter(v => v > 0)
     if (validBids.length === 0 && validAsks.length === 0) return
 
-    const fillPrices = fills.map(f => f.price).filter(v => v > 0)
-    const marketPrices = [...validBids, ...validAsks, ...fillPrices]
-    const minP = Math.min(...marketPrices)
-    const maxP = Math.max(...marketPrices)
-    const pMin = minP * 0.9998, pMax = maxP * 1.0002
+    const allPrices: number[] = [
+      ...validBids, ...validAsks,
+      ...fills.map(f => f.price).filter(v => v > 0),
+      ...(status.chartLevelPrices || []).map(l => l.price).filter(v => v > 0),
+      ...(status.chartTargetPrice && status.chartTargetPrice > 0 ? [status.chartTargetPrice] : []),
+      ...(status.chartSnipeLevel && status.chartSnipeLevel > 0 ? [status.chartSnipeLevel] : []),
+      ...(status.avgFillPrice && status.avgFillPrice > 0 ? [status.avgFillPrice] : []),
+    ]
+    const minP = Math.min(...allPrices)
+    const maxP = Math.max(...allPrices)
+    const pad = (maxP - minP) * 0.15 || maxP * 0.001
+    const pMin = minP - pad, pMax = maxP + pad
     const pRange = pMax - pMin || 1
 
-    const PAD = { t: 8, b: 16, l: 50, r: 8 }
+    const PAD = { t: 8, b: 18, l: 56, r: 8 }
     const cW = width - PAD.l - PAD.r
     const cH = height - PAD.t - PAD.b
     const xOf = (ts: number) => PAD.l + ((ts - minT) / tRange) * cW
     const yOf = (p: number) => PAD.t + (1 - (p - pMin) / pRange) * cH
 
-    // Background grid
+    // Background grid + Y axis labels
     ctx.strokeStyle = '#1e1e2a'; ctx.lineWidth = 0.5
     for (let i = 0; i <= 4; i++) {
       const y = PAD.t + (i / 4) * cH
       ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(PAD.l + cW, y); ctx.stroke()
       const price = pMax - (i / 4) * pRange
-      ctx.font = '8px monospace'; ctx.fillStyle = S.muted; ctx.textAlign = 'right'
-      ctx.fillText(price.toFixed(4), PAD.l - 4, y + 3)
+      ctx.font = '11px monospace'; ctx.fillStyle = '#888'; ctx.textAlign = 'right'
+      ctx.fillText(price.toFixed(4), PAD.l - 4, y + 4)
     }
 
     // Bid line (green, thin) — extend to maxT with last known value
@@ -156,9 +163,20 @@ export function ExecutionChart({ status, width = 400, height = 200 }: {
       }
     })
 
-    // Time axis
-    ctx.font = '8px monospace'; ctx.fillStyle = S.muted; ctx.textAlign = 'center'
-    ;[0, 0.25, 0.5, 0.75, 1].forEach(t => {
+    // Avg fill price line (purple dashed) — true blended average of all fills
+    if (status.avgFillPrice && status.avgFillPrice > 0 && status.filledSize > 0) {
+      const y = yOf(status.avgFillPrice)
+      if (y >= PAD.t && y <= PAD.t + cH) {
+        ctx.beginPath(); ctx.strokeStyle = '#7F77DD'; ctx.lineWidth = 1.5
+        ctx.setLineDash([6, 3]); ctx.moveTo(PAD.l, y); ctx.lineTo(PAD.l + cW, y); ctx.stroke(); ctx.setLineDash([])
+        ctx.font = '9px monospace'; ctx.fillStyle = '#7F77DD'; ctx.textAlign = 'left'
+        ctx.fillText(`AVG ${status.avgFillPrice.toFixed(4)}`, PAD.l + 2, y - 3)
+      }
+    }
+
+    // Time axis — 8 ticks, larger font, brighter colour
+    ctx.font = '11px monospace'; ctx.fillStyle = '#888'; ctx.textAlign = 'center'
+    ;[0, 1/7, 2/7, 3/7, 4/7, 5/7, 6/7, 1].forEach(t => {
       const ts = minT + t * tRange
       const d = new Date(ts)
       ctx.fillText(`${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`, PAD.l + t * cW, height - 2)

@@ -406,6 +406,24 @@ public class VwapStrategy : BaseStrategy
            $"{_vwapMode} | {_currentUrgency} | {_durationMs / 60_000}min | {_slicesTotal} slices";
 
     // ═══════════════════════════════════════════════════════════════════════
+    protected override void OnStop()
+    {
+        _restingClientOrderId = null; _restingPrice = 0; _placing = false;
+    }
+
+    protected override void OnPause()
+    {
+        _restingClientOrderId = null; _restingPrice = 0; _placing = false;
+        _pauseReason = "manual";
+    }
+
+    protected override Task OnResumeAsync()
+    {
+        _nextSliceAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        _pauseReason = null;
+        return Task.CompletedTask;
+    }
+
     //  Helpers
     // ═══════════════════════════════════════════════════════════════════════
     private bool IsBuy() => Params.Side.ToUpper() == "BUY";

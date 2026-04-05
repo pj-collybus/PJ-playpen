@@ -518,6 +518,25 @@ public class TwapStrategy : BaseStrategy
         report.RollingVwap = _rollingVwap > 0 ? _rollingVwap : null;
     }
 
+    protected override void OnStop()
+    {
+        _restingClientOrderId = null; _restingPrice = 0; _placing = false;
+    }
+
+    protected override void OnPause()
+    {
+        _restingClientOrderId = null; _restingPrice = 0; _placing = false;
+        _pauseReason = "manual";
+    }
+
+    protected override Task OnResumeAsync()
+    {
+        // Resume slice schedule from now
+        _nextSliceAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        _pauseReason = null;
+        return Task.CompletedTask;
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════════════

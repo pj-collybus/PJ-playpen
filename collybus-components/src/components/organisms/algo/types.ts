@@ -6,7 +6,7 @@ export interface AlgoStatusReport {
   avgFillPrice: number; arrivalMid: number; slippageBps: number; vwapShortfallBps: number
   currentSlice: number; totalSlices: number; nextSliceAt: number | null
   pauseReason?: string | null; errorMessage: string | null; summaryLine?: string | null
-  startedAt: number; updatedAt: number
+  startedAt: number; updatedAt: number; elapsed?: number
   // Strategy-specific fields
   urgency?: string; activeOrderPrice?: number | null
   // SNIPER
