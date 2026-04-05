@@ -242,10 +242,11 @@ public class TwapStrategy : BaseStrategy
 
         if (RemainingSize > 0 && bid > 0 && ask > 0)
         {
-            if (_placing) return true;
+            if (_restingClientOrderId != null || _placing) return true;
             var tick = Params.TickSize;
             var sweepPrice = RoundToTick(IsBuy() ? ask + tick : bid - tick);
             var clientId = NewClientOrderId();
+            _restingClientOrderId = clientId;
             _placing = true;
             try
             {
@@ -253,6 +254,11 @@ public class TwapStrategy : BaseStrategy
                     StrategyId, clientId, Params.Exchange, Params.Symbol,
                     Params.Side.ToUpper(), "LIMIT", RoundToLot(RemainingSize), sweepPrice, null, "IOC",
                     Tag: "sweep"));
+            }
+            catch
+            {
+                _restingClientOrderId = null;
+                throw;
             }
             finally { _placing = false; }
             Status = AlgoStatus.Completing;
@@ -295,8 +301,11 @@ public class TwapStrategy : BaseStrategy
         var crossQty = RoundToLot(Math.Min(RemainingSize, Params.TotalSize / Math.Max(1, _slicesTotal)));
         if (crossQty > 0.001m)
         {
-            if (_placing) return;
+            if (_restingClientOrderId != null || _placing) return;
             var clientId = NewClientOrderId();
+            _restingClientOrderId = clientId;
+            _restingPrice = crossPrice;
+            _orderPlacedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             _placing = true;
             try
             {
@@ -304,9 +313,13 @@ public class TwapStrategy : BaseStrategy
                     StrategyId, clientId, Params.Exchange, Params.Symbol,
                     Params.Side.ToUpper(), "LIMIT", crossQty, crossPrice, null, "IOC",
                     Tag: "passive_cross"));
-                _restingClientOrderId = clientId;
-                _restingPrice = crossPrice;
-                _orderPlacedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            }
+            catch
+            {
+                _restingClientOrderId = null;
+                _restingPrice = 0;
+                _orderPlacedAt = 0;
+                throw;
             }
             finally { _placing = false; }
         }
@@ -421,8 +434,12 @@ public class TwapStrategy : BaseStrategy
         _sliceDeadlineTs = now + (long)(_intervalMs * 0.8);
         _sliceCrossed = false;
 
-        if (_placing) return;
+        if (_restingClientOrderId != null || _placing) return;
         var clientId = NewClientOrderId();
+        _restingClientOrderId = clientId;
+        _restingPrice = price;
+        _orderPlacedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        _chaseDeadline = 0;
         _placing = true;
         try
         {
@@ -430,10 +447,13 @@ public class TwapStrategy : BaseStrategy
                 StrategyId, clientId, Params.Exchange, Params.Symbol,
                 Params.Side.ToUpper(), "LIMIT", sliceSize, price, null, tif,
                 PostOnly: postOnly, Tag: $"slice_{_slicesFired}"));
-            _restingClientOrderId = clientId;
-            _restingPrice = price;
-            _orderPlacedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            _chaseDeadline = 0;
+        }
+        catch
+        {
+            _restingClientOrderId = null;
+            _restingPrice = 0;
+            _orderPlacedAt = 0;
+            throw;
         }
         finally { _placing = false; }
 

@@ -15,7 +15,7 @@ export function ExecutionChart({ status, width = 400, height = 200 }: {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
-    console.log('[ExecutionChart] render:', status.strategyId, 'bids:', status.chartBids?.length, 'fills:', status.chartFills?.length, 'status:', status.status)
+    console.log('[ExecutionChart] render:', status.strategyId, 'bids:', status.chartBids?.length, 'fills:', status.chartFills?.length, 'chartOrder.last3:', status.chartOrder?.slice(-3), 'status:', status.status)
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
@@ -40,32 +40,36 @@ export function ExecutionChart({ status, width = 400, height = 200 }: {
     fills.forEach(f => { if (f.time < minT) minT = f.time; if (f.time > maxT) maxT = f.time })
     const tRange = maxT - minT || 1
 
-    // Y axis range: include all visible price elements
-    const validBids = bids.filter(v => v > 0)
-    const validAsks = asks.filter(v => v > 0)
-    if (validBids.length === 0 && validAsks.length === 0) return
+    // Arrival-price-anchored filter — rejects anything >15% from arrival price
+    const arrivalPrice = status.arrivalMid || 0
+    const tolerance = arrivalPrice > 0 ? arrivalPrice * 0.15 : null
 
-    // Debug: find source of price spikes
-    const bidRange = validBids.length ? [Math.min(...validBids), Math.max(...validBids)] : [0, 0]
-    const askRange = validAsks.length ? [Math.min(...validAsks), Math.max(...validAsks)] : [0, 0]
-    const orderVals = orders.filter(v => v != null && v > 0)
-    const levelVals = (status.chartLevelPrices || []).map(l => l.price).filter(v => v > 0)
-    const fillVals = fills.map(f => f.price).filter(v => v > 0)
-    if (bidRange[1] > 0 && (bidRange[1] / bidRange[0] > 2 || askRange[1] / askRange[0] > 2)) {
-      console.warn('[chart-spike] bid:', bidRange, 'ask:', askRange, 'order:', orderVals.slice(-3), 'levels:', levelVals, 'target:', status.chartTargetPrice, 'fills:', fillVals)
+    const isValidPrice = (v: any): v is number => {
+      if (v == null || typeof v !== 'number' || isNaN(v) || v <= 0) return false
+      if (tolerance && (v < arrivalPrice - tolerance || v > arrivalPrice + tolerance)) return false
+      return true
     }
 
+    // Y axis range: include all visible price elements, filtered for outliers
+    const validBids   = bids.filter(isValidPrice)
+    const validAsks   = asks.filter(isValidPrice)
+    const validOrder  = orders.filter(isValidPrice)
+    const validLevels = (status.chartLevelPrices || []).map((l: any) => l?.price ?? l).filter(isValidPrice)
+    const validTarget = isValidPrice(status.chartTargetPrice) ? [status.chartTargetPrice] : []
+    const validSnipe  = isValidPrice(status.chartSnipeLevel) ? [status.chartSnipeLevel] : []
+    const validAvg    = isValidPrice(status.avgFillPrice) ? [status.avgFillPrice] : []
+    const validFills  = fills.map(f => f.price).filter(isValidPrice)
+
+    if (validBids.length === 0 && validAsks.length === 0) return
+
     const allPrices: number[] = [
-      ...validBids, ...validAsks,
-      ...fillVals,
-      ...levelVals,
-      ...(status.chartTargetPrice && status.chartTargetPrice > 0 ? [status.chartTargetPrice] : []),
-      ...(status.chartSnipeLevel && status.chartSnipeLevel > 0 ? [status.chartSnipeLevel] : []),
-      ...(status.avgFillPrice && status.avgFillPrice > 0 ? [status.avgFillPrice] : []),
+      ...validBids, ...validAsks, ...validOrder,
+      ...validFills, ...validLevels,
+      ...validTarget, ...validSnipe, ...validAvg,
     ]
     const minP = Math.min(...allPrices)
     const maxP = Math.max(...allPrices)
-    const pad = (maxP - minP) * 0.15 || maxP * 0.001
+    const pad = Math.max((maxP - minP) * 0.15, 0.001)
     const pMin = minP - pad, pMax = maxP + pad
     const pRange = pMax - pMin || 1
 
@@ -89,7 +93,7 @@ export function ExecutionChart({ status, width = 400, height = 200 }: {
     if (bids.length > 1) {
       ctx.beginPath(); ctx.strokeStyle = 'rgba(0,199,88,0.5)'; ctx.lineWidth = 1
       let lastBid = 0
-      bids.forEach((b, i) => { if (b > 0) { lastBid = b; const x = xOf(times[i]); i === 0 ? ctx.moveTo(x, yOf(b)) : ctx.lineTo(x, yOf(b)) } })
+      bids.forEach((b, i) => { if (isValidPrice(b)) { lastBid = b; const x = xOf(times[i]); i === 0 ? ctx.moveTo(x, yOf(b)) : ctx.lineTo(x, yOf(b)) } })
       if (lastBid > 0 && maxT > times[times.length - 1]) ctx.lineTo(xOf(maxT), yOf(lastBid))
       ctx.stroke()
     }
@@ -98,19 +102,19 @@ export function ExecutionChart({ status, width = 400, height = 200 }: {
     if (asks.length > 1) {
       ctx.beginPath(); ctx.strokeStyle = 'rgba(251,44,54,0.5)'; ctx.lineWidth = 1
       let lastAsk = 0
-      asks.forEach((a, i) => { if (a > 0) { lastAsk = a; const x = xOf(times[i]); i === 0 ? ctx.moveTo(x, yOf(a)) : ctx.lineTo(x, yOf(a)) } })
+      asks.forEach((a, i) => { if (isValidPrice(a)) { lastAsk = a; const x = xOf(times[i]); i === 0 ? ctx.moveTo(x, yOf(a)) : ctx.lineTo(x, yOf(a)) } })
       if (lastAsk > 0 && maxT > times[times.length - 1]) ctx.lineTo(xOf(maxT), yOf(lastAsk))
       ctx.stroke()
     }
 
     // Order/resting price line (dashed white) — extend to maxT
-    const orderPts = orders.map((o, i) => o != null && o > 0 ? { x: xOf(times[i]), y: yOf(o) } : null).filter(Boolean)
+    const orderPts = orders.map((o, i) => isValidPrice(o) ? { x: xOf(times[i]), y: yOf(o) } : null).filter(Boolean)
     if (orderPts.length > 0) {
       ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1
       ctx.setLineDash([4, 3])
       orderPts.forEach((p, i) => i === 0 ? ctx.moveTo(p!.x, p!.y) : ctx.lineTo(p!.x, p!.y))
       // Extend last order price to maxT
-      const lastOrd = orders.filter(v => v != null && v > 0).slice(-1)[0]
+      const lastOrd = orders.filter(isValidPrice).slice(-1)[0]
       if (lastOrd && maxT > times[times.length - 1]) ctx.lineTo(xOf(maxT), yOf(lastOrd))
       ctx.stroke(); ctx.setLineDash([])
     }
@@ -119,7 +123,7 @@ export function ExecutionChart({ status, width = 400, height = 200 }: {
     if (vwaps.length > 1) {
       ctx.beginPath(); ctx.strokeStyle = 'rgba(123,97,255,0.7)'; ctx.lineWidth = 1.5
       ctx.setLineDash([6, 3])
-      vwaps.forEach((v, i) => { if (v > 0) { const x = xOf(times[i]); i === 0 ? ctx.moveTo(x, yOf(v)) : ctx.lineTo(x, yOf(v)) } })
+      vwaps.forEach((v, i) => { if (isValidPrice(v)) { const x = xOf(times[i]); i === 0 ? ctx.moveTo(x, yOf(v)) : ctx.lineTo(x, yOf(v)) } })
       ctx.stroke(); ctx.setLineDash([])
     }
 

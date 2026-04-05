@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { App as AntApp } from 'antd'
 import { ThemeProvider, BlotterPanel, OrderModal, OrderTicket, AlgoMonitor } from '@collybus/components'
-import type { BlotterData, BlotterOrder, AlgoStatusReportUI } from '@collybus/components'
+import type { BlotterData, BlotterOrder, BlotterAlgoOrder, AlgoStatusReportUI } from '@collybus/components'
 import { signalRClient } from './services/signalRClient'
 import { api, venuesApi, marketDataApi } from './services/apiClient'
 import { useMarketDataStore } from './stores/marketDataStore'
@@ -35,54 +35,51 @@ export default function App() {
   const storePositions = useBlotterStore(s => s.positions)
   const storeBalances = useBlotterStore(s => s.balances)
 
+  const blotterAlgoStrategies: BlotterAlgoOrder[] = Object.values(algoStatuses).map(s => ({
+    strategyId: s.strategyId, strategyType: s.strategyType, exchange: s.exchange,
+    symbol: s.symbol, side: s.side, status: s.status,
+    filledSize: s.filledSize, avgFillPrice: s.avgFillPrice,
+    totalSize: s.totalSize, targetPrice: s.targetPrice,
+    updatedAt: s.updatedAt,
+  }))
+
   const blotterData: BlotterData = {
     orders: Object.values(storeOrders).map(o => {
       const instrList = allInstruments[o.exchange?.toUpperCase()] ?? []
       const spec = instrList.find((i: any) => i.symbol === o.symbol)
       return {
         id: o.orderId, exchange: o.exchange, timestamp: o.createdAt,
-        instrument: o.symbol, type: (o.orderType ?? 'LIMIT').toUpperCase(),
+        updatedAt: o.updatedAt, instrument: o.symbol,
+        type: (o.orderType ?? 'LIMIT').toUpperCase(),
         side: String(o.side).toUpperCase(), amount: o.quantity,
         filled: o.filledQuantity, price: o.limitPrice || o.stopPrice || 0,
+        avgPrice: o.avgFillPrice, leavesQty: o.remainingQuantity,
         tickSize: spec?.tickSize, status: (o.state ?? '').toLowerCase(),
-        rejectReason: o.rejectReason,
+        rejectReason: o.rejectReason, exchangeOrderId: o.venueOrderId,
+        stopPrice: o.stopPrice,
       }
     }),
     trades: Object.values(storeTrades).map(t => ({
-      id: t.fillId,
-      exchange: t.exchange,
-      timestamp: t.fillTs,
-      instrument: t.symbol,
-      side: String(t.side).toUpperCase(),
-      amount: t.fillSize,
-      price: t.fillPrice,
-      fee: t.commission,
-      orderId: t.orderId,
+      id: t.fillId, exchange: t.exchange, timestamp: t.fillTs,
+      instrument: t.symbol, side: String(t.side).toUpperCase(),
+      amount: t.fillSize, price: t.fillPrice,
+      fee: t.commission, orderId: t.orderId,
     })),
     positions: Object.values(storePositions).map(p => ({
-      id: `${p.exchange}:${p.symbol}`,
-      exchange: p.exchange,
-      instrument: p.symbol,
-      side: p.side,
-      size: p.size,
-      sizeUnit: p.sizeUnit ?? '',
-      entryPrice: p.avgEntryPrice,
-      markPrice: p.markPrice,
-      uPnl: p.unrealisedPnl,
-      rPnl: p.realisedPnl,
-      liqPrice: 0,
-      margin: 0,
-      updatedAt: p.timestamp,
+      id: `${p.exchange}:${p.symbol}`, exchange: p.exchange,
+      instrument: p.symbol, side: p.side,
+      size: p.size, sizeUnit: p.sizeUnit ?? '',
+      entryPrice: p.avgEntryPrice, markPrice: p.markPrice,
+      uPnl: p.unrealisedPnl, rPnl: p.realisedPnl,
+      liqPrice: 0, margin: 0, updatedAt: p.timestamp,
     })),
     balances: Object.values(storeBalances).map(b => ({
-      exchange: b.exchange,
-      currency: b.currency,
-      available: b.available,
-      total: b.total,
-      reservedMargin: 0,
-      unrealisedPnl: b.unrealisedPnl,
+      exchange: b.exchange, currency: b.currency,
+      available: b.available, total: b.total,
+      reservedMargin: 0, unrealisedPnl: b.unrealisedPnl,
       equity: b.total + (b.unrealisedPnl ?? 0),
     })),
+    algoStrategies: blotterAlgoStrategies,
   }
 
   const [editingId, setEditingId] = useState<string | null>(null)

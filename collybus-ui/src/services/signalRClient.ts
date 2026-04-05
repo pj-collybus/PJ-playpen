@@ -65,7 +65,7 @@ class SignalRClient {
     this.connection.on('BalanceUpdate', (data) => { if (data?.exchange) useBlotterStore.getState().upsertBalance(data) })
     this.connection.on('AlgoProgress', (data) => {
       if (data?.strategyId) {
-        console.log('[AlgoProgress]', data.strategyId, 'bids:', data.chartBids?.length, 'fills:', data.chartFills?.length, 'status:', data.status)
+        console.log('[AlgoProgress]', data.strategyId, 'bids:', data.chartBids?.length, 'fills:', data.chartFills?.length, 'fills[0]:', data.chartFills?.[0], 'chartOrder.last3:', data.chartOrder?.slice(-3), 'status:', data.status)
         upsertStrategy(data)
         window.dispatchEvent(new CustomEvent('algo-status-update', { detail: data }))
       }

@@ -99,9 +99,9 @@ export function DepthChart({ levels, side, tickSize, granularity, highlightQty, 
       const size = levels
         .filter(l => l.price >= bucketPrice && l.price < bucketMax)
         .reduce((sum, l) => sum + normalizeSize(l.size), 0)
-      if (size > 0 || buckets.length > 0) buckets.push({ price: bucketPrice, size })
+      buckets.push({ price: bucketPrice, size })
     }
-    if (buckets.length === 0) return
+    if (buckets.every(b => b.size === 0)) return
 
     let run = 0
     const cumBuckets = buckets.map(b => { run += b.size; return { ...b, cumulative: run } })
@@ -115,50 +115,64 @@ export function DepthChart({ levels, side, tickSize, granularity, highlightQty, 
       : PL + i * BAR_W
     const yC = (c: number) => PT + (1 - c / cMax) * cH
 
-    // ── 1. Cumulative fill ──
+    // ── Build cumulative curve points (shared by fill + line) ──
+    // Points plateau through empty buckets and extend to the full chart edge
     const fillHi = isBid ? 'rgba(0,199,88,0.18)' : 'rgba(251,44,54,0.18)'
     const fillLo = isBid ? 'rgba(0,199,88,0.02)' : 'rgba(251,44,54,0.02)'
 
-    let lastFillY = PT + cH
-    ctx.beginPath()
+    const cumPoints: { x: number; y: number }[] = []
+    let lastCum = 0
     if (isBid) {
-      ctx.moveTo(PL + cW, PT + cH)
+      cumPoints.push({ x: PL + cW, y: PT + cH })
       for (let i = 0; i < cumBuckets.length; i++) {
-        const x = barX(i) + BAR_W
-        ctx.lineTo(x, i === 0 ? PT + cH : yC(cumBuckets[i - 1].cumulative))
-        lastFillY = yC(cumBuckets[i].cumulative)
-        ctx.lineTo(x, lastFillY)
+        if (cumBuckets[i].cumulative > 0) lastCum = cumBuckets[i].cumulative
+        cumPoints.push({ x: barX(i) + BAR_W / 2, y: yC(lastCum) })
       }
-      ctx.lineTo(PL, lastFillY)
-      ctx.lineTo(PL, PT + cH)
+      const edgeX = PL
+      if (cumPoints[cumPoints.length - 1].x > edgeX)
+        cumPoints.push({ x: edgeX, y: yC(lastCum) })
     } else {
-      ctx.moveTo(PL, PT + cH)
+      cumPoints.push({ x: PL, y: PT + cH })
       for (let i = 0; i < cumBuckets.length; i++) {
-        const x = barX(i)
-        ctx.lineTo(x, i === 0 ? PT + cH : yC(cumBuckets[i - 1].cumulative))
-        lastFillY = yC(cumBuckets[i].cumulative)
-        ctx.lineTo(x, lastFillY)
+        if (cumBuckets[i].cumulative > 0) lastCum = cumBuckets[i].cumulative
+        cumPoints.push({ x: barX(i) + BAR_W / 2, y: yC(lastCum) })
       }
-      ctx.lineTo(PL + cW, lastFillY)
-      ctx.lineTo(PL + cW, PT + cH)
+      const edgeX = PL + cW
+      if (cumPoints[cumPoints.length - 1].x < edgeX)
+        cumPoints.push({ x: edgeX, y: yC(lastCum) })
     }
-    ctx.closePath()
-    const g = ctx.createLinearGradient(PL, 0, PL + cW, 0)
-    if (isBid) { g.addColorStop(0, fillLo); g.addColorStop(1, fillHi) }
-    else { g.addColorStop(0, fillHi); g.addColorStop(1, fillLo) }
-    ctx.fillStyle = g
-    ctx.fill()
+
+    // ── 1. Cumulative fill (smooth bezier) ──
+    if (cumPoints.length >= 2) {
+      ctx.beginPath()
+      ctx.moveTo(cumPoints[0].x, cumPoints[0].y)
+      for (let i = 0; i < cumPoints.length - 1; i++) {
+        const p0 = cumPoints[i], p1 = cumPoints[i + 1]
+        const cpx = (p0.x + p1.x) / 2
+        ctx.bezierCurveTo(cpx, p0.y, cpx, p1.y, p1.x, p1.y)
+      }
+      const last = cumPoints[cumPoints.length - 1]
+      ctx.lineTo(last.x, PT + cH)
+      ctx.lineTo(cumPoints[0].x, PT + cH)
+      ctx.closePath()
+      const g = ctx.createLinearGradient(PL, 0, PL + cW, 0)
+      if (isBid) { g.addColorStop(0, fillLo); g.addColorStop(1, fillHi) }
+      else { g.addColorStop(0, fillHi); g.addColorStop(1, fillLo) }
+      ctx.fillStyle = g
+      ctx.fill()
+    }
 
     // ── 2. Histogram bars ──
     const maxSize = Math.max(...cumBuckets.map(b => b.size), 1)
     for (let i = 0; i < cumBuckets.length; i++) {
       const { size } = cumBuckets[i]
+      if (size === 0) continue
       const bx = barX(i)
       const barH = (size / maxSize) * cH * 0.85
       const barY = PT + cH - barH
       ctx.fillStyle = 'rgba(120, 120, 140, 0.5)'
       if (barH > 0) ctx.fillRect(bx, barY, BAR_W - 1, barH)
-      if (barH > 12 && size > 0) {
+      if (barH > 12) {
         const label = size >= 1_000_000 ? `${(size / 1_000_000).toFixed(1)}M`
                     : size >= 1_000 ? `${(size / 1_000).toFixed(1)}k`
                     : size.toFixed(0)
@@ -169,32 +183,20 @@ export function DepthChart({ levels, side, tickSize, granularity, highlightQty, 
       }
     }
 
-    // ── 3. Cumulative stepped line — extends to chart edge ──
-    let lastLineY = PT + cH
-    ctx.beginPath()
-    if (isBid) {
-      ctx.moveTo(PL + cW, PT + cH)
-      for (let i = 0; i < cumBuckets.length; i++) {
-        const x = barX(i) + BAR_W
-        ctx.lineTo(x, i === 0 ? PT + cH : yC(cumBuckets[i - 1].cumulative))
-        lastLineY = yC(cumBuckets[i].cumulative)
-        ctx.lineTo(x, lastLineY)
+    // ── 3. Cumulative smooth line (on top) ──
+    if (cumPoints.length >= 2) {
+      ctx.beginPath()
+      ctx.moveTo(cumPoints[0].x, cumPoints[0].y)
+      for (let i = 0; i < cumPoints.length - 1; i++) {
+        const p0 = cumPoints[i], p1 = cumPoints[i + 1]
+        const cpx = (p0.x + p1.x) / 2
+        ctx.bezierCurveTo(cpx, p0.y, cpx, p1.y, p1.x, p1.y)
       }
-      ctx.lineTo(PL, lastLineY)
-    } else {
-      ctx.moveTo(PL, PT + cH)
-      for (let i = 0; i < cumBuckets.length; i++) {
-        const x = barX(i)
-        ctx.lineTo(x, i === 0 ? PT + cH : yC(cumBuckets[i - 1].cumulative))
-        lastLineY = yC(cumBuckets[i].cumulative)
-        ctx.lineTo(x, lastLineY)
-      }
-      ctx.lineTo(PL + cW, lastLineY)
+      ctx.strokeStyle = isBid ? '#00C758' : '#FB2C36'
+      ctx.lineWidth = 1.5
+      ctx.lineJoin = 'round'
+      ctx.stroke()
     }
-    ctx.strokeStyle = isBid ? '#00C758' : '#FB2C36'
-    ctx.lineWidth = 1.5
-    ctx.lineJoin = 'round'
-    ctx.stroke()
 
     // ── 4. Total label — visible volume only ──
     const visibleTotal = cumBuckets.reduce((s, b) => s + b.size, 0)

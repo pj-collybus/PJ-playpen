@@ -6,6 +6,7 @@ public interface IAlgoStrategy
 {
     string StrategyId { get; }
     string StrategyType { get; }
+    string Symbol { get; }
     AlgoStatus Status { get; }
     AlgoStatusReport GetStatus();
 

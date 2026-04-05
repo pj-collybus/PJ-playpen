@@ -53,6 +53,15 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
   useEffect(() => { monitorPositions[status.strategyId] = pos; savePos(`monitor.${status.strategyType}`, pos) }, [pos, status.strategyId, status.strategyType])
   useEffect(() => { if (showChart && !chartDetached) setChartPos({ x: pos.x + 360, y: pos.y }) }, [pos, showChart, chartDetached])
 
+  // Diagnostic: log chart fields that affect Y axis
+  console.log('[chart-fields]', status.strategyId?.slice(0, 8),
+    'target:', status.chartTargetPrice,
+    'snipe:', status.chartSnipeLevel,
+    'levels:', JSON.stringify(status.chartLevelPrices),
+    'vwap.last3:', status.chartVwap?.slice(-3),
+    'fills:', status.chartFills?.length, 'fills[0]:', status.chartFills?.[0]
+  )
+
   const [lockedHeight, setLockedHeight] = useState(0)
 
   // Capture panel height once after first render — lock it forever

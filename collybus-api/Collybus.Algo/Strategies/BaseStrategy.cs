@@ -14,6 +14,7 @@ public abstract class BaseStrategy : IAlgoStrategy
 
     public string StrategyId { get; }
     public abstract string StrategyType { get; }
+    public string Symbol => Params?.Symbol ?? "";
     public AlgoStatus Status { get; protected set; } = AlgoStatus.Waiting;
 
     // Fill tracking
@@ -199,26 +200,40 @@ public abstract class BaseStrategy : IAlgoStrategy
         if (Status == AlgoStatus.Waiting && Params.StartMode == "trigger")
             CheckTrigger(data);
 
-        // Chart sampling — once per second, with bad tick rejection
+        // Chart sampling — once per second, strict bad tick rejection
         if (data.Bid > 0 && data.Ask > 0 && data.Bid < data.Ask
             && Status is not (AlgoStatus.Completed or AlgoStatus.Stopped))
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             if (now - _lastChartSampleTs >= 1000)
             {
-                // Reject if price moved >10% from last sample
+                var bid = data.Bid;
+                var ask = data.Ask;
+
+                // Spread > 5% of bid = bad tick
+                if ((ask - bid) / bid > 0.05m) return;
+
+                // Must be within 20% of arrival price
+                var arrival = Params?.ArrivalMid ?? 0;
+                if (arrival > 0)
+                {
+                    if (bid < arrival * 0.80m) return;
+                    if (ask > arrival * 1.20m) return;
+                }
+
+                // Must be within 5% of previous sample
                 if (_chartBids.Count > 0)
                 {
-                    var lastBid = _chartBids[^1];
-                    var lastAsk = _chartAsks[^1];
-                    if (lastBid > 0 && Math.Abs(data.Bid - lastBid) / lastBid > 0.10m) return;
-                    if (lastAsk > 0 && Math.Abs(data.Ask - lastAsk) / lastAsk > 0.10m) return;
+                    var prevBid = _chartBids[^1];
+                    var prevAsk = _chartAsks[^1];
+                    if (prevBid > 0 && Math.Abs(bid - prevBid) / prevBid > 0.05m) return;
+                    if (prevAsk > 0 && Math.Abs(ask - prevAsk) / prevAsk > 0.05m) return;
                 }
 
                 _lastChartSampleTs = now;
                 _chartTimes.Add(now);
-                _chartBids.Add(data.Bid);
-                _chartAsks.Add(data.Ask);
+                _chartBids.Add(bid);
+                _chartAsks.Add(ask);
                 _chartOrder.Add(RestingPrice > 0 ? RestingPrice : null);
                 _chartVwap.Add(MarketVwap > 0 ? MarketVwap : 0);
                 if (_chartTimes.Count > MaxChartPoints)
@@ -235,6 +250,8 @@ public abstract class BaseStrategy : IAlgoStrategy
     {
         if (fill.FillSize <= 0) return;
 
+        Console.WriteLine($"[fill] strategy={Symbol} {StrategyType} fillPrice={fill.FillPrice} fillSize={fill.FillSize} chartFills.Count before={_chartFills.Count}");
+
         // Get order tag before any removal
         var fillTag = PendingOrders.TryGetValue(fill.ClientOrderId, out var intent) ? intent.Tag : null;
 
@@ -247,6 +264,7 @@ public abstract class BaseStrategy : IAlgoStrategy
             Side = Params?.Side ?? "BUY",
             FillType = fillTag ?? "fill",
         });
+        Console.WriteLine($"[fill] chartFills.Count after={_chartFills.Count}");
 
         // Update child order blotter even if completed (so UI sees all fills)
         var childOrder = _childOrders.FindLast(c => c.ClientOrderId == fill.ClientOrderId);

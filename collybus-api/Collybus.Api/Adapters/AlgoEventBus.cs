@@ -12,7 +12,10 @@ public class AlgoEventBus : IAlgoEventBus
 
     public Task PublishStatusAsync(AlgoStatusReport status)
     {
-        Console.WriteLine($"[AlgoProgress] sid={status.StrategyId} status={status.Status} bids={status.ChartBids?.Count ?? 0} fills={status.ChartFills?.Count ?? 0} children={status.ChildOrders?.Count ?? 0}");
+        var orderSample = status.ChartOrder != null && status.ChartOrder.Count > 0
+            ? string.Join(",", status.ChartOrder.TakeLast(3).Select(o => o?.ToString("F4") ?? "null"))
+            : "empty";
+        Console.WriteLine($"[AlgoProgress] sid={status.StrategyId} status={status.Status} bids={status.ChartBids?.Count ?? 0} fills={status.ChartFills?.Count ?? 0} chartOrder.last3=[{orderSample}] restingPrice={status.ActiveOrderPrice}");
         return _hub.Clients.All.SendAsync("AlgoProgress", status);
     }
 

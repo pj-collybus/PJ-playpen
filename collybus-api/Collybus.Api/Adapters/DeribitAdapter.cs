@@ -122,6 +122,7 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
 
     public async Task<OrderResult> SubmitOrderAsync(SubmitOrderRequest request, ExchangeCredentials credentials)
     {
+        Console.WriteLine($"[submit] ENTERING: symbol={request.Symbol} size={request.Quantity} price={request.LimitPrice} tif={request.TimeInForce} label={request.Label}");
         try
         {
             var token = await AuthenticateAsync(credentials);
@@ -187,18 +188,22 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
             Logger.LogInformation("[Deribit] Order placed: {Id} {State}",
                 order["order_id"]?.GetValue<string>(), order["order_state"]?.GetValue<string>());
 
+            var orderId = order["order_id"]?.GetValue<string>();
+            var state = order["order_state"]?.GetValue<string>();
+            Console.WriteLine($"[submit] SUCCESS: orderId={orderId} state={state} filled={filled} label={clientOid}");
             return new OrderResult
             {
                 Ok = true,
-                VenueOrderId = order["order_id"]?.GetValue<string>(),
+                VenueOrderId = orderId,
                 ClientOrderId = clientOid,
-                Status = order["order_state"]?.GetValue<string>()?.ToLower() ?? "open",
+                Status = state?.ToLower() ?? "open",
                 FilledQty = filled,
                 AvgFillPrice = order["average_price"]?.GetValue<decimal>() ?? 0,
             };
         }
         catch (Exception ex)
         {
+            Console.WriteLine($"[submit] EXCEPTION: {ex.Message}");
             return new OrderResult { Ok = false, RejectReason = ex.Message };
         }
     }
@@ -487,6 +492,7 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
                 fill.Side == OrderSide.Buy ? "buy" : "sell", fill.FillTs);
             // Try resolving by label first (avoids race with order_id mapping)
             var label = t["label"]?.GetValue<string>();
+            Console.WriteLine($"[deribit-fill] trade_id={fill.FillId} order_id={fill.OrderId} label={label ?? "NULL"} price={fill.FillPrice} size={fill.FillSize} symbol={fill.Symbol}");
             if (!string.IsNullOrEmpty(label))
             {
                 var labelFill = fill with { OrderId = label };

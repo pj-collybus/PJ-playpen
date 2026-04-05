@@ -34,10 +34,10 @@ export { ExchangeSelector } from './components/molecules/ExchangeSelector';
 
 // Organisms
 export { BlotterPanel, OrderModal, OrderTicket, AlgoModal, AlgoMonitor, OptionsMatrix } from './components/organisms';
-export type { BlotterData, BlotterOrder, BlotterTrade, BlotterPosition, BlotterBalance, BlotterCallbacks, OrderModalProps, OrderSubmitParams, OrderTicketProps, AlgoModalProps, AlgoLaunchParams, AlgoMonitorProps, AlgoStatusReportUI, AlgoFillReport, OptionsMatrixProps } from './components/organisms';
+export type { BlotterData, BlotterOrder, BlotterTrade, BlotterPosition, BlotterBalance, BlotterAlgoOrder, BlotterAlert, BlotterNotification, BlotterCallbacks, OrderModalProps, OrderSubmitParams, OrderTicketProps, AlgoModalProps, AlgoLaunchParams, AlgoMonitorProps, AlgoStatusReportUI, AlgoFillReport, OptionsMatrixProps } from './components/organisms';
 
 // Shared — BlotterTable
-export { BlotterTable } from './components/shared/BlotterTable';
+export { BlotterTable, col } from './components/shared/BlotterTable';
 export type { BlotterColumn } from './components/shared/BlotterTable';
 
 // PricePanel

@@ -95,9 +95,14 @@ app.MapHub<CollybusHub>("/hub");
                 if (algoOrderPort == null) return;
                 // Resolve venue order ID to (clientOrderId, strategyId)
                 var resolved = algoOrderPort.ResolveVenueOrderId(fill.OrderId);
-                if (resolved == null) return; // Not an algo order
+                if (resolved == null)
+                {
+                    Console.WriteLine($"[fill-drop] Could not resolve orderId={fill.OrderId} price={fill.FillPrice} size={fill.FillSize} — fill NOT routed to algo engine");
+                    return;
+                }
 
                 var (clientOrderId, strategyId) = resolved.Value;
+                Console.WriteLine($"[fill-route] orderId={fill.OrderId} → strategy={strategyId} clientOrderId={clientOrderId} price={fill.FillPrice} size={fill.FillSize}");
                 var algoFill = new Collybus.Algo.Models.AlgoFill(
                     StrategyId: strategyId,
                     ClientOrderId: clientOrderId,

@@ -47,7 +47,9 @@ public class AlgoEngine : BackgroundService
         _sim.OnSyntheticTrade += async (_, data) =>
         {
             foreach (var (_, s) in _strategies)
-                if (s.Status == AlgoStatus.Running) s.OnMarketData(data);
+                if (s.Status == AlgoStatus.Running
+                    && string.Equals(s.Symbol, data.Symbol, StringComparison.OrdinalIgnoreCase))
+                    s.OnMarketData(data);
             await Task.CompletedTask;
         };
         _channel = Channel.CreateBounded<AlgoMessage>(new BoundedChannelOptions(1000)
@@ -79,7 +81,8 @@ public class AlgoEngine : BackgroundService
         _sim.OnMarketData(data);
         foreach (var (sid, s) in _strategies)
         {
-            if (s.Status is AlgoStatus.Running or AlgoStatus.Waiting or AlgoStatus.Completing)
+            if (s.Status is AlgoStatus.Running or AlgoStatus.Waiting or AlgoStatus.Completing
+                && string.Equals(s.Symbol, data.Symbol, StringComparison.OrdinalIgnoreCase))
                 _channel.Writer.TryWrite(new MarketDataMessage(sid, data));
         }
         return Task.CompletedTask;

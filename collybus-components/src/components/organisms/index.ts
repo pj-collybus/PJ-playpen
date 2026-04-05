@@ -1,5 +1,5 @@
 export { BlotterPanel } from './BlotterPanel'
-export type { BlotterData, BlotterOrder, BlotterTrade, BlotterPosition, BlotterBalance, BlotterCallbacks } from './BlotterPanel'
+export type { BlotterData, BlotterOrder, BlotterTrade, BlotterPosition, BlotterBalance, BlotterAlgoOrder, BlotterAlert, BlotterNotification, BlotterCallbacks } from './BlotterPanel'
 export { OrderModal } from './OrderModal'
 export type { OrderModalProps, OrderSubmitParams } from './OrderModal'
 export { OrderTicket } from './OrderTicket'
