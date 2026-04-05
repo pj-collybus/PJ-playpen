@@ -98,6 +98,7 @@ export function PricePanel({
   const tickSize = spec?.tickSize ?? 0.5
   const sizeUnit = spec?.sizeUnit ?? 'base'
   const isPerp = symbol.includes('PERPETUAL')
+  const isNarrow = width < 180
   const base = baseCurrency(symbol)
   const bid = ticker?.bestBid ?? 0
   const ask = ticker?.bestAsk ?? 0
@@ -214,7 +215,7 @@ export function PricePanel({
   // ── Render ──
   return (
     <div ref={elRef} style={{
-      position: 'absolute', left: x, top: y, width, minWidth: 300,
+      position: 'absolute', left: x, top: y, width, minWidth: 120,
       border: `1.25px solid ${S.border}`, borderRadius: 4, overflow: 'visible',
       display: 'flex', flexDirection: 'column', background: S.gradCard,
       boxShadow: locked ? '0 0 0 1px rgba(240,160,32,0.35), 0 4px 20px rgba(0,0,0,0.6)' : '0 4px 20px rgba(0,0,0,0.5)',
@@ -225,15 +226,17 @@ export function PricePanel({
         display: 'flex', flexDirection: 'row', overflow: 'hidden',
         borderRadius: 4, height: 171, cursor: locked ? 'default' : 'grab',
       }}>
-        {/* Gran column */}
-        <div style={{ width: 32, flexShrink: 0, height: '100%', display: 'flex', flexDirection: 'column',
-          alignItems: 'center', padding: '4px 2px', gap: 2, paddingTop: 4,
-          borderRight: `1px solid ${S.borderInner}`, background: S.bgCardEnd, justifyContent: 'flex-start',
-        }}>
-          {granPresets.map(g => (
-            <GranButton key={g.value} label={g.label} active={gran === g.value} onClick={() => handleGranChange(g.value)} />
-          ))}
-        </div>
+        {/* Gran column — hidden when narrow or no depth */}
+        {!isNarrow && showDepth && (
+          <div style={{ width: 32, flexShrink: 0, height: '100%', display: 'flex', flexDirection: 'column',
+            alignItems: 'center', padding: '4px 2px', gap: 2, paddingTop: 4,
+            borderRight: `1px solid ${S.borderInner}`, background: S.bgCardEnd, justifyContent: 'flex-start',
+          }}>
+            {granPresets.map(g => (
+              <GranButton key={g.value} label={g.label} active={gran === g.value} onClick={() => handleGranChange(g.value)} />
+            ))}
+          </div>
+        )}
 
         {/* Bid depth */}
         {showDepth && (
@@ -247,19 +250,19 @@ export function PricePanel({
         )}
 
         {/* Centre */}
-        <div style={{ width: 200, flexShrink: 0, height: '100%', display: 'flex', flexDirection: 'column',
+        <div style={{ width: showDepth ? 200 : undefined, flex: showDepth ? undefined : 1, flexShrink: 0, height: '100%', display: 'flex', flexDirection: 'column',
           padding: '4px 4px', gap: 3, overflow: 'hidden',
-          borderLeft: `1px solid ${S.borderInner}`, borderRight: `1px solid ${S.borderInner}`, justifyContent: 'center',
+          borderLeft: showDepth ? `1px solid ${S.borderInner}` : 'none', borderRight: `1px solid ${S.borderInner}`, justifyContent: 'center',
         }}>
-          {/* Instrument header */}
-          <div style={{ height: 30, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <button onClick={() => setInstrOpen(o => !o)} style={{ height: 26, width: 35, background: 'transparent', border: 'none', color: 'white', borderRadius: 4, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          {/* Instrument header: [🔍] [INSTRUMENT...] [EXCHANGE] — symmetric padding */}
+          <div style={{ height: 30, display: 'flex', alignItems: 'center', padding: '0 4px' }}>
+            <button onClick={() => setInstrOpen(o => !o)} style={{ height: 26, width: 22, flexShrink: 0, background: 'transparent', border: 'none', color: '#888', borderRadius: 4, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, padding: 0 }}
+              onMouseEnter={e => e.currentTarget.style.color = '#fff'}
+              onMouseLeave={e => e.currentTarget.style.color = '#888'}
             >🔍</button>
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden', padding: '0 4px', position: 'relative' }}>
-              <button onClick={() => setInstrOpen(o => !o)} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180, textAlign: 'left' as const }}>{symbol}</button>
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#CFD1D4', flexShrink: 0, marginLeft: 6 }}>{exchange}</span>
+            <button onClick={() => setInstrOpen(o => !o)} title={symbol} style={{ background: 'transparent', border: 'none', color: '#ccc', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, textAlign: 'left' as const, minWidth: 0, padding: '0 2px' }}>{symbol}</button>
+            {!isNarrow && <span style={{ fontSize: 9, color: '#888', flexShrink: 0 }}>{exchange}</span>}
+            <div style={{ position: 'relative' }}>
               {instrOpen && (
                 <div className="instr-picker" style={{ position: 'fixed', zIndex: 150,
                   left: (elRef.current?.getBoundingClientRect().left ?? 0) + instrPos.x,
@@ -282,7 +285,6 @@ export function PricePanel({
                 </div>
               )}
             </div>
-            <div style={{ width: 35 }} />
           </div>
 
           {/* Stats */}

@@ -74,7 +74,7 @@ export function PanelCanvas({ availableExchanges }: PanelCanvasProps) {
               }}
               onClose={(id) => removePanel(id)}
               onResize={(id, width) => {
-                const snappedW = Math.max(300, snapToGrid(width))
+                const snappedW = Math.max(120, snapToGrid(width))
                 updatePanel(id, { width: snappedW })
                 const rects = getPanelRects().map(r => r.id === id ? { ...r, width: snappedW } : r)
                 const resolved = resolveOverlaps(rects, id)

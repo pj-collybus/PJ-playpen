@@ -199,13 +199,22 @@ public abstract class BaseStrategy : IAlgoStrategy
         if (Status == AlgoStatus.Waiting && Params.StartMode == "trigger")
             CheckTrigger(data);
 
-        // Chart sampling — once per second from ticker data (stop when done)
+        // Chart sampling — once per second, with bad tick rejection
         if (data.Bid > 0 && data.Ask > 0 && data.Bid < data.Ask
             && Status is not (AlgoStatus.Completed or AlgoStatus.Stopped))
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             if (now - _lastChartSampleTs >= 1000)
             {
+                // Reject if price moved >10% from last sample
+                if (_chartBids.Count > 0)
+                {
+                    var lastBid = _chartBids[^1];
+                    var lastAsk = _chartAsks[^1];
+                    if (lastBid > 0 && Math.Abs(data.Bid - lastBid) / lastBid > 0.10m) return;
+                    if (lastAsk > 0 && Math.Abs(data.Ask - lastAsk) / lastAsk > 0.10m) return;
+                }
+
                 _lastChartSampleTs = now;
                 _chartTimes.Add(now);
                 _chartBids.Add(data.Bid);
@@ -401,17 +410,28 @@ public abstract class BaseStrategy : IAlgoStrategy
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             if (now - _lastChartSampleTs >= 1500)
             {
-                _lastChartSampleTs = now;
-                _chartTimes.Add(now);
-                _chartBids.Add(CurrentBid);
-                _chartAsks.Add(CurrentAsk);
-                _chartOrder.Add(RestingPrice > 0 ? RestingPrice : null);
-                _chartVwap.Add(MarketVwap > 0 ? MarketVwap : 0);
-                if (_chartTimes.Count > MaxChartPoints)
+                var okToSample = true;
+                if (_chartBids.Count > 0)
                 {
-                    _chartTimes.RemoveAt(0); _chartBids.RemoveAt(0);
-                    _chartAsks.RemoveAt(0); _chartOrder.RemoveAt(0);
-                    _chartVwap.RemoveAt(0);
+                    var lb = _chartBids[^1]; var la = _chartAsks[^1];
+                    if ((lb > 0 && Math.Abs(CurrentBid - lb) / lb > 0.10m)
+                        || (la > 0 && Math.Abs(CurrentAsk - la) / la > 0.10m))
+                        okToSample = false;
+                }
+                if (okToSample)
+                {
+                    _lastChartSampleTs = now;
+                    _chartTimes.Add(now);
+                    _chartBids.Add(CurrentBid);
+                    _chartAsks.Add(CurrentAsk);
+                    _chartOrder.Add(RestingPrice > 0 ? RestingPrice : null);
+                    _chartVwap.Add(MarketVwap > 0 ? MarketVwap : 0);
+                    if (_chartTimes.Count > MaxChartPoints)
+                    {
+                        _chartTimes.RemoveAt(0); _chartBids.RemoveAt(0);
+                        _chartAsks.RemoveAt(0); _chartOrder.RemoveAt(0);
+                        _chartVwap.RemoveAt(0);
+                    }
                 }
             }
         }
