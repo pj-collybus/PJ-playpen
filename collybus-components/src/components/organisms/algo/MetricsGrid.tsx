@@ -11,7 +11,7 @@ export function MetricsGrid({ s }: { s: AlgoStatusReport }) {
   const elapsed = Math.floor(elapsedMs / 1000)
   const elapsedStr = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
   const nextIn = s.nextSliceAt ? Math.max(0, Math.floor((s.nextSliceAt - Date.now()) / 1000)) : null
-  const timeLeft = s.nextSliceAt && s.totalSlices > 0 ? `${nextIn}s` : '—'
+  const nextSliceStr = nextIn != null ? (nextIn <= 0 ? 'now' : `${nextIn}s`) : '—'
   const slipColor = (v: number) => v > 5 ? S.negative : v < -2 ? S.positive : S.muted
 
   const cells = [
@@ -20,7 +20,7 @@ export function MetricsGrid({ s }: { s: AlgoStatusReport }) {
     { l: 'Avg Fill', v: fmtN(s.avgFillPrice) },
     { l: 'Arrival', v: fmtN(s.arrivalMid) },
     { l: 'Elapsed', v: elapsedStr },
-    { l: 'Time Left', v: timeLeft },
+    { l: 'Next Slice', v: s.totalSlices > 0 ? nextSliceStr : '—' },
     { l: 'Slip vs Arrival', v: fmtBps(s.slippageBps), c: slipColor(s.slippageBps) },
     { l: 'Slip vs VWAP', v: fmtBps(s.vwapShortfallBps), c: slipColor(s.vwapShortfallBps) },
   ]

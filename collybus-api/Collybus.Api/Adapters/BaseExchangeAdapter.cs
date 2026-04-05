@@ -18,6 +18,9 @@ public abstract class BaseExchangeAdapter
     /// <summary>Optional callback for routing public market trades to the algo engine.</summary>
     public Action<string, string, decimal, decimal, string, long>? OnTradeUpdate { get; set; }
 
+    /// <summary>Optional callback for routing order cancellations/rejections to the algo engine.</summary>
+    public Action<string, string, string>? OnAlgoOrderCancelled { get; set; } // (venue, orderId, label)
+
     private readonly Dictionary<string, Dictionary<decimal, decimal>> _bids = new();
     private readonly Dictionary<string, Dictionary<decimal, decimal>> _asks = new();
     private readonly Dictionary<string, long> _lastBookSend = new();

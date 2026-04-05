@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback } from 'react'
 import { useLayoutStore } from '../../stores/layoutStore'
 import { PricePanel } from '../PricePanel/PricePanel'
+import { OptionsMatrix } from '@collybus/components'
 import { snapToGrid, findFreePosition, resolveOverlaps, type PanelRect } from '../../utils/layoutEngine'
 
 interface PanelCanvasProps {
@@ -99,6 +100,20 @@ export function PanelCanvas({ availableExchanges }: PanelCanvasProps) {
                 }
               }}
             />
+          )
+        }
+        if (panel.type === 'options-matrix' && panel.x >= 0) {
+          return (
+            <div key={panel.id} style={{ position: 'absolute', left: panel.x, top: panel.y }}>
+              <OptionsMatrix
+                apiBase=""
+                initialInstrument={(panel.config.instrument as string) || 'BTC_USDC'}
+                onOrderClick={(instr, side) => {
+                  console.log('[OptionsMatrix] order click:', instr, side)
+                }}
+                onClose={() => removePanel(panel.id)}
+              />
+            </div>
           )
         }
         return null

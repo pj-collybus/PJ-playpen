@@ -69,6 +69,8 @@ public record AlgoParams(
     decimal? MaxChildSize = null,
     decimal? MaxSpreadBps = 50,
     decimal? ScheduleVariancePct = 10,
+    decimal? SizeVariancePct = null,
+    decimal? TimeVariancePct = null,
     decimal? RiskAversion = null,
     int? VolatilityLookbackMinutes = null,
     decimal? MarketImpactCoeff = null,

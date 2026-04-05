@@ -1,7 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 import { formatPrice, tickDecimals } from '../PricePanel/utils'
 
-let savedModalPos: { x: number; y: number } | null = null
+const savePos = (key: string, p: { x: number; y: number }) => {
+  try { localStorage.setItem(`collybus.pos.${key}`, JSON.stringify(p)) } catch {}
+}
+const loadPos = (key: string, fallback: { x: number; y: number }) => {
+  try { const s = localStorage.getItem(`collybus.pos.${key}`); return s ? JSON.parse(s) : fallback } catch { return fallback }
+}
 
 export interface OrderModalProps {
   exchange: string
@@ -305,11 +310,11 @@ export function OrderModal({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [pos, setPos] = useState(() =>
-    savedModalPos ?? { x: Math.max(0, (window.innerWidth - 480) / 2), y: Math.max(0, (window.innerHeight - 600) / 2) }
+    loadPos('orderModal', { x: Math.max(0, (window.innerWidth - 480) / 2), y: Math.max(0, (window.innerHeight - 600) / 2) })
   )
   const dragRef = useRef<{ ox: number; oy: number } | null>(null)
 
-  useEffect(() => { savedModalPos = pos }, [pos])
+  useEffect(() => { savePos('orderModal', pos) }, [pos])
 
   useEffect(() => {
     if (tab === 'LMT') setPriceTrigger('N/A')
@@ -391,8 +396,8 @@ export function OrderModal({
       <div style={{
         position: 'absolute', left: pos.x, top: pos.y,
         width: 480, maxHeight: '90vh', overflowY: 'auto',
-        background: S.bg, border: `1px solid ${S.border}`,
-        borderRadius: 10, boxShadow: '0 20px 60px rgba(0,0,0,0.9)',
+        background: S.bg, border: '1px solid #4a4a60',
+        borderRadius: 10, boxShadow: '0 20px 80px rgba(0,0,0,0.95), 0 0 0 1px rgba(100,100,150,0.3)',
         display: 'flex', flexDirection: 'column',
         userSelect: 'none', pointerEvents: 'all',
       }}>

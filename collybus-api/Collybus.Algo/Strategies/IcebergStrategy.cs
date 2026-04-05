@@ -185,7 +185,6 @@ public class IcebergStrategy : BaseStrategy
         return $"{Params.Side} {Params.TotalSize} {Params.Symbol} on {Params.Exchange} via ICEBERG | {_visibleSize}±{_sizeVariancePct}%/slice @ {_fixedPrice} | {expiry}";
     }
 
-    protected override void OnStop() { _activeClientOrderId = null; _placing = false; }
     protected override void OnPause()
     {
         _activeClientOrderId = null; _placing = false;

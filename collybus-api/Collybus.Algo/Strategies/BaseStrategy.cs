@@ -84,23 +84,20 @@ public abstract class BaseStrategy : IAlgoStrategy
     }
 
     // ── STOP — permanent termination ──────────────────────────────────────
-    public virtual async Task StopAsync()
+    public async Task StopAsync()
     {
         Status = AlgoStatus.Stopped;
         if (_completedAt == 0) _completedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         Logger.LogInformation("[{Type}] {Sid} stopping — cancelling {Count} pending orders",
             StrategyType, StrategyId, PendingOrders.Count);
         await CancelAllPendingAsync();
-        OnStop();
+        OnPause(); // clear strategy child IDs
         Logger.LogInformation("[{Type}] {Sid} stopped: filled={Filled}/{Total}",
             StrategyType, StrategyId, FilledSize, Params?.TotalSize);
     }
 
-    /// <summary>Override to clear strategy-specific child IDs on stop.</summary>
-    protected virtual void OnStop() { }
-
     // ── PAUSE — cancel orders, preserve state ─────────────────────────────
-    public virtual async Task PauseAsync()
+    public async Task PauseAsync()
     {
         if (Status != AlgoStatus.Running) return;
         Logger.LogInformation("[{Type}] {Sid} pausing — cancelling {Count} pending orders",
@@ -114,7 +111,7 @@ public abstract class BaseStrategy : IAlgoStrategy
     protected virtual void OnPause() { }
 
     // ── RESUME — re-place orders from preserved state ─────────────────────
-    public virtual async Task ResumeAsync()
+    public async Task ResumeAsync()
     {
         if (Status != AlgoStatus.Paused) return;
         Status = AlgoStatus.Running;
@@ -127,7 +124,7 @@ public abstract class BaseStrategy : IAlgoStrategy
     protected virtual Task OnResumeAsync() => Task.CompletedTask;
 
     // ── ACCELERATE — aggressive fill of remaining ─────────────────────────
-    public virtual async Task AccelerateAsync(decimal qty)
+    public async Task AccelerateAsync(decimal qty)
     {
         if (qty <= 0) return;
         var accelSize = Math.Min(qty, RemainingSize);
@@ -136,13 +133,23 @@ public abstract class BaseStrategy : IAlgoStrategy
         Logger.LogInformation("[{Type}] {Sid} accelerating: {Qty} of remaining {Rem}",
             StrategyType, StrategyId, accelSize, RemainingSize);
 
+        // Check we have market data
+        if (CurrentBid <= 0 || CurrentAsk <= 0)
+        {
+            Logger.LogWarning("[{Type}] {Sid} cannot accelerate — no market data (bid={Bid} ask={Ask})",
+                StrategyType, StrategyId, CurrentBid, CurrentAsk);
+            return;
+        }
+
         await CancelAllPendingAsync();
-        OnStop(); // clear all strategy child IDs
+        OnPause(); // clear all strategy child IDs
 
         var tick = Params.TickSize;
-        var price = Params.Side.ToUpper() == "BUY"
-            ? RoundToTick(CurrentAsk + tick * 5)
-            : RoundToTick(CurrentBid - tick * 5);
+        var isBuy = Params.Side.ToUpper() == "BUY";
+        var price = RoundToTick(isBuy ? CurrentAsk + tick * 5 : CurrentBid - tick * 5);
+
+        Logger.LogInformation("[{Type}] {Sid} accel: side={Side} bid={Bid} ask={Ask} tick={Tick} price={Price} qty={Qty}",
+            StrategyType, StrategyId, Params.Side, CurrentBid, CurrentAsk, tick, price, accelSize);
 
         if (accelSize >= RemainingSize)
             Status = AlgoStatus.Completing;
@@ -156,10 +163,23 @@ public abstract class BaseStrategy : IAlgoStrategy
     // ── Data feeds ──────────────────────────────────────────────────────────
     public virtual void OnMarketData(MarketDataPoint data)
     {
-        // Only update bid/ask/mid/spread from ticker data (non-zero), not from trade-only messages
-        if (data.Bid > 0) CurrentBid = data.Bid;
-        if (data.Ask > 0) CurrentAsk = data.Ask;
-        if (data.Mid > 0) CurrentMid = data.Mid;
+        // Only update bid/ask from ticker data, with sanity check for bad ticks
+        if (data.Bid > 0)
+        {
+            // Reject if price jumped more than 5% from last known value or arrival mid (bad tick)
+            var refBid = CurrentBid > 0 ? CurrentBid : (Params?.ArrivalMid ?? 0);
+            if (refBid > 0 && Math.Abs(data.Bid - refBid) / refBid > 0.05m)
+            { /* skip bad tick */ }
+            else CurrentBid = data.Bid;
+        }
+        if (data.Ask > 0)
+        {
+            var refAsk = CurrentAsk > 0 ? CurrentAsk : (Params?.ArrivalMid ?? 0);
+            if (refAsk > 0 && Math.Abs(data.Ask - refAsk) / refAsk > 0.05m)
+            { /* skip bad tick */ }
+            else CurrentAsk = data.Ask;
+        }
+        if (data.Mid > 0) CurrentMid = (CurrentBid + CurrentAsk) / 2; // recalc from clean bid/ask
         if (data.SpreadBps > 0) CurrentSpreadBps = data.SpreadBps;
 
         if (data.LastTrade > 0 && data.LastTradeSize > 0)
@@ -179,8 +199,9 @@ public abstract class BaseStrategy : IAlgoStrategy
         if (Status == AlgoStatus.Waiting && Params.StartMode == "trigger")
             CheckTrigger(data);
 
-        // Chart sampling — once per second from ticker data
-        if (data.Bid > 0 && data.Ask > 0 && data.Bid < data.Ask)
+        // Chart sampling — once per second from ticker data (stop when done)
+        if (data.Bid > 0 && data.Ask > 0 && data.Bid < data.Ask
+            && Status is not (AlgoStatus.Completed or AlgoStatus.Stopped))
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             if (now - _lastChartSampleTs >= 1000)
@@ -283,6 +304,15 @@ public abstract class BaseStrategy : IAlgoStrategy
         Logger.LogWarning("[{Type}] {Sid} rejected: {Reason} (x{N})",
             StrategyType, StrategyId, reason, ConsecutiveRejections);
 
+        // If accel order was rejected/cancelled with zero fill → resume normal execution
+        if (Status == AlgoStatus.Completing)
+        {
+            Logger.LogWarning("[{Type}] {Sid} accel order rejected — resuming strategy", StrategyType, StrategyId);
+            Status = AlgoStatus.Running;
+            ConsecutiveRejections = 0;
+            return;
+        }
+
         if (ConsecutiveRejections >= 3)
         {
             Status = AlgoStatus.Paused;
@@ -364,6 +394,27 @@ public abstract class BaseStrategy : IAlgoStrategy
     // ── Status ──────────────────────────────────────────────────────────────
     public AlgoStatusReport GetStatus()
     {
+        // Fallback chart sampling — if OnMarketData hasn't sampled in >1.5s (stop when done)
+        if (CurrentBid > 0 && CurrentAsk > 0 && CurrentBid < CurrentAsk
+            && Status is not (AlgoStatus.Completed or AlgoStatus.Stopped))
+        {
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (now - _lastChartSampleTs >= 1500)
+            {
+                _lastChartSampleTs = now;
+                _chartTimes.Add(now);
+                _chartBids.Add(CurrentBid);
+                _chartAsks.Add(CurrentAsk);
+                _chartOrder.Add(RestingPrice > 0 ? RestingPrice : null);
+                _chartVwap.Add(MarketVwap > 0 ? MarketVwap : 0);
+                if (_chartTimes.Count > MaxChartPoints)
+                {
+                    _chartTimes.RemoveAt(0); _chartBids.RemoveAt(0);
+                    _chartAsks.RemoveAt(0); _chartOrder.RemoveAt(0);
+                    _chartVwap.RemoveAt(0);
+                }
+            }
+        }
         var slip = Tca.TcaCalculator.ArrivalSlippage(AvgFillPrice, Params?.ArrivalMid ?? 0, Params?.Side ?? "BUY");
         var vwapSlip = Tca.TcaCalculator.VwapShortfall(AvgFillPrice, MarketVwap > 0 ? MarketVwap : Params?.ArrivalMid ?? 0, Params?.Side ?? "BUY");
         var report = new AlgoStatusReport

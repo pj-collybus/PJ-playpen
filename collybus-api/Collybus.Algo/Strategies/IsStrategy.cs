@@ -397,7 +397,6 @@ public class IsStrategy : BaseStrategy
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    protected override void OnStop() { _activeChildId = null; _placing = false; }
     protected override void OnPause() { _activeChildId = null; _placing = false; }
     protected override Task OnResumeAsync() { _nextSliceAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); return Task.CompletedTask; }
 

@@ -22,14 +22,25 @@ export interface AlgoMonitorProps {
 const monitorPositions: Record<string, { x: number; y: number }> = {}
 let posOffset = 0
 
+const savePos = (key: string, p: { x: number; y: number }) => {
+  try { localStorage.setItem(`collybus.pos.${key}`, JSON.stringify(p)) } catch {}
+}
+const loadPos = (key: string, fallback: { x: number; y: number }) => {
+  try { const s = localStorage.getItem(`collybus.pos.${key}`); return s ? JSON.parse(s) : fallback } catch { return fallback }
+}
+
 export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, onClose }: AlgoMonitorProps) {
   const [pos, setPos] = useState(() => {
     if (monitorPositions[status.strategyId]) return monitorPositions[status.strategyId]
+    const saved = loadPos(`monitor.${status.strategyType}`, null as any)
+    if (saved) return saved
     const off = (posOffset++ % 5) * 30
     return { x: Math.max(0, window.innerWidth - 420 - off), y: 80 + off }
   })
   const [accQty, setAccQty] = useState('')
   const [accQtyEdited, setAccQtyEdited] = useState(false)
+  const [accelConfirm, setAccelConfirm] = useState(false)
+  const accelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showChart, setShowChart] = useState(false)
   const [chartDetached, setChartDetached] = useState(false)
   const [chartPos, setChartPos] = useState({ x: 0, y: 0 })
@@ -39,7 +50,7 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
   const monitorRef = useRef<HTMLDivElement>(null)
   const [panelHeight, setPanelHeight] = useState(0)
 
-  useEffect(() => { monitorPositions[status.strategyId] = pos }, [pos, status.strategyId])
+  useEffect(() => { monitorPositions[status.strategyId] = pos; savePos(`monitor.${status.strategyType}`, pos) }, [pos, status.strategyId, status.strategyType])
   useEffect(() => { if (showChart && !chartDetached) setChartPos({ x: pos.x + 360, y: pos.y }) }, [pos, showChart, chartDetached])
 
   const [lockedHeight, setLockedHeight] = useState(0)
@@ -72,9 +83,9 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
       {/* Main monitor panel */}
       <div ref={monitorRef} style={{
         position: 'fixed', left: pos.x, top: pos.y, zIndex: 550,
-        width: 350, background: S.bg, border: `1px solid ${S.border}`,
+        width: 350, background: S.bg, border: '1px solid #4a4a60',
         borderLeft: `3px solid ${statusColor}`, borderRadius: 8,
-        boxShadow: '0 12px 40px rgba(0,0,0,0.8)', userSelect: 'none',
+        boxShadow: '0 20px 80px rgba(0,0,0,0.95), 0 0 0 1px rgba(100,100,150,0.3)', userSelect: 'none',
         height: lockedHeight > 0 ? lockedHeight : undefined,
         maxHeight: '85vh', overflow: 'hidden',
         display: 'flex', flexDirection: 'column',
@@ -122,8 +133,19 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
           </div>
         </div>
 
-        {/* Summary line */}
-        {status.summaryLine && <div style={{ padding: '0 10px 4px', fontSize: 9, color: S.dim, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{status.summaryLine}</div>}
+        {/* Summary line — structured, colour-coded, wraps naturally */}
+        <div style={{ padding: '0 10px 4px', fontSize: 11, lineHeight: 1.5, whiteSpace: 'normal', wordWrap: 'break-word' }}>
+          <span style={{ color: status.side === 'BUY' ? S.positive : S.negative, fontWeight: 700 }}>{status.side}</span>
+          {' '}
+          <span style={{ color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>{status.totalSize} {status.symbol}</span>
+          {' '}
+          <span style={{ color: 'rgba(255,255,255,0.55)' }}>on {status.exchange} via {status.strategyType}</span>
+          {status.summaryLine?.includes('|') && (
+            <span style={{ color: 'rgba(255,255,255,0.85)' }}>
+              {' | '}{status.summaryLine.split('|').slice(1).join('|').trim()}
+            </span>
+          )}
+        </div>
 
         {/* Progress bar */}
         <div style={{ margin: '0 10px 6px', height: 4, background: '#2a2a38', borderRadius: 2 }}>
@@ -147,33 +169,88 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
 
         {/* Controls */}
         <div style={{ padding: '6px 10px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {/* Accelerate — defaults to remaining size */}
-          {(isActive || isPaused) && (
+          {/* Controls */}
+          {!isDone && !accelConfirm && (
             <div style={{ display: 'flex', gap: 3 }}>
+              <button onClick={() => {
+                setAccelConfirm(true)
+                if (accelTimerRef.current) clearTimeout(accelTimerRef.current)
+                accelTimerRef.current = setTimeout(() => setAccelConfirm(false), 5000)
+              }} style={{
+                flex: 1, height: 32, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+                background: 'linear-gradient(to bottom, #5a4200 0%, #3d2c00 100%)',
+                border: '1px solid #7a5a00', color: '#cc9900', fontSize: 11, fontWeight: 700,
+                boxShadow: 'inset 0px 1px 0px rgba(255,255,255,0.08), inset 0px -2px 0px rgba(0,0,0,0.4)',
+              }}>⚡ Accel</button>
               <input
                 value={accQtyEdited ? accQty : (status.remainingSize > 0 ? status.remainingSize.toFixed(2) : '')}
                 onChange={e => { setAccQty(e.target.value); setAccQtyEdited(true) }}
-                placeholder={`Remaining: ${status.remainingSize?.toFixed(2) ?? '?'}`}
-                style={{ flex: 1, height: 24, background: S.bgInput, border: `1px solid ${S.border}`, borderRadius: 4, color: S.text, fontSize: 10, padding: '0 6px', outline: 'none', fontFamily: 'inherit' }} />
-              <button onClick={() => {
-                const q = accQtyEdited ? parseFloat(accQty) : status.remainingSize
-                if (q > 0) { onAccelerate(status.strategyId, Math.min(q, status.remainingSize)); setAccQty(''); setAccQtyEdited(false) }
-              }}
-                style={{ padding: '0 8px', height: 24, border: '1px solid rgba(245,158,11,0.4)', borderRadius: 4, background: 'rgba(245,158,11,0.15)', color: S.amber, fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>⚡ Accel</button>
+                placeholder="Qty"
+                style={{ flex: 1, minWidth: 0, height: 32, background: S.bgInput, border: `1px solid ${S.border}`, borderRadius: 4, color: S.text, fontSize: 11, padding: '0 8px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+              {isActive && <button onClick={() => onPause(status.strategyId)} style={{
+                flex: 1, height: 32, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+                background: 'linear-gradient(to bottom, #3a3a3a 0%, #2a2a2a 100%)',
+                border: '1px solid #555', color: '#999', fontSize: 11, fontWeight: 700,
+                boxShadow: 'inset 0px 1px 0px rgba(255,255,255,0.08), inset 0px -2px 0px rgba(0,0,0,0.4)',
+              }}>Pause</button>}
+              {isPaused && <button onClick={() => onResume(status.strategyId)} style={{
+                flex: 1, height: 32, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+                background: 'linear-gradient(to bottom, #3a3a3a 0%, #2a2a2a 100%)',
+                border: '1px solid #555', color: '#999', fontSize: 11, fontWeight: 700,
+                boxShadow: 'inset 0px 1px 0px rgba(255,255,255,0.08), inset 0px -2px 0px rgba(0,0,0,0.4)',
+              }}>Resume</button>}
+              <button onClick={() => onStop(status.strategyId)} style={{
+                flex: 2, height: 32, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+                background: 'linear-gradient(to bottom, #4a0a0a 0%, #2d0505 100%)',
+                border: '1px solid #7a1a1a', color: '#e05252', fontSize: 11, fontWeight: 700,
+                boxShadow: 'inset 0px 1px 0px rgba(255,255,255,0.06), inset 0px -2px 0px rgba(0,0,0,0.5)',
+              }}>■ Stop</button>
             </div>
           )}
-          {/* Pause/Resume/Stop */}
-          {!isDone && (
-            <div style={{ display: 'flex', gap: 3 }}>
-              {isActive && <button onClick={() => onPause(status.strategyId)} style={{ flex: 1, padding: '5px 0', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 4, background: 'rgba(245,158,11,0.1)', color: S.amber, fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>⏸ Pause</button>}
-              {isPaused && <button onClick={() => onResume(status.strategyId)} style={{ flex: 1, padding: '5px 0', border: '1px solid rgba(43,121,221,0.4)', borderRadius: 4, background: 'rgba(43,121,221,0.1)', color: S.blue, fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>▶ Resume</button>}
-              <button onClick={() => onStop(status.strategyId)} style={{ flex: 1, padding: '5px 0', border: '1px solid rgba(251,44,54,0.4)', borderRadius: 4, background: 'rgba(251,44,54,0.1)', color: S.negative, fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>■ Stop</button>
+          {/* Accelerate confirmation */}
+          {!isDone && accelConfirm && (
+            <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+              <span style={{ fontSize: 10, color: S.text, flex: 1 }}>
+                Execute {accQtyEdited ? accQty : status.remainingSize?.toFixed(2)} {status.symbol?.split('-')[0]} at market?
+              </span>
+              <button onClick={() => {
+                if (accelTimerRef.current) clearTimeout(accelTimerRef.current)
+                const q = accQtyEdited ? parseFloat(accQty) : status.remainingSize
+                if (q > 0) onAccelerate(status.strategyId, Math.min(q, status.remainingSize))
+                setAccQty(''); setAccQtyEdited(false); setAccelConfirm(false)
+              }} style={{
+                height: 32, padding: '0 14px', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+                background: 'linear-gradient(to bottom, #0a4a0a 0%, #052d05 100%)',
+                border: '1px solid #1a7a1a', color: '#52e052', fontSize: 11, fontWeight: 700,
+              }}>✓ Confirm</button>
+              <button onClick={() => {
+                if (accelTimerRef.current) clearTimeout(accelTimerRef.current)
+                setAccelConfirm(false)
+              }} style={{
+                height: 32, padding: '0 14px', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+                background: 'linear-gradient(to bottom, #3a3a3a 0%, #2a2a2a 100%)',
+                border: '1px solid #555', color: '#999', fontSize: 11, fontWeight: 700,
+              }}>✗ Cancel</button>
             </div>
           )}
           {/* Completion summary */}
           {isDone && (
-            <div style={{ textAlign: 'center', fontSize: 10, color: statusColor, fontWeight: 600 }}>
-              {status.status === 'Completed' ? `✓ Completed — avg ${status.avgFillPrice.toFixed(4)} slip ${status.slippageBps.toFixed(1)}bps` : status.status}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {status.status === 'Completed' ? (
+                <div style={{ padding: '8px 12px', borderRadius: 4, background: 'rgba(55,138,221,0.15)', border: '1px solid #1a3a5a', textAlign: 'center', fontSize: 10, fontWeight: 600, color: '#5a9aee' }}>
+                  ✓ Completed — {status.filledSize} filled at avg ${status.avgFillPrice?.toFixed(4)} | Slip: {status.slippageBps?.toFixed(1)}bps
+                </div>
+              ) : (
+                <div style={{ padding: '8px 12px', borderRadius: 4, background: 'rgba(251,44,54,0.1)', border: '1px solid rgba(251,44,54,0.3)', textAlign: 'center', fontSize: 10, fontWeight: 600, color: '#e05252' }}>
+                  ■ {status.status} — {status.filledSize} of {status.totalSize} filled{status.avgFillPrice > 0 ? ` at avg $${status.avgFillPrice.toFixed(4)}` : ''}
+                </div>
+              )}
+              <button onClick={() => onClose(status.strategyId)} style={{
+                width: '100%', height: 32, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+                background: 'linear-gradient(to bottom, #3a3a3a 0%, #2a2a2a 100%)',
+                border: '1px solid #555', color: '#999', fontSize: 11, fontWeight: 700,
+                boxShadow: 'inset 0px 1px 0px rgba(255,255,255,0.08), inset 0px -2px 0px rgba(0,0,0,0.4)',
+              }}>Close</button>
             </div>
           )}
         </div>
@@ -193,8 +270,8 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
           style={{
             position: 'fixed', left: chartPos.x, top: chartPos.y, zIndex: 549,
             height: panelHeight > 0 ? panelHeight : undefined,
-            background: S.bg, border: `1px solid ${S.border}`, borderRadius: 8,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.7)',
+            background: S.bg, border: '1px solid #4a4a60', borderRadius: 8,
+            boxShadow: '0 20px 80px rgba(0,0,0,0.95), 0 0 0 1px rgba(100,100,150,0.3)',
             padding: 8, cursor: chartDetached ? 'grab' : 'default',
             display: 'flex', flexDirection: 'column',
           }}

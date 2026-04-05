@@ -23,12 +23,13 @@ export interface AlgoLaunchParams {
   icebergSnipe?: boolean; sniperSlicePct?: number
   postPrice?: number; snipeCeiling?: number; snipeCap?: number
   visibleSize?: number; visibleVariancePct?: number
+  sizeVariancePct?: number; timeVariancePct?: number
   expiry?: string; gtdDateTime?: string
-  participationPct?: number; volumeWindowSeconds?: number
+  participationPct?: number; volumeWindowSeconds?: number; minChildSize?: number; maxChildSize?: number
 }
 
 type StrategyType = 'TWAP' | 'VWAP' | 'SNIPER' | 'ICEBERG' | 'POV'
-type Urgency = 'passive' | 'balanced' | 'aggressive'
+type Urgency = 'passive' | 'aggressive'
 type StartMode = 'immediate' | 'scheduled' | 'trigger'
 
 const S = {
@@ -43,7 +44,8 @@ const STRATS: { type: StrategyType; label: string }[] = [
   { type: 'SNIPER', label: 'Sniper' }, { type: 'ICEBERG', label: 'Iceberg' }, { type: 'POV', label: 'POV' },
 ]
 const DUR = [1, 5, 10, 15, 30]
-const URG: Urgency[] = ['passive', 'balanced', 'aggressive']
+const DUR_PRESETS = [1, 5, 15, 30, 60, 240]
+const DUR_LABELS: Record<number, string> = { 1: '1m', 5: '5m', 15: '15m', 30: '30m', 60: '1h', 240: '4h' }
 const colH: React.CSSProperties = { fontSize: 9, color: S.muted, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }
 const lbl = (t: string) => <span style={{ ...colH, display: 'block', marginBottom: 4 }}>{t}</span>
 const inp: React.CSSProperties = { background: S.bgInput, border: `1px solid ${S.border}`, borderRadius: 4, color: S.text, fontSize: 11, padding: '5px 8px', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }
@@ -64,7 +66,12 @@ function InlineInput({ value, onChange, currency, onUp, onDown }: { value: strin
   )
 }
 
-let savedPos: { x: number; y: number } | null = null
+const savePos = (key: string, p: { x: number; y: number }) => {
+  try { localStorage.setItem(`collybus.pos.${key}`, JSON.stringify(p)) } catch {}
+}
+const loadPos = (key: string, fallback: { x: number; y: number }) => {
+  try { const s = localStorage.getItem(`collybus.pos.${key}`); return s ? JSON.parse(s) : fallback } catch { return fallback }
+}
 
 export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickSize, lotSize, bid, ask, mid, initialSide = 'BUY', initialQty, qtyPresets, onSubmit, onClose }: AlgoModalProps) {
   const [strat, setStrat] = useState<StrategyType>('TWAP')
@@ -72,7 +79,12 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
   const [qty, setQty] = useState(initialQty?.toString() ?? '')
   const [priceRef, setPriceRef] = useState(mid.toFixed(tickDecimals(tickSize)))
   const [dur, setDur] = useState(5)
-  const [urg, setUrg] = useState<Urgency>('balanced')
+  const [urg, setUrg] = useState<'passive' | 'aggressive'>('passive')
+  const [twapSizeVar, setTwapSizeVar] = useState('10')
+  const [twapTimeVar, setTwapTimeVar] = useState('10')
+  const [twapSliceMode, setTwapSliceMode] = useState<'auto' | 'manual'>('auto')
+  const [twapSlices, setTwapSlices] = useState('10')
+  const [twapMaxSpread, setTwapMaxSpread] = useState('50')
   const [startMode, setStartMode] = useState<StartMode>('immediate')
   const [trigPx, setTrigPx] = useState('')
   const [trigDir, setTrigDir] = useState<'above' | 'below'>('below')
@@ -114,12 +126,14 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
   const [iceExpiry, setIceExpiry] = useState<'GTC' | 'Day' | 'GTD'>('GTC')
   const [iceGtdTime, setIceGtdTime] = useState('')
   const [povPct, setPovPct] = useState('10')
-  const [volWin, setVolWin] = useState('60')
+  const [povMode, setPovMode] = useState<'pure' | 'time_limited' | 'hybrid'>('pure')
+  const [povMinChild, setPovMinChild] = useState(String(lotSize * 2))
+  const [povMaxChild, setPovMaxChild] = useState('0')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [pos, setPos] = useState(savedPos ?? { x: Math.max(0, (window.innerWidth - 500) / 2), y: Math.max(0, (window.innerHeight - 600) / 2) })
+  const [pos, setPos] = useState(() => loadPos('algoModal', { x: Math.max(0, (window.innerWidth - 500) / 2), y: Math.max(0, (window.innerHeight - 600) / 2) }))
   const dragRef = useRef<{ ox: number; oy: number } | null>(null)
-  useEffect(() => { savedPos = pos }, [pos])
+  useEffect(() => { savePos('algoModal', pos) }, [pos])
 
   const d = tickDecimals(tickSize)
   const round = (n: number, step: number) => { const dd = Math.max(0, -Math.floor(Math.log10(step))); return parseFloat(n.toFixed(dd)) }
@@ -138,8 +152,13 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
       const p: AlgoLaunchParams = {
         strategyType: strat, exchange, symbol, side, totalSize: q, tickSize, lotSize,
         arrivalMid: mid, arrivalBid: bid, arrivalAsk: ask,
-        durationMinutes: ['TWAP','VWAP','ICEBERG','POV'].includes(strat) ? dur : undefined,
-        urgency: ['TWAP','VWAP'].includes(strat) ? urg : undefined, startMode,
+        durationMinutes: strat === 'TWAP' || strat === 'VWAP' || (strat === 'POV' && povMode !== 'pure') ? dur : undefined,
+        urgency: ['TWAP','VWAP'].includes(strat) ? urg : undefined,
+        numSlices: strat === 'TWAP' && twapSliceMode === 'manual' ? parseInt(twapSlices) || dur : undefined,
+        scheduleVariancePct: strat === 'TWAP' ? parseInt(twapSizeVar) || 10 : undefined,
+        sizeVariancePct: strat === 'TWAP' ? parseInt(twapSizeVar) || 10 : undefined,
+        timeVariancePct: strat === 'TWAP' ? parseInt(twapTimeVar) || 10 : undefined,
+        startMode,
         startScheduled: startMode === 'scheduled' && schedTime ? schedTime : undefined,
         triggerPrice: startMode === 'trigger' ? parseFloat(trigPx) : undefined,
         triggerDirection: startMode === 'trigger' ? trigDir : undefined,
@@ -160,7 +179,9 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
         expiry: strat === 'ICEBERG' ? iceExpiry : undefined,
         gtdDateTime: strat === 'ICEBERG' && iceExpiry === 'GTD' && iceGtdTime ? iceGtdTime : undefined,
         participationPct: strat === 'POV' ? parseFloat(povPct) : undefined,
-        volumeWindowSeconds: strat === 'POV' ? parseInt(volWin) : undefined,
+        minChildSize: strat === 'POV' ? parseFloat(povMinChild) || lotSize * 2 : undefined,
+        maxChildSize: strat === 'POV' && parseFloat(povMaxChild) > 0 ? parseFloat(povMaxChild) : undefined,
+        maxSpreadBps: ['TWAP','POV'].includes(strat) ? parseInt(twapMaxSpread) || 50 : undefined,
       }
       await onSubmit(p); setError(''); onClose()
     } catch (e: any) { setError(e.message ?? 'Failed') } finally { setSubmitting(false) }
@@ -168,7 +189,7 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 600, pointerEvents: 'none' }}>
-      <div style={{ position: 'absolute', left: pos.x, top: pos.y, width: 480, maxHeight: '90vh', overflowY: 'auto', background: S.bg, border: `1px solid ${S.border}`, borderRadius: 10, boxShadow: '0 20px 60px rgba(0,0,0,0.9)', pointerEvents: 'all' }}>
+      <div style={{ position: 'absolute', left: pos.x, top: pos.y, width: 480, maxHeight: '90vh', overflowY: 'auto', background: S.bg, border: '1px solid #4a4a60', borderRadius: 10, boxShadow: '0 20px 80px rgba(0,0,0,0.95), 0 0 0 1px rgba(100,100,150,0.3)', pointerEvents: 'all' }}>
         {/* Header */}
         <div onMouseDown={e => { if ((e.target as HTMLElement).closest('button,input,select')) return; e.preventDefault(); dragRef.current = { ox: e.clientX - pos.x, oy: e.clientY - pos.y }; const mv = (ev: MouseEvent) => { if (!dragRef.current) return; setPos({ x: ev.clientX - dragRef.current.ox, y: ev.clientY - dragRef.current.oy }) }; const up = () => { dragRef.current = null; document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up) }; document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up) }} style={{ padding: '14px 16px 0', cursor: 'grab' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -227,15 +248,90 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
             </div>
           </div>
 
-          {/* Duration */}
-          {['TWAP','VWAP','POV'].includes(strat) && <div>{lbl('Duration')}<div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          {/* TWAP params */}
+          {strat === 'TWAP' && <div style={{ background: '#1F1E23', border: `1px solid ${S.border}`, borderRadius: 6, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Mode toggle */}
+            <div style={{ display: 'flex', height: 32 }}>
+              {(['passive', 'aggressive'] as const).map(m => <button key={m} onClick={() => setUrg(m)} style={{
+                flex: 1, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 700,
+                borderRadius: m === 'passive' ? '4px 0 0 4px' : '0 4px 4px 0',
+                background: urg === m ? S.gradAction : '#1a1a22',
+                color: urg === m ? '#fff' : S.muted,
+                border: urg === m ? 'none' : `1px solid ${S.border}`,
+                boxShadow: urg === m ? 'inset 0px 2px 1px rgba(255,255,255,0.15), inset 0px -2px 1px rgba(0,0,0,0.25)' : 'none',
+              }}>{m === 'passive' ? 'PASSIVE' : 'AGGRESSIVE'}</button>)}
+            </div>
+            {/* Duration presets */}
+            {lbl('Duration')}
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+              {DUR_PRESETS.map(dd => <button key={dd} onClick={() => setDur(dd)} style={{ padding: '4px 10px', border: 'none', borderRadius: 4, background: dur === dd ? S.gradAction : S.gradSec, color: dur === dd ? '#fff' : S.muted, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>{DUR_LABELS[dd]}</button>)}
+              <div style={{ width: 80 }}>
+                <InlineInput value={String(dur)} onChange={v => setDur(parseInt(v) || 5)} currency="min"
+                  onUp={() => setDur(d => d + 1)} onDown={() => setDur(d => Math.max(1, d - 1))} />
+              </div>
+            </div>
+            {/* Slices */}
+            {lbl('Slices')}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {(['auto','manual'] as const).map(m => <button key={m} onClick={() => setTwapSliceMode(m)} style={{
+                padding: '0 12px', height: 32, border: 'none', borderRadius: 4,
+                background: twapSliceMode === m ? S.gradAction : S.gradSec,
+                color: twapSliceMode === m ? '#fff' : S.muted,
+                fontSize: 9, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', textTransform: 'capitalize',
+              }}>{m}</button>)}
+              <div style={{ width: 100, opacity: twapSliceMode === 'auto' ? 0.4 : 1 }}>
+                <InlineInput value={twapSliceMode === 'auto' ? String(dur) : (twapSlices || String(dur))}
+                  onChange={v => { if (twapSliceMode === 'manual') setTwapSlices(v) }} currency="#"
+                  onUp={() => { if (twapSliceMode === 'manual') setTwapSlices(String(Math.max(2, (parseInt(twapSlices||String(dur))||dur) + 1))) }}
+                  onDown={() => { if (twapSliceMode === 'manual') setTwapSlices(String(Math.max(2, (parseInt(twapSlices||String(dur))||dur) - 1))) }} />
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: S.muted }}>
+              Each slice {'\u2248'} <span style={{ color: S.text, fontWeight: 600 }}>{((parseFloat(qty||'0') / Math.max(1, twapSliceMode === 'auto' ? dur : (parseInt(twapSlices)||dur))) || 0).toFixed(2)}</span> {baseCurrency}
+            </div>
+            {/* Variance row */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div>
+                <span style={{ ...colH, display: 'block', marginBottom: 2 }}>SIZE VARIANCE %</span>
+                <span style={{ fontSize: 8, color: S.muted, display: 'block', marginBottom: 4 }}>Randomises slice size</span>
+                <div style={{ maxWidth: 120 }}>
+                  <InlineInput value={twapSizeVar} onChange={setTwapSizeVar} currency="%"
+                    onUp={() => setTwapSizeVar(String(Math.min(50, (parseInt(twapSizeVar)||10) + 5)))}
+                    onDown={() => setTwapSizeVar(String(Math.max(0, (parseInt(twapSizeVar)||10) - 5)))} />
+                </div>
+              </div>
+              <div>
+                <span style={{ ...colH, display: 'block', marginBottom: 2 }}>TIME VARIANCE %</span>
+                <span style={{ fontSize: 8, color: S.muted, display: 'block', marginBottom: 4 }}>Randomises interval</span>
+                <div style={{ maxWidth: 120 }}>
+                  <InlineInput value={twapTimeVar} onChange={setTwapTimeVar} currency="%"
+                    onUp={() => setTwapTimeVar(String(Math.min(50, (parseInt(twapTimeVar)||10) + 5)))}
+                    onDown={() => setTwapTimeVar(String(Math.max(0, (parseInt(twapTimeVar)||10) - 5)))} />
+                </div>
+              </div>
+            </div>
+            {/* Max Spread */}
+            <div style={{ display: 'flex', alignItems: 'end', gap: 8 }}>
+              <div>
+                <span style={{ ...colH, display: 'block', marginBottom: 2 }}>MAX SPREAD BPS</span>
+                <div style={{ maxWidth: 120 }}>
+                  <InlineInput value={twapMaxSpread} onChange={setTwapMaxSpread} currency="bps"
+                    onUp={() => setTwapMaxSpread(String((parseInt(twapMaxSpread)||50) + 10))}
+                    onDown={() => setTwapMaxSpread(String(Math.max(0, (parseInt(twapMaxSpread)||50) - 10)))} />
+                </div>
+              </div>
+            </div>
+          </div>}
+
+          {/* Duration (VWAP, POV only) */}
+          {strat === 'VWAP' && <div>{lbl('Duration')}<div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             {DUR.map(dd => <button key={dd} onClick={() => setDur(dd)} style={{ padding: '4px 10px', border: 'none', borderRadius: 4, background: dur === dd ? S.gradAction : S.gradSec, color: dur === dd ? '#fff' : S.muted, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>{dd}m</button>)}
             <input type="number" value={dur} onChange={e => setDur(parseInt(e.target.value) || 5)} style={{ ...inp, width: 60, textAlign: 'center' }} />
           </div></div>}
 
-          {/* Urgency */}
-          {['TWAP','VWAP'].includes(strat) && <div>{lbl('Urgency')}<div style={{ display: 'flex', gap: 4 }}>
-            {URG.map(u => <button key={u} onClick={() => setUrg(u)} style={{ flex: 1, padding: '5px 0', border: 'none', borderRadius: 4, background: urg === u ? S.gradAction : S.gradSec, color: urg === u ? '#fff' : S.muted, fontSize: 10, fontWeight: urg === u ? 700 : 400, cursor: 'pointer', fontFamily: 'inherit', textTransform: 'capitalize' }}>{u === 'aggressive' ? 'Crossing' : u}</button>)}
+          {/* Urgency (VWAP only) */}
+          {strat === 'VWAP' && <div>{lbl('Urgency')}<div style={{ display: 'flex', gap: 4 }}>
+            {(['passive','aggressive'] as const).map(u => <button key={u} onClick={() => setUrg(u)} style={{ flex: 1, padding: '5px 0', border: 'none', borderRadius: 4, background: urg === u ? S.gradAction : S.gradSec, color: urg === u ? '#fff' : S.muted, fontSize: 10, fontWeight: urg === u ? 700 : 400, cursor: 'pointer', fontFamily: 'inherit', textTransform: 'capitalize' }}>{u}</button>)}
           </div></div>}
 
           {/* VWAP */}
@@ -381,9 +477,71 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
           </div>}
 
           {/* POV */}
-          {strat === 'POV' && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, background: '#1F1E23', border: `1px solid ${S.border}`, borderRadius: 6, padding: 10 }}>
-            <div>{lbl('Participation %')}<input value={povPct} onChange={e => setPovPct(e.target.value)} style={inp} /></div>
-            <div>{lbl('Volume Window (s)')}<input value={volWin} onChange={e => setVolWin(e.target.value)} style={inp} /></div>
+          {strat === 'POV' && <div style={{ background: '#1F1E23', border: `1px solid ${S.border}`, borderRadius: 6, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Mode toggle */}
+            <div style={{ display: 'flex', height: 32 }}>
+              {(['pure', 'time_limited', 'hybrid'] as const).map((m, i) => <button key={m} onClick={() => setPovMode(m)} style={{
+                flex: 1, cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 700,
+                borderRadius: i === 0 ? '4px 0 0 4px' : i === 2 ? '0 4px 4px 0' : '0',
+                background: povMode === m ? S.gradAction : '#1a1a22',
+                color: povMode === m ? '#fff' : S.muted,
+                border: povMode === m ? 'none' : `1px solid ${S.border}`,
+                boxShadow: povMode === m ? 'inset 0px 2px 1px rgba(255,255,255,0.15), inset 0px -2px 1px rgba(0,0,0,0.25)' : 'none',
+              }}>{m === 'pure' ? 'PURE' : m === 'time_limited' ? 'TIME LIMITED' : 'HYBRID'}</button>)}
+            </div>
+            {/* Duration — only for TIME LIMITED / HYBRID */}
+            {povMode !== 'pure' && <div>
+              {lbl('Duration')}
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                {DUR_PRESETS.map(dd => <button key={dd} onClick={() => setDur(dd)} style={{ padding: '4px 10px', border: 'none', borderRadius: 4, background: dur === dd ? S.gradAction : S.gradSec, color: dur === dd ? '#fff' : S.muted, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>{DUR_LABELS[dd]}</button>)}
+                <div style={{ width: 80 }}>
+                  <InlineInput value={String(dur)} onChange={v => setDur(parseInt(v) || 5)} currency="min"
+                    onUp={() => setDur(d => d + 1)} onDown={() => setDur(d => Math.max(1, d - 1))} />
+                </div>
+              </div>
+            </div>}
+            {/* Urgency toggle */}
+            <div style={{ display: 'flex', height: 32 }}>
+              {(['passive', 'aggressive'] as const).map(m => <button key={m} onClick={() => setUrg(m)} style={{
+                flex: 1, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 700,
+                borderRadius: m === 'passive' ? '4px 0 0 4px' : '0 4px 4px 0',
+                background: urg === m ? S.gradAction : '#1a1a22',
+                color: urg === m ? '#fff' : S.muted,
+                border: urg === m ? 'none' : `1px solid ${S.border}`,
+                boxShadow: urg === m ? 'inset 0px 2px 1px rgba(255,255,255,0.15), inset 0px -2px 1px rgba(0,0,0,0.25)' : 'none',
+              }}>{m === 'passive' ? 'PASSIVE' : 'AGGRESSIVE'}</button>)}
+            </div>
+            {/* Participation + Spread */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div>
+                {lbl('Target Participation %')}
+                <InlineInput value={povPct} onChange={setPovPct} currency="%"
+                  onUp={() => setPovPct(String(Math.min(50, (parseInt(povPct)||10) + 1)))}
+                  onDown={() => setPovPct(String(Math.max(1, (parseInt(povPct)||10) - 1)))} />
+              </div>
+              <div>
+                {lbl('Max Spread bps')}
+                <InlineInput value={twapMaxSpread} onChange={setTwapMaxSpread} currency="bps"
+                  onUp={() => setTwapMaxSpread(String((parseInt(twapMaxSpread)||50) + 10))}
+                  onDown={() => setTwapMaxSpread(String(Math.max(0, (parseInt(twapMaxSpread)||50) - 10)))} />
+              </div>
+            </div>
+            {/* Min/Max Child Size */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div>
+                {lbl('Min Child Size')}
+                <InlineInput value={povMinChild} onChange={setPovMinChild} currency={baseCurrency}
+                  onUp={() => setPovMinChild(String((parseFloat(povMinChild)||lotSize*2) + lotSize))}
+                  onDown={() => setPovMinChild(String(Math.max(lotSize, (parseFloat(povMinChild)||lotSize*2) - lotSize)))} />
+              </div>
+              <div>
+                {lbl('Max Child Size')}
+                <InlineInput value={povMaxChild} onChange={setPovMaxChild} currency={baseCurrency}
+                  onUp={() => setPovMaxChild(String((parseFloat(povMaxChild)||0) + lotSize))}
+                  onDown={() => setPovMaxChild(String(Math.max(0, (parseFloat(povMaxChild)||0) - lotSize)))} />
+                <span style={{ fontSize: 8, color: S.muted }}>0 = no cap</span>
+              </div>
+            </div>
           </div>}
 
           {/* Limit — not shown for Iceberg or Sniper */}

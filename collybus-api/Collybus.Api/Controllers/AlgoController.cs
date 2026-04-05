@@ -1,12 +1,13 @@
 using Collybus.Algo.Engine;
 using Collybus.Algo.Models;
+using Collybus.Api.Adapters;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Collybus.Api.Controllers;
 
 [ApiController]
 [Route("api/algo")]
-public class AlgoController(AlgoEngine engine) : ControllerBase
+public class AlgoController(AlgoEngine engine, IEnumerable<IExchangeAdapter> adapters) : ControllerBase
 {
     [HttpGet("strategies")]
     public IActionResult GetStrategies() => Ok(new { strategies = new object[]
@@ -31,6 +32,23 @@ public class AlgoController(AlgoEngine engine) : ControllerBase
 
             if (string.IsNullOrEmpty(p.StrategyType)) return BadRequest(new { ok = false, error = "strategyType required" });
             var sid = await engine.StartStrategyAsync(p);
+
+            // Auto-subscribe to market data for the instrument so chart data flows
+            try
+            {
+                var adapter = adapters.FirstOrDefault(a =>
+                    a.Venue.Equals(p.Exchange, StringComparison.OrdinalIgnoreCase));
+                if (adapter != null)
+                {
+                    await adapter.SubscribeAsync(p.Symbol);
+                    Console.WriteLine($"[AlgoController] Auto-subscribed {p.Exchange}:{p.Symbol}");
+                }
+            }
+            catch (Exception subEx)
+            {
+                Console.WriteLine($"[AlgoController] Auto-subscribe failed: {subEx.Message}");
+            }
+
             return Ok(new { ok = true, strategyId = sid });
         }
         catch (Exception ex)

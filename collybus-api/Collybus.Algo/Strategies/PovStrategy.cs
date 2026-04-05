@@ -4,202 +4,159 @@ using Microsoft.Extensions.Logging;
 namespace Collybus.Algo.Strategies;
 
 /// <summary>
-/// POV — Percentage of Volume execution strategy.
-/// Faithful translation of the TypeScript POVStrategy class.
-/// Tracks rolling market volume in a configurable window and fires child orders
-/// to maintain a target participation rate, with urgency modes, limit checks,
-/// catch-up logic, and auto-pause on volume drought.
+/// POV — Percentage of Volume. Cumulative volume tracking.
+/// Fires child orders to maintain target participation rate vs total market volume.
 /// </summary>
 public class PovStrategy : BaseStrategy
 {
     public override string StrategyType => "POV";
 
-    // ── Public state (mirrors TS public fields) ───────────────────────────
-    private decimal _windowVolume;
-    private decimal _participationRate;
-
-    // ── Private configuration ─────────────────────────────────────────────
+    // Config
     private decimal _targetPct;
-    private int _volumeWindowSec;
     private decimal _minChildSize;
     private decimal _maxChildSize;
+    private string _urgency = "neutral";
+    private string _mode = "pure"; // pure, time_limited, hybrid
     private string _limitMode = "none";
     private decimal _limitPrice;
     private decimal _averageRateLimit;
-    private string _urgency = "neutral";
-    private string _endMode = "total_filled";
-    private long _timeLimitMs;
-
-    // ── Private runtime state ─────────────────────────────────────────────
-    private readonly List<(decimal size, long ts)> _rollingVolume = new();
-    private readonly List<(decimal size, long ts)> _myRollingFills = new();
-    private decimal _myWindowVolume;
-    private long _catchupTs;
-    private long _lastTradeTs;
-    private int _childCount;
+    private decimal _maxSpreadBps;
     private long _endTs;
 
-    // Active child order tracking
-    private string? _activeClientOrderId;
-    private decimal _restingPrice;
-    private bool _placing;
+    // Cumulative volume tracking
+    private decimal _cumMarketVolume;
+    private int _childCount;
+    private decimal _participationRate;
 
-    // Pause reason
+    // Order tracking
+    private string? _activeClientOrderId;
+    private bool _placing;
     private string? _pauseReason;
 
-    public PovStrategy(string strategyId, ILogger<PovStrategy> logger)
-        : base(strategyId, logger)
-    {
-    }
+    public PovStrategy(string sid, ILogger<PovStrategy> logger) : base(sid, logger) { }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  OnActivateAsync — constructor init + _onActivate
-    // ═══════════════════════════════════════════════════════════════════════
     protected override Task OnActivateAsync()
     {
         var p = Params;
-
-        _targetPct = p.ParticipationPct ?? 10m;
-        _volumeWindowSec = p.VolumeWindowSeconds ?? 30;
-        _minChildSize = p.MinChildSize ?? 0;
+        _targetPct = p.ParticipationPct ?? 10;
+        _minChildSize = p.MinChildSize ?? (p.LotSize * 2);
         _maxChildSize = p.MaxChildSize ?? 0;
-        if (_minChildSize <= 0) _minChildSize = p.LotSize * 2;
+        _urgency = p.Urgency ?? "neutral";
         _limitMode = p.LimitMode ?? "none";
         _limitPrice = p.LimitPrice ?? 0;
-        _averageRateLimit = 0; // params.averageRateLimit — not in AlgoParams
-        _urgency = p.Urgency ?? "neutral";
-        _endMode = "total_filled"; // params.endMode — not in AlgoParams
-        _timeLimitMs = (p.DurationMinutes ?? 60) * 60_000L;
+        _maxSpreadBps = p.MaxSpreadBps ?? 50;
+        if (_minChildSize <= 0) _minChildSize = p.LotSize * 2;
 
-        // _onActivate
-        if (_endMode == "time_limit")
-            _endTs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + _timeLimitMs;
+        // Mode and duration
+        if (p.DurationMinutes.HasValue && p.DurationMinutes > 0)
+        {
+            _mode = "time_limited";
+            _endTs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + (long)p.DurationMinutes.Value * 60_000L;
+        }
 
         Status = AlgoStatus.Running;
-
-        Logger.LogInformation(
-            "[POV] {Sid} activated: side={Side} total={Total} symbol={Symbol} exchange={Exchange} " +
-            "targetPct={TargetPct}% window={Window}s urgency={Urgency} limitMode={LimitMode} limitPrice={LimitPrice}",
-            StrategyId, p.Side, p.TotalSize, p.Symbol, p.Exchange,
-            _targetPct, _volumeWindowSec, _urgency, _limitMode, _limitPrice);
-
+        Logger.LogInformation("[POV] {Sid} activated: {Side} {Total} {Symbol} | {Pct}% target | {Urg} | {Mode}",
+            StrategyId, p.Side, p.TotalSize, p.Symbol, _targetPct, _urgency, _mode);
         return Task.CompletedTask;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  OnMarketData — trade detection (replaces TS onTrade)
-    // ═══════════════════════════════════════════════════════════════════════
+    // ── Market data — cumulative volume tracking ─────────────────────────────
     public override void OnMarketData(MarketDataPoint data)
     {
         base.OnMarketData(data);
-
-        // Only process trade events
         if (data.LastTrade <= 0 || data.LastTradeSize <= 0) return;
         if (Status != AlgoStatus.Running) return;
 
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        _lastTradeTs = now;
+        _cumMarketVolume += data.LastTradeSize;
 
-        if (data.LastTradeSize <= 0) return;
+        var target = _cumMarketVolume * (_targetPct / 100m);
+        var deficit = target - FilledSize;
 
-        _rollingVolume.Add((data.LastTradeSize, now));
-        ExpireVolume(now);
-
-        var deficit = _windowVolume * (_targetPct / 100m) - _myWindowVolume;
-        var minSz = Math.Max(_minChildSize, Params.LotSize);
-
-        if (deficit < minSz || RemainingSize < minSz * 0.5m || _activeClientOrderId != null || _placing) return;
-
-        var bid = CurrentBid;
-        var ask = CurrentAsk;
-        var mid = CurrentMid;
-        if (mid <= 0) return;
-
-        var sz = Math.Max(minSz, Math.Min(deficit, RemainingSize));
-        if (_maxChildSize > 0) sz = Math.Min(sz, _maxChildSize);
-
-        _ = FireChildAsync(sz, bid, ask, mid);
+        // Behind target — fire child
+        if (deficit >= _minChildSize && _activeClientOrderId == null && !_placing
+            && RemainingSize > _minChildSize * 0.5m)
+        {
+            var childSize = deficit;
+            if (_maxChildSize > 0) childSize = Math.Min(childSize, _maxChildSize);
+            childSize = RoundToLot(childSize);
+            childSize = Math.Max(_minChildSize, Math.Min(childSize, RemainingSize));
+            if (childSize > 0)
+                _ = FireChildAsync(childSize);
+        }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  OnTickAsync — translation of _onTick
-    // ═══════════════════════════════════════════════════════════════════════
+    // ── Tick — catch-up + time limit ─────────────────────────────────────────
     public override async Task OnTickAsync()
     {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var bid = CurrentBid;
-        var ask = CurrentAsk;
-        var mid = CurrentMid;
+        if (CurrentBid <= 0 || CurrentAsk <= 0) return;
+        if (Status != AlgoStatus.Running) return;
 
-        // No-market-trades auto-pause
-        if (Status == AlgoStatus.Running && _lastTradeTs > 0
-            && now - _lastTradeTs > _volumeWindowSec * 2000L)
+        // Completion
+        if (RemainingSize <= Params.LotSize / 2)
         {
-            Status = AlgoStatus.Paused;
-            _pauseReason = "No market volume detected";
+            Status = AlgoStatus.Completed; OnCompleted(); return;
+        }
+
+        // Spread gate
+        if (CurrentSpreadBps > _maxSpreadBps) return;
+
+        // Limit check
+        if (_limitMode == "market_limit" && _limitPrice > 0)
+        {
+            if (IsBuy() && CurrentMid > _limitPrice) return;
+            if (!IsBuy() && CurrentMid < _limitPrice) return;
+        }
+
+        // Time limit
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (_endTs > 0 && now >= _endTs && RemainingSize > 0)
+        {
+            if (_activeClientOrderId == null && !_placing)
+            {
+                Logger.LogInformation("[POV] {Sid} time limit reached — sweeping {Rem}", StrategyId, RemainingSize);
+                await DoSweep();
+            }
             return;
         }
 
-        // Auto-resume
-        if (Status == AlgoStatus.Paused && _pauseReason != "manual")
+        // Catch-up: if deficit is large and no active order
+        var target = _cumMarketVolume * (_targetPct / 100m);
+        var deficit = target - FilledSize;
+        if (deficit >= _minChildSize * 2 && _activeClientOrderId == null && !_placing && RemainingSize > 0)
         {
-            var tradeOk = _lastTradeTs == 0 || now - _lastTradeTs <= _volumeWindowSec * 2000L;
-            if (tradeOk)
-            {
-                Status = AlgoStatus.Running;
-                _pauseReason = null;
-            }
+            var childSize = RoundToLot(Math.Min(deficit, RemainingSize));
+            if (childSize >= _minChildSize)
+                await FireChildAsync(childSize);
         }
 
-        if (Status != AlgoStatus.Running) return;
-        if (IsComplete()) { Status = AlgoStatus.Completed; OnCompleted(); return; }
-        if (_endTs > 0 && now >= _endTs) { Status = AlgoStatus.Completed; OnCompleted(); return; }
-
-        // Periodic catch-up every 5s
-        if (now - _catchupTs >= 5000)
-        {
-            _catchupTs = now;
-            ExpireVolume(now);
-
-            var myTarget = _windowVolume * (_targetPct / 100m);
-            var deficit = myTarget - _myWindowVolume;
-            var minSz = Math.Max(_minChildSize, Params.LotSize);
-
-            if (_activeClientOrderId == null && !_placing && RemainingSize > minSz * 0.5m)
-            {
-                if (_windowVolume > 0 && deficit >= minSz)
-                {
-                    await FireChildAsync(Math.Max(minSz, Math.Min(deficit, RemainingSize)), bid, ask, mid);
-                }
-                else if (_lastTradeTs > 0 && now - _lastTradeTs > _volumeWindowSec * 3000L)
-                {
-                    await FireChildAsync(
-                        Math.Min(Math.Max(minSz, RemainingSize * 0.1m), RemainingSize),
-                        bid, ask, mid);
-                }
-            }
-        }
+        // Update participation rate
+        _participationRate = _cumMarketVolume > 0 ? FilledSize / _cumMarketVolume * 100 : 0;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  FireChildAsync — translation of _fireChild
-    // ═══════════════════════════════════════════════════════════════════════
-    private async Task FireChildAsync(decimal size, decimal bid, decimal ask, decimal mid)
+    // ── Fire child ───────────────────────────────────────────────────────────
+    private async Task FireChildAsync(decimal size)
     {
-        if (size <= 0 || RemainingSize <= 0 || mid <= 0) return;
+        if (_placing || _activeClientOrderId != null) return;
+        if (CurrentBid <= 0 || CurrentAsk <= 0) return;
 
-        var tick = Params.TickSize;
         decimal price;
-
-        if (_urgency == "passive")
-            price = IsBuy() ? bid : ask;
-        else if (_urgency == "aggressive")
-            price = IsBuy() ? ask + tick : bid - tick;
+        string tif;
+        if (_urgency == "aggressive")
+        {
+            price = RoundToTick(IsBuy() ? CurrentAsk + Params.TickSize : CurrentBid - Params.TickSize);
+            tif = "IOC";
+        }
+        else if (_urgency == "passive")
+        {
+            price = RoundToTick(IsBuy() ? CurrentBid : CurrentAsk);
+            tif = "GTC";
+        }
         else
-            price = mid;
-
-        if (price <= 0) price = mid;
-        price = RoundToTick(price);
+        {
+            price = RoundToTick(CurrentMid);
+            tif = "GTC";
+        }
+        if (price <= 0) return;
 
         // Hard limit check
         if (_limitMode == "hard_limit" && _limitPrice > 0)
@@ -208,7 +165,7 @@ public class PovStrategy : BaseStrategy
             if (!IsBuy() && price < _limitPrice) return;
         }
 
-        // Average rate limit check
+        // Average rate check
         if (_limitMode == "average_rate" && _averageRateLimit > 0 && AvgFillPrice > 0)
         {
             var projAvg = (AvgFillPrice * FilledSize + price * size) / (FilledSize + size);
@@ -216,114 +173,86 @@ public class PovStrategy : BaseStrategy
             if (!IsBuy() && projAvg < _averageRateLimit) return;
         }
 
-        if (_placing) return;
         _childCount++;
-        size = RoundToLot(Math.Min(size, RemainingSize));
-        if (size <= 0) return;
-
-        var clientId = NewClientOrderId();
         _placing = true;
         try
         {
-            await SubmitOrderAsync(new OrderIntent(
-                StrategyId, clientId, Params.Exchange, Params.Symbol,
-                Params.Side.ToUpper(), "LIMIT", size, price, null, "IOC",
-                Tag: $"pov_child_{_childCount}"));
-            _activeClientOrderId = clientId;
-            _restingPrice = price;
+            var cid = NewClientOrderId();
+            await SubmitOrderAsync(new OrderIntent(StrategyId, cid, Params.Exchange, Params.Symbol,
+                Params.Side.ToUpper(), "LIMIT", size, price, null, tif, Tag: $"pov_{_childCount}"));
+            _activeClientOrderId = cid;
         }
         finally { _placing = false; }
 
-        Logger.LogInformation("[POV] {Sid} child #{N}: {Sz} @ {Px}",
-            StrategyId, _childCount, size, price);
+        Logger.LogInformation("[POV] {Sid} child #{N}: {Sz} @ {Px} {Tif} | deficit={Def}",
+            StrategyId, _childCount, size, price, tif,
+            _cumMarketVolume * (_targetPct / 100m) - FilledSize);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  ExpireVolume — translation of _expireVolume
-    // ═══════════════════════════════════════════════════════════════════════
-    private void ExpireVolume(long now)
+    private async Task DoSweep()
     {
-        var cutoff = now - _volumeWindowSec * 1000L;
-
-        while (_rollingVolume.Count > 0 && _rollingVolume[0].ts < cutoff)
-            _rollingVolume.RemoveAt(0);
-
-        while (_myRollingFills.Count > 0 && _myRollingFills[0].ts < cutoff)
-            _myRollingFills.RemoveAt(0);
-
-        _windowVolume = 0;
-        foreach (var v in _rollingVolume) _windowVolume += v.size;
-
-        _myWindowVolume = 0;
-        foreach (var v in _myRollingFills) _myWindowVolume += v.size;
+        if (RemainingSize <= 0) return;
+        var price = RoundToTick(IsBuy() ? CurrentAsk + Params.TickSize * 5 : CurrentBid - Params.TickSize * 5);
+        var cid = NewClientOrderId();
+        _placing = true;
+        try
+        {
+            await SubmitOrderAsync(new OrderIntent(StrategyId, cid, Params.Exchange, Params.Symbol,
+                Params.Side.ToUpper(), "LIMIT", RoundToLot(RemainingSize), price, null, "IOC", Tag: "pov_sweep"));
+            _activeClientOrderId = cid;
+        }
+        finally { _placing = false; }
+        Status = AlgoStatus.Completing;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  OnFillReceived — translation of _onFillExtended
-    // ═══════════════════════════════════════════════════════════════════════
+    // ── Fill ─────────────────────────────────────────────────────────────────
     protected override void OnFillReceived(AlgoFill fill)
     {
-        var cappedFill = fill.FillSize;
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-        _myRollingFills.Add((cappedFill, now));
-        ExpireVolume(now);
-
-        _participationRate = _windowVolume > 0
-            ? (_myWindowVolume / _windowVolume) * 100m
-            : 0m;
-
-        _activeClientOrderId = null;
-        _restingPrice = 0;
-
-        if (IsComplete())
+        if (fill.ClientOrderId == _activeClientOrderId)
         {
-            Status = AlgoStatus.Completed;
-            OnCompleted();
+            _activeClientOrderId = null;
+            _placing = false;
         }
+        _participationRate = _cumMarketVolume > 0 ? FilledSize / _cumMarketVolume * 100 : 0;
+
+        Logger.LogInformation("[POV] {Sid} fill: {Sz}@{Px} participation={Rate:F1}% (target {T}%)",
+            StrategyId, fill.FillSize, fill.FillPrice, _participationRate, _targetPct);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  OnRejectionReceived — translation of _onOrderUpdateExtended
-    // ═══════════════════════════════════════════════════════════════════════
+    // ── Rejection ────────────────────────────────────────────────────────────
     protected override void OnRejectionReceived(string clientOrderId, string reason)
     {
         if (clientOrderId != _activeClientOrderId) return;
         _activeClientOrderId = null;
-        _restingPrice = 0;
+        _placing = false;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  Status hooks — translation of _strategyState
-    // ═══════════════════════════════════════════════════════════════════════
-    protected override string? GetPauseReason() => _pauseReason;
-
-    protected override string? GetSummaryLine()
+    // ── Pause/Resume ─────────────────────────────────────────────────────────
+    protected override void OnPause()
     {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var deficit = Math.Max(0m, _windowVolume * (_targetPct / 100m) - _myWindowVolume);
-        return $"{Params.Side} {Params.TotalSize} {Params.Symbol} on {Params.Exchange} via POV | " +
-               $"{_targetPct}% participation | {_volumeWindowSec}s window";
+        _activeClientOrderId = null; _placing = false;
+        _pauseReason = "manual";
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    protected override void OnStop() { _activeClientOrderId = null; _placing = false; }
-    protected override void OnPause() { _activeClientOrderId = null; _placing = false; _pauseReason = "manual"; }
-    protected override Task OnResumeAsync() { _pauseReason = null; return Task.CompletedTask; }
+    protected override Task OnResumeAsync()
+    {
+        _pauseReason = null;
+        return Task.CompletedTask;
+    }
 
-    //  Helpers
-    // ═══════════════════════════════════════════════════════════════════════
-    private bool IsBuy() => Params.Side.ToUpper() == "BUY";
-
-    private bool IsComplete() => RemainingSize <= Params.LotSize / 2;
+    // ── Status ───────────────────────────────────────────────────────────────
+    protected override string? GetPauseReason() => _pauseReason;
+    protected override string? GetSummaryLine()
+        => $"{Params.Side} {Params.TotalSize} {Params.Symbol} on {Params.Exchange} via POV | {_targetPct}% target | {_urgency} | {_mode}";
 
     protected override void PopulateStrategyState(AlgoStatusReport report)
     {
-        RestingPrice = _activeClientOrderId != null ? (decimal?)null : null; // POV doesn't track resting price directly
         report.ParticipationRate = _participationRate;
         report.TargetParticipation = _targetPct;
-        report.WindowVolume = _windowVolume;
-        report.Deficit = Math.Max(0m, _windowVolume * (_targetPct / 100m) - _myWindowVolume);
+        report.WindowVolume = _cumMarketVolume;
+        report.Deficit = Math.Max(0, _cumMarketVolume * (_targetPct / 100m) - FilledSize);
         report.Urgency = _urgency;
     }
+
+    private bool IsBuy() => Params.Side.ToUpper() == "BUY";
 }

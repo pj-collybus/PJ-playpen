@@ -57,6 +57,12 @@ public class TwapStrategy : BaseStrategy
     private decimal _restingPrice;
     private bool _placing;
 
+    // Cancel-then-aggress guards + IOC timeout
+    private bool _waitingForCancelConfirm;
+    private bool _shouldAggressAfterCancel;
+    private long _cancelSentAt;
+    private long _orderPlacedAt;
+
     // Spread threshold
     private decimal _maxSpreadBps;
 
@@ -142,16 +148,45 @@ public class TwapStrategy : BaseStrategy
     // ═══════════════════════════════════════════════════════════════════════
     public override async Task OnTickAsync()
     {
+        if (CurrentBid <= 0 || CurrentAsk <= 0) return; // wait for market data
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var bid = CurrentBid;
         var ask = CurrentAsk;
         var mid = CurrentMid;
+
+        // Change 1+3: Block while waiting for cancel confirmation, with 5s timeout
+        if (_waitingForCancelConfirm)
+        {
+            if (_cancelSentAt > 0 && now - _cancelSentAt > 5000)
+            {
+                Logger.LogWarning("[TWAP] {Sid} cancel timeout — force clear", StrategyId);
+                _waitingForCancelConfirm = false;
+                _shouldAggressAfterCancel = false;
+                PendingOrders.Remove(_restingClientOrderId ?? "");
+                _restingClientOrderId = null;
+                _restingPrice = 0;
+            }
+            else return;
+        }
 
         CheckAverageRateLimit();
         AutoResume(mid);
 
         if (Status != AlgoStatus.Running) return;
         if (IsComplete()) { Status = AlgoStatus.Completed; OnCompleted(); return; }
+
+        // IOC timeout: if resting order is stale (IOC cancelled with no confirmation), clear after 5s
+        if (_restingClientOrderId != null && _orderPlacedAt > 0
+            && now - _orderPlacedAt > 5000
+            && _urgency == "aggressive")
+        {
+            Logger.LogWarning("[TWAP] {Sid} IOC timeout — clearing stale order", StrategyId);
+            PendingOrders.Remove(_restingClientOrderId);
+            _restingClientOrderId = null;
+            _orderPlacedAt = 0;
+            _restingPrice = 0;
+        }
+
         if (await CheckWindowEnd(bid, ask, now)) return;
         if (CheckCompleting(now)) return;
         await CheckPassiveCross(bid, ask, now);
@@ -271,6 +306,7 @@ public class TwapStrategy : BaseStrategy
                     Tag: "passive_cross"));
                 _restingClientOrderId = clientId;
                 _restingPrice = crossPrice;
+                _orderPlacedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             }
             finally { _placing = false; }
         }
@@ -396,6 +432,7 @@ public class TwapStrategy : BaseStrategy
                 PostOnly: postOnly, Tag: $"slice_{_slicesFired}"));
             _restingClientOrderId = clientId;
             _restingPrice = price;
+            _orderPlacedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             _chaseDeadline = 0;
         }
         finally { _placing = false; }
@@ -450,6 +487,9 @@ public class TwapStrategy : BaseStrategy
         // Only handle if it matches the active child
         if (clientOrderId != _restingClientOrderId) return;
 
+        Logger.LogInformation("[TWAP] {Sid} order {Reason}: {Cid} — clearing",
+            StrategyId, reason, clientOrderId);
+
         if (Status == AlgoStatus.Completing)
         {
             _restingClientOrderId = null;
@@ -465,7 +505,11 @@ public class TwapStrategy : BaseStrategy
 
         _restingClientOrderId = null;
         _restingPrice = 0;
+        _orderPlacedAt = 0;
         _chaseDeadline = 0;
+        _placing = false;
+        _waitingForCancelConfirm = false;
+        _shouldAggressAfterCancel = false;
 
         var lowerReason = (reason ?? "").ToLowerInvariant();
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -518,14 +562,10 @@ public class TwapStrategy : BaseStrategy
         report.RollingVwap = _rollingVwap > 0 ? _rollingVwap : null;
     }
 
-    protected override void OnStop()
-    {
-        _restingClientOrderId = null; _restingPrice = 0; _placing = false;
-    }
-
     protected override void OnPause()
     {
         _restingClientOrderId = null; _restingPrice = 0; _placing = false;
+        _waitingForCancelConfirm = false; _shouldAggressAfterCancel = false;
         _pauseReason = "manual";
     }
 

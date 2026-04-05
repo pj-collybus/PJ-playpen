@@ -45,10 +45,20 @@ export function ExecutionChart({ status, width = 400, height = 200 }: {
     const validAsks = asks.filter(v => v > 0)
     if (validBids.length === 0 && validAsks.length === 0) return
 
+    // Debug: find source of price spikes
+    const bidRange = validBids.length ? [Math.min(...validBids), Math.max(...validBids)] : [0, 0]
+    const askRange = validAsks.length ? [Math.min(...validAsks), Math.max(...validAsks)] : [0, 0]
+    const orderVals = orders.filter(v => v != null && v > 0)
+    const levelVals = (status.chartLevelPrices || []).map(l => l.price).filter(v => v > 0)
+    const fillVals = fills.map(f => f.price).filter(v => v > 0)
+    if (bidRange[1] > 0 && (bidRange[1] / bidRange[0] > 2 || askRange[1] / askRange[0] > 2)) {
+      console.warn('[chart-spike] bid:', bidRange, 'ask:', askRange, 'order:', orderVals.slice(-3), 'levels:', levelVals, 'target:', status.chartTargetPrice, 'fills:', fillVals)
+    }
+
     const allPrices: number[] = [
       ...validBids, ...validAsks,
-      ...fills.map(f => f.price).filter(v => v > 0),
-      ...(status.chartLevelPrices || []).map(l => l.price).filter(v => v > 0),
+      ...fillVals,
+      ...levelVals,
       ...(status.chartTargetPrice && status.chartTargetPrice > 0 ? [status.chartTargetPrice] : []),
       ...(status.chartSnipeLevel && status.chartSnipeLevel > 0 ? [status.chartSnipeLevel] : []),
       ...(status.avgFillPrice && status.avgFillPrice > 0 ? [status.avgFillPrice] : []),
@@ -163,14 +173,29 @@ export function ExecutionChart({ status, width = 400, height = 200 }: {
       }
     })
 
-    // Avg fill price line (purple dashed) — true blended average of all fills
-    if (status.avgFillPrice && status.avgFillPrice > 0 && status.filledSize > 0) {
-      const y = yOf(status.avgFillPrice)
-      if (y >= PAD.t && y <= PAD.t + cH) {
-        ctx.beginPath(); ctx.strokeStyle = '#7F77DD'; ctx.lineWidth = 1.5
-        ctx.setLineDash([6, 3]); ctx.moveTo(PAD.l, y); ctx.lineTo(PAD.l + cW, y); ctx.stroke(); ctx.setLineDash([])
-        ctx.font = '9px monospace'; ctx.fillStyle = '#7F77DD'; ctx.textAlign = 'left'
-        ctx.fillText(`AVG ${status.avgFillPrice.toFixed(4)}`, PAD.l + 2, y - 3)
+    // Running average line (purple dashed) — stepped, connecting fill-time points only
+    if (fills.length > 0) {
+      let cumNotional = 0, cumSize = 0
+      const avgPoints = fills.map(f => {
+        cumNotional += f.price * f.size; cumSize += f.size
+        return { x: xOf(f.time), y: yOf(cumNotional / cumSize) }
+      })
+      if (avgPoints.length > 0) {
+        ctx.beginPath(); ctx.strokeStyle = '#7F77DD'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 3])
+        avgPoints.forEach((p, i) => {
+          if (i === 0) ctx.moveTo(p.x, p.y)
+          else { ctx.lineTo(p.x, avgPoints[i - 1].y); ctx.lineTo(p.x, p.y) } // stepped
+        })
+        // Extend to current time
+        if (avgPoints.length > 0) ctx.lineTo(xOf(maxT), avgPoints[avgPoints.length - 1].y)
+        ctx.stroke(); ctx.setLineDash([])
+        // Label
+        const lastAvg = cumSize > 0 ? cumNotional / cumSize : 0
+        if (lastAvg > 0) {
+          const ly = yOf(lastAvg)
+          ctx.font = '9px monospace'; ctx.fillStyle = '#7F77DD'; ctx.textAlign = 'left'
+          ctx.fillText(`AVG ${lastAvg.toFixed(4)}`, PAD.l + 2, ly - 3)
+        }
       }
     }
 

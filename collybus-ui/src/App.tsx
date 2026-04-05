@@ -292,10 +292,12 @@ export default function App() {
                   }}
                   defaultValue=""
                   style={{
-                    background: '#1A3A94', border: 'none', color: 'white',
-                    fontSize: 14, fontWeight: 500, padding: '4px 12px',
+                    background: 'linear-gradient(to bottom, #1a2a4a 0%, #0d1a30 100%)',
+                    border: '1px solid #2a4a7a', color: '#4488ff',
+                    fontSize: 11, fontWeight: 700, padding: '0 12px', height: 28,
                     borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
                     outline: 'none',
+                    boxShadow: 'inset 0px 2px 1px rgba(255,255,255,0.1), inset 0px -2px 1px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.4)',
                   }}
                 >
                   <option value="" disabled>+ Add Panel</option>

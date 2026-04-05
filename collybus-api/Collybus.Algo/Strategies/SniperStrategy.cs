@@ -392,15 +392,6 @@ public class SniperStrategy : BaseStrategy
         return Params.Side.ToUpper() == "BUY" ? bpsPerSec >= required : bpsPerSec <= -required;
     }
 
-    protected override void OnStop()
-    {
-        _postOrderActive = false;
-        _postOrderClientId = null;
-        _snipeChildId = null;
-        foreach (var l in _levels) { l.ActiveClientId = null; l.Placing = false; }
-        _placing = false;
-    }
-
     protected override void OnPause()
     {
         // Clear active IDs (orders cancelled by base), preserve fill progress

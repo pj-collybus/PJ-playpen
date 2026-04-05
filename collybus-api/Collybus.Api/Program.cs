@@ -5,6 +5,17 @@ using Collybus.Api.Services;
 using Collybus.Api.Services.Stubs;
 using Microsoft.AspNetCore.SignalR;
 
+// Catch unobserved task exceptions to prevent silent crashes
+TaskScheduler.UnobservedTaskException += (_, e) =>
+{
+    Console.WriteLine($"[UNOBSERVED EXCEPTION] {e.Exception}");
+    e.SetObserved();
+};
+AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+{
+    Console.WriteLine($"[UNHANDLED EXCEPTION] {e.ExceptionObject}");
+};
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers()
@@ -129,6 +140,18 @@ app.MapHub<CollybusHub>("/hub");
                     LastTradeSize: size,
                     Timestamp: ts
                 ));
+            };
+
+            // Route order cancellations to algo engine (for TWAP passive cross)
+            baseAdapter.OnAlgoOrderCancelled = (venue, orderId, label) =>
+            {
+                if (algoOrderPort == null) return;
+                // Resolve by label (algo's client order ID)
+                var resolved = algoOrderPort.ResolveVenueOrderId(label)
+                    ?? algoOrderPort.ResolveVenueOrderId(orderId);
+                if (resolved == null) return;
+                var (clientOrderId, strategyId) = resolved.Value;
+                _ = algoEngine.PushOrderRejectedAsync(strategyId, clientOrderId, "cancelled");
             };
         }
     }

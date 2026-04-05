@@ -508,6 +508,10 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
         {
             if (o is null) continue;
             var stateStr = o["order_state"]?.GetValue<string>() ?? "";
+            var lbl = o["label"]?.GetValue<string>() ?? "";
+            var oid = o["order_id"]?.GetValue<string>() ?? "";
+            var filledAmt = o["filled_amount"]?.GetValue<decimal?>() ?? 0;
+            Console.WriteLine($"[deribit-order] {DateTime.UtcNow:HH:mm:ss.fff} state={stateStr} id={oid} filled={filledAmt} label={lbl}");
             var state = stateStr switch
             {
                 "filled" => OrderState.Filled,
@@ -537,6 +541,14 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
                 CreatedAt = o["creation_timestamp"]?.GetValue<long?>() ?? receivedTs,
             };
             _ = Hub.Clients.All.SendAsync("OrderUpdate", order);
+
+            // Route cancellations/rejections to algo engine
+            if (state is OrderState.Cancelled or OrderState.Rejected)
+            {
+                var label = o["label"]?.GetValue<string>() ?? "";
+                if (!string.IsNullOrEmpty(label))
+                    OnAlgoOrderCancelled?.Invoke(Venue, order.OrderId, label);
+            }
         }
     }
 
