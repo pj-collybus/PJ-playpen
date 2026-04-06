@@ -443,7 +443,7 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
                       <td style={{ padding: '1px 2px', textAlign: 'center', borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}10`, background: S.panel, whiteSpace: 'nowrap' }}>
                         <button style={{ background: GRAD_BUY, border: 'none', borderRadius: 3, padding: '2px 4px', width: '100%', cursor: 'default', fontFamily: 'inherit', boxShadow: SHADOW_BTN }}>
                           <div style={{ fontSize: 10, fontWeight: 400, color: '#fff' }}>{fmtStrike(row.strike)}</div>
-                          {pctFromAtm !== 0 && <div style={{ fontSize: 8, color: pctColor, marginTop: -1 }}>{pctFromAtm > 0 ? '+' : ''}{pctFromAtm.toFixed(2)}%</div>}
+                          <div style={{ fontSize: 9, marginTop: -1, color: pctFromAtm > 0 ? '#00c896' : pctFromAtm < 0 ? '#e05252' : '#ccaa44' }}>{pctFromAtm === 0 ? 'ATM' : `${pctFromAtm > 0 ? '+' : ''}${pctFromAtm.toFixed(2)}%`}</div>
                         </button>
                       </td>
                       {showPuts && putCols.map(c => <td key={`p-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, width: c.width, background: cellBg(c, row.put) }}>{renderCell(row.put, c, true)}</td>)}
