@@ -148,13 +148,36 @@ const fmtExpiry = (exp: string) => {
 }
 
 function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onClose }: OptionsMatrixProps) {
+  // ── All useState declarations first ──
   const posKey = 'optionsMatrix'
   const [pos, setPos] = useState(() => loadPos(posKey, { x: 80, y: 60 }))
   const [size, setSize] = useState(() => loadSize(posKey, { w: 920, h: 580 }))
+  const [toolbarMinW, setToolbarMinW] = useState(370)
+  const [instrument, setInstrument] = useState<InstrumentId>((initialInstrument as InstrumentId) || 'BTC')
+  const [optionType, setOptionType] = useState<OptionType>('calls')
+  const [sideMode, setSideMode] = useState<SideMode>('buy')
+  const [viewMode, setViewMode] = useState<ViewMode>('bidask')
+  const [atmMode, setAtmMode] = useState(true)
+  const [strikeMin, setStrikeMin] = useState('')
+  const [strikeMax, setStrikeMax] = useState('')
+  const [polling, setPolling] = useState(true)
+  const [availableExpiries, setAvailableExpiries] = useState<string[]>([])
+  const [indexPrice, setIndexPrice] = useState(0)
+  const [expiryFrom, setExpiryFrom] = useState('')
+  const [expiryTo, setExpiryTo] = useState('')
+  const [data, setData] = useState<MatrixResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [lastFetchTs, setLastFetchTs] = useState(0)
+  const [now, setNow] = useState(Date.now())
+
+  // ── All useRef declarations ──
   const dragRef = useRef<{ ox: number; oy: number } | null>(null)
   const resizeRef = useRef<any>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
-  const [toolbarMinW, setToolbarMinW] = useState(370)
+  const autoSelectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // ── useEffect — position/size persistence ──
   useEffect(() => { savePos(posKey, pos) }, [pos])
   useEffect(() => { saveSize(posKey, size) }, [size])
   // Measure toolbar natural width on mount to set min panel width
@@ -166,27 +189,6 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
       if (w > 300) setToolbarMinW(w)
     })
   }, [instrument, optionType, atmMode])
-
-  // Filters
-  const [instrument, setInstrument] = useState<InstrumentId>((initialInstrument as InstrumentId) || 'BTC')
-  const [optionType, setOptionType] = useState<OptionType>('calls')
-  const [sideMode, setSideMode] = useState<SideMode>('buy')
-  const [viewMode, setViewMode] = useState<ViewMode>('bidask')
-  const [atmMode, setAtmMode] = useState(true)
-  const [strikeMin, setStrikeMin] = useState('')
-  const [strikeMax, setStrikeMax] = useState('')
-  const [polling, setPolling] = useState(true)
-
-  // Two-stage data
-  const [availableExpiries, setAvailableExpiries] = useState<string[]>([])
-  const [indexPrice, setIndexPrice] = useState(0)
-  const [expiryFrom, setExpiryFrom] = useState('')
-  const [expiryTo, setExpiryTo] = useState('')
-  const [data, setData] = useState<MatrixResponse | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [lastFetchTs, setLastFetchTs] = useState(0)
-  const autoSelectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Stage 1: Fetch expiries on instrument/type change
   const fetchExpiries = useCallback(async () => {
@@ -242,7 +244,6 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
   }, [fetchMatrix, polling, expiryTo])
 
   // Freshness indicator: LIVE if updated within 20s, STALE if older, nothing before first load
-  const [now, setNow] = useState(Date.now())
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id) }, [])
   const isLive = lastFetchTs > 0 && (now - lastFetchTs) < 20000
   const isStale = lastFetchTs > 0 && !isLive
