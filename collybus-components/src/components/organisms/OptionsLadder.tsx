@@ -329,14 +329,35 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
     return `rgba(68,136,255,${(0.08 + t * 0.35).toFixed(2)})`
   }
 
+  // Format bid/ask with native + USD for inverse instruments
+  const isInverse = instrument === 'BTC' || instrument === 'ETH'
+  const baseCcy = instrument === 'BTC' ? 'BTC' : instrument === 'ETH' ? 'ETH' : null
+  const fmtBidAsk = (price: number | null) => {
+    if (price == null || price === 0) return null
+    if (isInverse && baseCcy && indexPrice > 0) {
+      const usd = price * indexPrice
+      return (
+        <div style={{ lineHeight: 1.2 }}>
+          <div style={{ fontSize: 11, fontWeight: 700 }}>{price.toFixed(4)} {baseCcy}</div>
+          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>${usd.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+        </div>
+      )
+    }
+    return `$${price.toLocaleString('en-US', { minimumFractionDigits: price < 1 ? 4 : 2, maximumFractionDigits: price < 1 ? 4 : 2 })}`
+  }
+
   // Render cell — plain colored text: Bid=green, Ask=red on both sides
   const renderCell = (cell: any, col: ColDef, isPut: boolean) => {
     const val = cell?.[col.key]
+    if (col.style === 'bid' || col.style === 'ask') {
+      const content = fmtBidAsk(val)
+      if (!content) return <span style={{ color: '#2a2a3a', fontSize: 9 }}>—</span>
+      const color = col.style === 'bid' ? '#00c896' : '#e05252'
+      return <span onClick={() => cell && onOrderClick?.(cell, col.style === 'bid' ? 'buy' : 'sell')} style={{ color, cursor: 'pointer' }}>{content}</span>
+    }
     const fmt = col.style === 'iv' ? 'iv' : col.style === 'greek' ? 'greek' : col.style === 'vol' || col.style === 'size' ? 'vol' : 'price'
     const text = fmtCell(val, fmt)
     if (text === '—') return <span style={{ color: '#2a2a3a', fontSize: 9 }}>—</span>
-    if (col.style === 'bid') return <span onClick={() => cell && onOrderClick?.(cell, 'buy')} style={{ fontSize: 10, color: '#00c896', cursor: 'pointer' }}>{text}</span>
-    if (col.style === 'ask') return <span onClick={() => cell && onOrderClick?.(cell, 'sell')} style={{ fontSize: 10, color: '#e05252', cursor: 'pointer' }}>{text}</span>
     if (col.style === 'mark') return <span style={{ fontSize: 10, color: '#ccc' }}>{text}</span>
     return <span style={{ fontSize: 9, color: '#888' }}>{text}</span>
   }
