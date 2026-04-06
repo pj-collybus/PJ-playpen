@@ -31,20 +31,49 @@ const toDeribitExpiry = (exp: string) => {
   return exp
 }
 
-// Column definitions
-interface ColDef { key: string; label: string; width: number; defaultVisible: boolean; format: 'price' | 'iv' | 'greek' | 'vol' | 'size' }
+// Column definitions — fixed order matching reference screenshot
+interface ColDef { key: string; label: string; width: number; defaultVisible: boolean; style: 'bid' | 'ask' | 'mark' | 'iv' | 'greek' | 'vol' | 'size' }
+
+// Calls: left-to-right = ΔDelta, Last, Size, IV Bid, Bid, Mark, Ask, IV Ask, Size
+const CALL_COLUMNS: ColDef[] = [
+  { key: 'delta', label: 'ΔDelta', width: 46, defaultVisible: false, style: 'greek' },
+  { key: 'last', label: 'Last', width: 50, defaultVisible: false, style: 'mark' },
+  { key: 'openInterest', label: 'Size', width: 44, defaultVisible: true, style: 'vol' },
+  { key: 'markIv', label: 'IV Bid', width: 46, defaultVisible: true, style: 'iv' },
+  { key: 'bid', label: 'Bid', width: 58, defaultVisible: true, style: 'bid' },
+  { key: 'mark', label: 'Mark', width: 54, defaultVisible: true, style: 'mark' },
+  { key: 'ask', label: 'Ask', width: 58, defaultVisible: true, style: 'ask' },
+  { key: 'askIv', label: 'IV Ask', width: 46, defaultVisible: false, style: 'iv' },
+  { key: 'volume', label: 'Size', width: 44, defaultVisible: true, style: 'size' },
+]
+
+// Puts: left-to-right = Size, IV Bid, Bid, Mark, Ask, IV Ask, Size, Last, ΔDelta
+const PUT_COLUMNS: ColDef[] = [
+  { key: 'volume', label: 'Size', width: 44, defaultVisible: true, style: 'size' },
+  { key: 'markIv', label: 'IV Bid', width: 46, defaultVisible: true, style: 'iv' },
+  { key: 'bid', label: 'Bid', width: 58, defaultVisible: true, style: 'bid' },
+  { key: 'mark', label: 'Mark', width: 54, defaultVisible: true, style: 'mark' },
+  { key: 'ask', label: 'Ask', width: 58, defaultVisible: true, style: 'ask' },
+  { key: 'askIv', label: 'IV Ask', width: 46, defaultVisible: false, style: 'iv' },
+  { key: 'openInterest', label: 'Size', width: 44, defaultVisible: true, style: 'vol' },
+  { key: 'last', label: 'Last', width: 50, defaultVisible: false, style: 'mark' },
+  { key: 'delta', label: 'ΔDelta', width: 46, defaultVisible: false, style: 'greek' },
+]
+
+// All unique column keys for settings modal
 const ALL_COLUMNS: ColDef[] = [
-  { key: 'bid', label: 'Bid', width: 58, defaultVisible: true, format: 'price' },
-  { key: 'ask', label: 'Ask', width: 58, defaultVisible: true, format: 'price' },
-  { key: 'mark', label: 'Mark', width: 54, defaultVisible: true, format: 'price' },
-  { key: 'markIv', label: 'IV', width: 44, defaultVisible: true, format: 'iv' },
-  { key: 'last', label: 'Last', width: 50, defaultVisible: false, format: 'price' },
-  { key: 'volume', label: 'Vol', width: 44, defaultVisible: true, format: 'vol' },
-  { key: 'openInterest', label: 'OI', width: 44, defaultVisible: true, format: 'vol' },
-  { key: 'delta', label: 'Δ', width: 42, defaultVisible: false, format: 'greek' },
-  { key: 'gamma', label: 'Γ', width: 42, defaultVisible: false, format: 'greek' },
-  { key: 'vega', label: 'V', width: 42, defaultVisible: false, format: 'greek' },
-  { key: 'theta', label: 'Θ', width: 42, defaultVisible: false, format: 'greek' },
+  { key: 'bid', label: 'Bid', width: 58, defaultVisible: true, style: 'bid' },
+  { key: 'ask', label: 'Ask', width: 58, defaultVisible: true, style: 'ask' },
+  { key: 'mark', label: 'Mark', width: 54, defaultVisible: true, style: 'mark' },
+  { key: 'markIv', label: 'IV Bid', width: 46, defaultVisible: true, style: 'iv' },
+  { key: 'askIv', label: 'IV Ask', width: 46, defaultVisible: false, style: 'iv' },
+  { key: 'last', label: 'Last', width: 50, defaultVisible: false, style: 'mark' },
+  { key: 'volume', label: 'Volume', width: 44, defaultVisible: true, style: 'size' },
+  { key: 'openInterest', label: 'Open Interest', width: 44, defaultVisible: true, style: 'vol' },
+  { key: 'delta', label: 'ΔDelta', width: 46, defaultVisible: false, style: 'greek' },
+  { key: 'gamma', label: 'Gamma', width: 42, defaultVisible: false, style: 'greek' },
+  { key: 'vega', label: 'Vega', width: 42, defaultVisible: false, style: 'greek' },
+  { key: 'theta', label: 'Theta', width: 42, defaultVisible: false, style: 'greek' },
 ]
 
 const GRAD_BUY = 'linear-gradient(to right, #1A3A94 0%, #2B79DD 100%)'
@@ -271,10 +300,9 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
     return r
   }, [rows, atmOnly, atmN, atmStrike, strikeMin, strikeMax])
 
-  // Visible columns
-  const visCols = useMemo(() => ALL_COLUMNS.filter(c => visibleCols.has(c.key)), [visibleCols])
-  const callCols = useMemo(() => [...visCols].reverse(), [visCols])
-  const putCols = visCols
+  // Visible columns — fixed order per side
+  const callCols = useMemo(() => CALL_COLUMNS.filter(c => visibleCols.has(c.key)), [visibleCols])
+  const putCols = useMemo(() => PUT_COLUMNS.filter(c => visibleCols.has(c.key)), [visibleCols])
 
   // Scroll to ATM
   useEffect(() => {
@@ -283,12 +311,12 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
     if (idx >= 0) gridRef.current.scrollTop = Math.max(0, idx * 28 - gridRef.current.clientHeight / 2 + 14)
   }, [atmStrike, filteredRows.length])
 
-  // Render cell — green for calls, red for puts bid/ask
+  // Render cell — green for calls bid/ask, red for puts bid/ask
   const renderCell = (cell: any, col: ColDef, isPut: boolean) => {
     const val = cell?.[col.key]
-    const text = fmtCell(val, col.format)
-    if (text === '—') return <span style={{ color: S.dim, fontSize: 9 }}>—</span>
-    if (col.key === 'bid' || col.key === 'ask') {
+    const text = fmtCell(val, col.style === 'iv' ? 'iv' : col.style === 'greek' ? 'greek' : col.style === 'vol' || col.style === 'size' ? 'vol' : 'price')
+    if (text === '—') return <span style={{ color: '#2a2a3a', fontSize: 9 }}>—</span>
+    if (col.style === 'bid' || col.style === 'ask') {
       const g = isPut ? GRAD_SELL : GRAD_BUY; const gh = isPut ? GRAD_SELL_H : GRAD_BUY_H
       return <button onClick={() => cell && onOrderClick?.(cell, isPut ? 'sell' : 'buy')}
         onMouseEnter={e => e.currentTarget.style.background = gh} onMouseLeave={e => e.currentTarget.style.background = g}
@@ -296,9 +324,10 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
         <span style={{ fontSize: 10, fontWeight: 400, color: '#fff' }}>{text}</span>
       </button>
     }
-    if (col.format === 'greek') return <span style={{ fontSize: 9, color: '#666', textAlign: 'right' }}>{text}</span>
-    if (col.key === 'mark') return <span style={{ fontSize: 10, color: S.muted }}>{text}</span>
-    if (col.format === 'vol') return <span style={{ fontSize: 9, color: S.muted }}>{text}</span>
+    if (col.style === 'greek') return <span style={{ fontSize: 9, color: '#666' }}>{text}</span>
+    if (col.style === 'mark') return <span style={{ fontSize: 10, color: '#fff' }}>{text}</span>
+    if (col.style === 'iv') return <span style={{ fontSize: 9, color: S.muted }}>{text}</span>
+    if (col.style === 'vol' || col.style === 'size') return <span style={{ fontSize: 9, color: S.muted }}>{text}</span>
     return <span style={{ fontSize: 10, color: S.text }}>{text}</span>
   }
 
@@ -360,6 +389,8 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
         </div>
       </div>
 
+      {/* Content area: grid + right button bar */}
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
       {/* Grid */}
       <div ref={gridRef} style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         {filteredRows.length > 0 ? (
@@ -367,22 +398,32 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
             <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
               <tr>
                 {showCalls && <th colSpan={callCols.length} style={{ background: '#0d0d14', padding: '2px 0 0', textAlign: 'center', color: S.positive, fontWeight: 700, fontSize: 9, letterSpacing: '0.08em' }}>CALLS</th>}
-                <th rowSpan={2} style={{ background: '#0d0d14', padding: '2px 4px', textAlign: 'center', color: S.muted, fontWeight: 700, fontSize: 9, borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}`, width: 68, minWidth: 68, verticalAlign: 'bottom' }}>STRIKE</th>
+                <th rowSpan={2} style={{ background: '#0d0d14', padding: '2px 4px', textAlign: 'center', borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}`, width: 74, minWidth: 74, verticalAlign: 'bottom' }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: S.text }}>{indexPrice > 0 ? fmtIndex(indexPrice) : ''}</div>
+                  <div style={{ fontSize: 8, color: S.muted, marginTop: 1 }}>STRIKE</div>
+                </th>
                 {showPuts && <th colSpan={putCols.length} style={{ background: '#0d0d14', padding: '2px 0 0', textAlign: 'center', color: S.negative, fontWeight: 700, fontSize: 9, letterSpacing: '0.08em' }}>PUTS</th>}
               </tr>
               <tr>
-                {showCalls && callCols.map(c => <th key={`ch-${c.key}`} style={{ background: '#0d0d14', padding: '1px 1px 2px', textAlign: 'center', color: S.muted, fontWeight: 600, fontSize: 8, textTransform: 'uppercase', borderBottom: `1px solid ${S.border}`, width: c.width, minWidth: c.width }}>{c.label}</th>)}
-                {showPuts && putCols.map(c => <th key={`ph-${c.key}`} style={{ background: '#0d0d14', padding: '1px 1px 2px', textAlign: 'center', color: S.muted, fontWeight: 600, fontSize: 8, textTransform: 'uppercase', borderBottom: `1px solid ${S.border}`, width: c.width, minWidth: c.width }}>{c.label}</th>)}
+                {showCalls && callCols.map(c => <th key={`ch-${c.key}`} style={{ background: '#0d0d14', padding: '1px 1px 2px', textAlign: 'center', color: S.muted, fontWeight: 600, fontSize: 7, textTransform: 'uppercase', borderBottom: `1px solid ${S.border}`, width: c.width, minWidth: c.width }}>{c.label}</th>)}
+                {showPuts && putCols.map(c => <th key={`ph-${c.key}`} style={{ background: '#0d0d14', padding: '1px 1px 2px', textAlign: 'center', color: S.muted, fontWeight: 600, fontSize: 7, textTransform: 'uppercase', borderBottom: `1px solid ${S.border}`, width: c.width, minWidth: c.width }}>{c.label}</th>)}
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map(row => {
+              {filteredRows.map((row, ri) => {
                 const isAtm = row.strike === atmStrike
+                const pctFromAtm = atmStrike > 0 ? ((row.strike - atmStrike) / atmStrike * 100) : 0
+                const pctColor = pctFromAtm > 0 ? S.positive : pctFromAtm < 0 ? S.negative : S.muted
                 return (
-                  <tr key={row.strike} style={{ background: isAtm ? 'rgba(204,170,68,0.06)' : 'transparent' }}>
+                  <tr key={row.strike} style={{ background: isAtm ? 'rgba(204,170,68,0.06)' : ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
                     {showCalls && callCols.map((c, i) => <td key={`c-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, borderLeft: isAtm && i === 0 ? '3px solid #ccaa44' : undefined, width: c.width }}>{renderCell(row.call, c, false)}</td>)}
-                    <td style={{ padding: '1px 3px', textAlign: 'center', fontWeight: isAtm ? 700 : 500, color: isAtm ? '#ccaa44' : S.text, fontSize: 10, borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}10`, background: isAtm ? '#1a1a20' : S.panel, whiteSpace: 'nowrap' }}>
-                      {fmtStrike(row.strike)}{isAtm && <span style={{ fontSize: 7, color: '#ccaa44', marginLeft: 2 }}>ATM</span>}
+                    <td style={{ padding: '1px 2px', textAlign: 'center', borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}10`, background: isAtm ? '#1a1a20' : S.panel, whiteSpace: 'nowrap' }}>
+                      <button style={{ background: GRAD_BUY, border: 'none', borderRadius: 3, padding: '2px 4px', width: '100%', cursor: 'default', fontFamily: 'inherit', boxShadow: SHADOW_BTN }}>
+                        <div style={{ fontSize: 10, fontWeight: isAtm ? 700 : 400, color: isAtm ? '#ccaa44' : '#fff' }}>
+                          {fmtStrike(row.strike)}{isAtm && <span style={{ fontSize: 7, marginLeft: 2 }}>ATM</span>}
+                        </div>
+                        {!isAtm && pctFromAtm !== 0 && <div style={{ fontSize: 8, color: pctColor, marginTop: -1 }}>{pctFromAtm > 0 ? '+' : ''}{pctFromAtm.toFixed(2)}%</div>}
+                      </button>
                     </td>
                     {showPuts && putCols.map((c, i) => <td key={`p-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, borderRight: isAtm && i === putCols.length - 1 ? '3px solid #ccaa44' : undefined, width: c.width }}>{renderCell(row.put, c, true)}</td>)}
                   </tr>
@@ -395,6 +436,28 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
             {loading ? 'Loading...' : !expiry ? 'Select an expiry' : error ? `Error: ${error}` : 'No data'}
           </div>
         )}
+      </div>
+
+      {/* Right button bar */}
+      <div style={{ width: 28, flexShrink: 0, background: '#111015', borderLeft: `1px solid ${S.border}`, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 0', gap: 2 }}>
+        {[
+          { icon: '×', title: 'Close', onClick: onClose },
+          { icon: '⚙', title: 'Settings', onClick: () => setSettingsOpen(true) },
+          { icon: '🔔', title: 'Alert', onClick: undefined },
+          { icon: '🔒', title: 'Lock', onClick: undefined },
+        ].map((btn, i) => (
+          <button key={i} onClick={btn.onClick ?? undefined} title={btn.title}
+            disabled={!btn.onClick}
+            onMouseEnter={e => { if (btn.onClick) e.currentTarget.style.background = '#2a2a38' }}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            style={{
+              width: 24, height: 24, background: 'transparent', border: 'none',
+              borderRadius: 3, color: btn.onClick ? S.muted : '#2a2a38',
+              cursor: btn.onClick ? 'pointer' : 'default', fontSize: 12, lineHeight: 1,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>{btn.icon}</button>
+        ))}
+      </div>
       </div>
 
       {/* Footer */}
