@@ -106,8 +106,19 @@ export function PanelCanvas({ availableExchanges }: PanelCanvasProps) {
     )
   }
 
+  // Calculate content extent for scrolling
+  const contentHeight = panels.reduce((max, p) => {
+    if (p.x < 0) return max
+    return Math.max(max, p.y + (p.height ?? 180) + 20)
+  }, 0)
+  const contentWidth = panels.reduce((max, p) => {
+    if (p.x < 0) return max
+    return Math.max(max, p.x + p.width + 20)
+  }, 0)
+
   return (
-    <div ref={canvasRef} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+    <div ref={canvasRef} style={{ position: 'absolute', inset: 0, overflow: 'auto' }}>
+      <div style={{ position: 'relative', minHeight: contentHeight, minWidth: contentWidth }}>
       {panels.map(panel => {
         if (panel.type === 'price' && panel.x >= 0) {
           return (
@@ -213,6 +224,7 @@ export function PanelCanvas({ availableExchanges }: PanelCanvasProps) {
         }
         return null
       })}
+      </div>
     </div>
   )
 }

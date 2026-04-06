@@ -130,7 +130,7 @@ export default function App() {
   const panelMenuItems = [
     { label: 'Price Panel', onClick: () => addPanel('price', { exchange: availableExchanges[0] ?? 'DERIBIT', symbol: '' }) },
     { label: 'Blotter', onClick: () => addPanel('blotter', {}) },
-    { label: 'Options Matrix', onClick: () => addPanel('options-matrix', {}) },
+    { label: 'Options Matrix', onClick: () => addPanel('options-matrix', { instrument: 'BTC' }) },
   ]
 
   return (
