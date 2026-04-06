@@ -5,11 +5,13 @@ import { OptionsMatrix } from '@collybus/components'
 import { snapToGrid, findFreePosition, resolveOverlaps, type PanelRect } from '../../utils/layoutEngine'
 
 // Wrapper that positions OptionsMatrix in the panel layout grid (same as PricePanel)
-function OptionsMatrixWrapper({ id, x, y, width, height, initialInstrument, onMove, onResize, onClose }: {
+function OptionsMatrixWrapper({ id, x, y, width, height, initialInstrument, panelConfig, onMove, onResize, onClose, onConfigChange }: {
   id: string; x: number; y: number; width: number; height: number; initialInstrument: string
+  panelConfig: Record<string, unknown>
   onMove: (id: string, x: number, y: number) => void
   onResize: (id: string, w: number, h: number) => void
   onClose: () => void
+  onConfigChange: (config: Record<string, unknown>) => void
 }) {
   const dragRef = useRef<{ ox: number; oy: number } | null>(null)
   const resizeRef = useRef<{ sx: number; sy: number; sw: number; sh: number } | null>(null)
@@ -44,8 +46,20 @@ function OptionsMatrixWrapper({ id, x, y, width, height, initialInstrument, onMo
       <OptionsMatrix
         apiBase=""
         initialInstrument={initialInstrument}
+        initialConfig={{
+          instrument: (panelConfig.instrument as string) || undefined,
+          optionType: (panelConfig.optionType as string) || undefined,
+          sideMode: (panelConfig.sideMode as string) || undefined,
+          viewMode: (panelConfig.viewMode as string) || undefined,
+          atmMode: panelConfig.atmMode != null ? panelConfig.atmMode as boolean : undefined,
+          strikeMin: (panelConfig.strikeMin as string) || undefined,
+          strikeMax: (panelConfig.strikeMax as string) || undefined,
+          expiryFrom: (panelConfig.expiryFrom as string) || undefined,
+          expiryTo: (panelConfig.expiryTo as string) || undefined,
+        }}
         onOrderClick={(cell: any) => console.log('[OptionsMatrix] order click:', cell)}
         onClose={onClose}
+        onConfigChange={onConfigChange}
         layoutWidth={width}
         layoutHeight={height}
       />
@@ -166,6 +180,10 @@ export function PanelCanvas({ availableExchanges }: PanelCanvasProps) {
               width={panel.width}
               height={panel.height ?? 500}
               initialInstrument={(panel.config.instrument as string) || 'BTC_USDC'}
+              panelConfig={panel.config}
+              onConfigChange={(config) => {
+                updatePanel(panel.id, { config: { ...panel.config, ...config } })
+              }}
               onMove={(id, x, y) => {
                 const snappedX = snapToGrid(x)
                 const snappedY = snapToGrid(Math.max(0, y))

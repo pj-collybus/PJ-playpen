@@ -68,10 +68,24 @@ const INSTRUMENT_LABELS: Record<InstrumentId, string> = {
 }
 const INVERSE_BASES = new Set(['BTC', 'ETH'])
 
+export interface OptionsMatrixConfig {
+  instrument?: string
+  optionType?: string   // 'calls' | 'puts' | 'both'
+  sideMode?: string     // 'buy' | 'sell'
+  viewMode?: string     // 'bidask' | 'iv'
+  atmMode?: boolean
+  strikeMin?: string
+  strikeMax?: string
+  expiryFrom?: string
+  expiryTo?: string
+}
+
 export interface OptionsMatrixProps {
   apiBase?: string; initialInstrument?: string
+  initialConfig?: OptionsMatrixConfig
   onOrderClick?: (cell: MatrixCell) => void; onClose?: () => void
-  layoutWidth?: number; layoutHeight?: number  // when controlled by parent layout
+  onConfigChange?: (config: OptionsMatrixConfig) => void
+  layoutWidth?: number; layoutHeight?: number
 }
 
 const fmtStrike = (v: number) => v >= 1 ? `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : `$${v.toFixed(4)}`
@@ -158,25 +172,26 @@ const fmtExpiry = (exp: string) => {
   return exp
 }
 
-function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onClose, layoutWidth, layoutHeight }: OptionsMatrixProps) {
+function OptionsMatrixInner({ apiBase = '', initialInstrument, initialConfig, onOrderClick, onClose, onConfigChange, layoutWidth, layoutHeight }: OptionsMatrixProps) {
   const isLayoutControlled = layoutWidth != null && layoutHeight != null
+  const ic = initialConfig
   // ── All useState declarations first ──
   const posKey = 'optionsMatrix'
   const [pos, setPos] = useState(() => loadPos(posKey, { x: 80, y: 60 }))
   const [size, setSize] = useState(() => loadSize(posKey, { w: 920, h: 580 }))
   // Min width: strike col (80) + 3 expiry cols (98 each) + scrollbar (16) = 390
   const [toolbarMinW, setToolbarMinW] = useState(80 + 98 * 3 + 16)
-  const [instrument, setInstrument] = useState<InstrumentId>((initialInstrument as InstrumentId) || 'BTC')
-  const [optionType, setOptionType] = useState<OptionType>('calls')
-  const [sideMode, setSideMode] = useState<SideMode>('buy')
-  const [viewMode, setViewMode] = useState<ViewMode>('bidask')
-  const [atmMode, setAtmMode] = useState(true)
-  const [strikeMin, setStrikeMin] = useState('')
-  const [strikeMax, setStrikeMax] = useState('')
+  const [instrument, setInstrument] = useState<InstrumentId>((ic?.instrument ?? initialInstrument ?? 'BTC') as InstrumentId)
+  const [optionType, setOptionType] = useState<OptionType>((ic?.optionType ?? 'calls') as OptionType)
+  const [sideMode, setSideMode] = useState<SideMode>((ic?.sideMode ?? 'buy') as SideMode)
+  const [viewMode, setViewMode] = useState<ViewMode>((ic?.viewMode ?? 'bidask') as ViewMode)
+  const [atmMode, setAtmMode] = useState(ic?.atmMode ?? true)
+  const [strikeMin, setStrikeMin] = useState(ic?.strikeMin ?? '')
+  const [strikeMax, setStrikeMax] = useState(ic?.strikeMax ?? '')
   const [availableExpiries, setAvailableExpiries] = useState<string[]>([])
   const [indexPrice, setIndexPrice] = useState(0)
-  const [expiryFrom, setExpiryFrom] = useState('')
-  const [expiryTo, setExpiryTo] = useState('')
+  const [expiryFrom, setExpiryFrom] = useState(ic?.expiryFrom ?? '')
+  const [expiryTo, setExpiryTo] = useState(ic?.expiryTo ?? '')
   const [data, setData] = useState<MatrixResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -192,6 +207,10 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
   // ── useEffect — position/size persistence ──
   useEffect(() => { savePos(posKey, pos) }, [pos])
   useEffect(() => { saveSize(posKey, size) }, [size])
+  // Persist filter config to parent layout
+  useEffect(() => {
+    onConfigChange?.({ instrument, optionType, sideMode, viewMode, atmMode, strikeMin, strikeMax, expiryFrom, expiryTo })
+  }, [instrument, optionType, sideMode, viewMode, atmMode, strikeMin, strikeMax, expiryFrom, expiryTo])
   // Measure toolbar natural width on mount to set min panel width
   useEffect(() => {
     const el = toolbarRef.current
