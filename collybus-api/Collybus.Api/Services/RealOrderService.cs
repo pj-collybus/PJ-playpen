@@ -69,7 +69,9 @@ public class RealOrderService : IOrderService
                 RemainingQuantity = request.Quantity - result.FilledQty,
                 LimitPrice = request.LimitPrice,
                 AvgFillPrice = result.AvgFillPrice > 0 ? result.AvgFillPrice : null,
-                State = result.FilledQty >= request.Quantity ? OrderState.Filled
+                State = result.Status == "rejected" ? OrderState.Rejected
+                    : result.Status == "cancelled" ? OrderState.Cancelled
+                    : result.FilledQty >= request.Quantity ? OrderState.Filled
                     : result.FilledQty > 0 ? OrderState.PartiallyFilled
                     : result.Ok ? OrderState.Open : OrderState.Rejected,
                 TimeInForce = Enum.TryParse<TimeInForce>(request.TimeInForce, ignoreCase: true, out var tif) ? tif : TimeInForce.Gtc,

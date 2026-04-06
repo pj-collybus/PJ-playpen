@@ -321,12 +321,11 @@ export default function App() {
             onHeightChange={handleBlotterHeight}
             callbacks={{
               onCancelOrder: async (id, ex) => {
-                try { await api.post('/order/cancel', { orderId: id, exchange: ex }); useBlotterStore.getState().removeOrder(id) } catch {}
+                try { await api.post('/order/cancel', { orderId: id, exchange: ex }) } catch {}
               },
               onCancelAll: async () => {
                 const open = Object.values(useBlotterStore.getState().orders).filter(o => String(o.state).toLowerCase() === 'open')
                 await Promise.allSettled(open.map(o => api.post('/order/cancel', { orderId: o.orderId, exchange: o.exchange })))
-                open.forEach(o => useBlotterStore.getState().removeOrder(o.orderId))
               },
               onAmendOrder: (order: BlotterOrder) => setAmendOrder(order),
               onViewOrder: (order: BlotterOrder) => setViewOrder(order),
@@ -364,7 +363,6 @@ export default function App() {
               }}
               onCancel={async (id, exchange) => {
                 await api.post('/order/cancel', { orderId: id, exchange })
-                useBlotterStore.getState().removeOrder(id)
               }}
               onClose={() => setAmendOrder(null)}
             />

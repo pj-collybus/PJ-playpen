@@ -52,15 +52,18 @@ public class OptionsController : ControllerBase
             var fromTs = ParseExpiry(fromExpiry, now);
             var toTs = ParseExpiry(toExpiry, now);
 
+            // Try linear (USDC) first, fall back to inverse if none found
+            var tryLinear = isLinear;
             var filtered = new List<JsonNode>();
-            foreach (var inst in instruments)
+            for (var attempt = 0; attempt < 2; attempt++)
             {
-                if (inst == null) continue;
-                var name = inst["instrument_name"]?.GetValue<string>() ?? "";
-
-                // Filter by linear/inverse
-                if (isLinear && !name.Contains("_USDC")) continue;
-                if (!isLinear && name.Contains("_USDC")) continue;
+                filtered.Clear();
+                foreach (var inst in instruments)
+                {
+                    if (inst == null) continue;
+                    var name = inst["instrument_name"]?.GetValue<string>() ?? "";
+                    if (tryLinear && !name.Contains("_USDC")) continue;
+                    if (!tryLinear && name.Contains("_USDC")) continue;
 
                 var optionType = inst["option_type"]?.GetValue<string>() ?? "";
                 if (type == "calls" && optionType != "call") continue;
@@ -80,7 +83,10 @@ public class OptionsController : ControllerBase
                     if (strike < indexPrice * 0.9 || strike > indexPrice * 1.1) continue;
                 }
 
-                filtered.Add(inst);
+                    filtered.Add(inst);
+                }
+                if (filtered.Count > 0 || !tryLinear) break;
+                tryLinear = false; // fallback to inverse
             }
 
             // Get order books for filtered instruments (batch)
@@ -158,6 +164,62 @@ public class OptionsController : ControllerBase
         {
             return BadRequest(new { error = ex.Message });
         }
+    }
+
+    [HttpGet("expiries")]
+    public async Task<IActionResult> GetExpiries(
+        [FromQuery] string instrument = "BTC_USDC",
+        [FromQuery] string type = "calls")
+    {
+        try
+        {
+            var currency = instrument switch
+            {
+                "BTC" or "BTC_USDC" => "BTC",
+                "ETH" or "ETH_USDC" => "ETH",
+                "SOL_USDC" => "SOL",
+                "XRP_USDC" => "XRP",
+                _ => "BTC"
+            };
+            var isLinear = instrument.Contains("USDC");
+
+            var instrResp = await CachedGet($"{DeribitUrl}/public/get_instruments?currency={currency}&kind=option&expired=false");
+            var instruments = instrResp?["result"]?.AsArray() ?? new JsonArray();
+
+            var expiries = new SortedSet<string>();
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+            // Try linear (USDC) first, fall back to inverse if none found
+            var tryLinear = isLinear;
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                expiries.Clear();
+                foreach (var inst in instruments)
+                {
+                    if (inst == null) continue;
+                    var name = inst["instrument_name"]?.GetValue<string>() ?? "";
+                    if (tryLinear && !name.Contains("_USDC")) continue;
+                    if (!tryLinear && name.Contains("_USDC")) continue;
+
+                    var optionType = inst["option_type"]?.GetValue<string>() ?? "";
+                    if (type == "calls" && optionType != "call") continue;
+                    if (type == "puts" && optionType != "put") continue;
+
+                    var expiryTs = inst["expiration_timestamp"]?.GetValue<long>() ?? 0;
+                    if (expiryTs <= now) continue;
+                    expiries.Add(DateTimeOffset.FromUnixTimeMilliseconds(expiryTs).UtcDateTime.ToString("yyyy-MM-dd"));
+                }
+                if (expiries.Count > 0 || !tryLinear) break;
+                tryLinear = false; // fallback to inverse
+            }
+
+            // Index price for ATM
+            var indexResp = await CachedGet($"{DeribitUrl}/public/get_index_price?index_name={currency.ToLower()}_usd");
+            var indexPrice = indexResp?["result"]?["index_price"]?.GetValue<double>() ?? 0;
+
+            return Ok(new { expiries = expiries.ToList(), indexPrice, instrument, type });
+        }
+        catch (Exception ex) { return BadRequest(new { error = ex.Message }); }
     }
 
     private async Task<JsonNode?> CachedGet(string url)

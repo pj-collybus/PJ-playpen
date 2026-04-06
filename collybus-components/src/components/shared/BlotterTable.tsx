@@ -22,6 +22,8 @@ interface BlotterTableProps {
   storageKey: string
   emptyMessage?: string
   statusField?: string
+  defaultSortKey?: string
+  defaultSortDir?: 'asc' | 'desc'
   onRowDoubleClick?: (row: Record<string, any>) => void
 }
 
@@ -87,13 +89,8 @@ function formatCell(col: BlotterColumn, row: Record<string, any>): React.ReactNo
   }
 }
 
-function getRowBg(row: Record<string, any>, idx: number, statusField?: string): string {
-  if (statusField) {
-    const st = String(row[statusField] ?? '').toUpperCase()
-    if (st === 'FILLED' || st === 'COMPLETED') return 'rgba(0,199,88,0.04)'
-    if (st === 'CANCELLED' || st === 'STOPPED') return 'rgba(99,110,130,0.04)'
-    if (st === 'REJECTED' || st === 'ERROR') return 'rgba(251,44,54,0.04)'
-  }
+function getRowBg(row: Record<string, any>, idx: number, _statusField?: string): string {
+  // No status-based row tinting — keep uniform dark background
   return idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)'
 }
 
@@ -105,22 +102,37 @@ const HOVER_BG = 'rgba(43,121,221,0.06)'
 
 // ── Component ──
 
-export function BlotterTable({ columns, rows, rowKey, storageKey, emptyMessage, statusField, onRowDoubleClick }: BlotterTableProps) {
-  // Column state
-  const saved = useRef(loadColumnState(storageKey))
-  const [colOrder, setColOrder] = useState<string[]>(() =>
-    saved.current?.order ?? columns.map(c => c.key)
-  )
-  const [colWidths, setColWidths] = useState<Record<string, number>>(() =>
-    saved.current?.widths ?? Object.fromEntries(columns.map(c => [c.key, c.width]))
-  )
-  const [colVisible, setColVisible] = useState<Record<string, boolean>>(() =>
-    saved.current?.visible ?? Object.fromEntries(columns.map(c => [c.key, c.defaultVisible]))
-  )
+export function BlotterTable({ columns, rows, rowKey, storageKey, emptyMessage, statusField, defaultSortKey, defaultSortDir, onRowDoubleClick }: BlotterTableProps) {
+  // Column state — validate saved state against current columns, discard if stale
+  const saved = useRef(() => {
+    const s = loadColumnState(storageKey)
+    if (!s) return null
+    const currentKeys = new Set(columns.map(c => c.key))
+    const savedHasValidKeys = s.order.some(k => currentKeys.has(k))
+    return savedHasValidKeys ? s : null
+  })
+  const validSaved = saved.current()
+  const [colOrder, setColOrder] = useState<string[]>(() => {
+    if (!validSaved) return columns.map(c => c.key)
+    const currentKeys = new Set(columns.map(c => c.key))
+    const existing = validSaved.order.filter(k => currentKeys.has(k))
+    const newKeys = columns.map(c => c.key).filter(k => !existing.includes(k))
+    return [...existing, ...newKeys]
+  })
+  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
+    const base = Object.fromEntries(columns.map(c => [c.key, c.width]))
+    if (!validSaved) return base
+    return { ...base, ...Object.fromEntries(Object.entries(validSaved.widths).filter(([k]) => columns.some(c => c.key === k))) }
+  })
+  const [colVisible, setColVisible] = useState<Record<string, boolean>>(() => {
+    const base = Object.fromEntries(columns.map(c => [c.key, c.defaultVisible]))
+    if (!validSaved) return base
+    return { ...base, ...Object.fromEntries(Object.entries(validSaved.visible).filter(([k]) => columns.some(c => c.key === k))) }
+  })
 
   // Sort state (3-click cycle: desc → asc → none)
-  const [sortKey, setSortKey] = useState<string | null>(null)
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [sortKey, setSortKey] = useState<string | null>(defaultSortKey ?? null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(defaultSortDir ?? 'desc')
 
   // Settings dropdown
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -422,18 +434,23 @@ export function BlotterTable({ columns, rows, rowKey, storageKey, emptyMessage, 
           style={{
             background: settingsOpen ? 'rgba(43,121,221,0.2)' : 'rgba(24,23,28,0.9)',
             border: 'none', color: settingsOpen ? '#2B79DD' : '#636e82',
-            cursor: 'pointer', fontSize: 12, padding: '4px 7px',
-            borderRadius: '0 0 0 4px',
+            cursor: 'pointer', fontSize: 16, padding: '3px 8px',
+            borderRadius: '0 0 0 4px', lineHeight: 1,
           }}
           onMouseEnter={e => { if (!settingsOpen) e.currentTarget.style.color = '#fff' }}
           onMouseLeave={e => { if (!settingsOpen) e.currentTarget.style.color = '#636e82' }}
           title="Column settings"
         >⚙</button>
-        {settingsOpen && (
+        {settingsOpen && (() => {
+          const rect = settingsRef.current?.getBoundingClientRect()
+          const spaceBelow = rect ? window.innerHeight - rect.bottom : 999
+          const openUp = spaceBelow < 320
+          return (
           <div style={{
-            position: 'absolute', top: 26, right: 0,
+            position: 'absolute', right: 0,
+            ...(openUp ? { bottom: '100%', marginBottom: 4 } : { top: 28, marginTop: 0 }),
             background: '#1F1E23', border: '1px solid #363C4E', borderRadius: 6,
-            padding: '6px 0', minWidth: 200, maxHeight: 380, overflowY: 'auto',
+            padding: '6px 0', minWidth: 220, maxHeight: 360, overflowY: 'auto',
             boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
           }}>
             {colOrder.filter(k => colMap.has(k)).map(key => {
@@ -483,7 +500,8 @@ export function BlotterTable({ columns, rows, rowKey, storageKey, emptyMessage, 
               >Reset to Defaults</button>
             </div>
           </div>
-        )}
+          )
+        })()}
       </div>
     </div>
   )

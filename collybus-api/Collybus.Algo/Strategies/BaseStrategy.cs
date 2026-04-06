@@ -312,8 +312,11 @@ public abstract class BaseStrategy : IAlgoStrategy
 
         OnFillReceived(recordedFill);
 
-        if (FilledSize >= Params.TotalSize - Params.LotSize / 2)
+        // Completion check — covers Running, Completing, and any other active state
+        if (Status is not (AlgoStatus.Completed or AlgoStatus.Stopped)
+            && FilledSize >= Params.TotalSize - Params.LotSize / 2)
         {
+            Console.WriteLine($"[base] completing: filled={FilledSize}/{Params.TotalSize} remaining={RemainingSize} was={Status}");
             Status = AlgoStatus.Completed;
             if (_completedAt == 0) _completedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             OnCompleted();
@@ -421,6 +424,15 @@ public abstract class BaseStrategy : IAlgoStrategy
     // ── Status ──────────────────────────────────────────────────────────────
     public AlgoStatusReport GetStatus()
     {
+        // Safety net: if Completing with nothing remaining, transition to Completed
+        if (Status == AlgoStatus.Completing && FilledSize >= Params.TotalSize - Params.LotSize / 2)
+        {
+            Console.WriteLine($"[base] GetStatus safety: Completing→Completed filled={FilledSize}/{Params.TotalSize}");
+            Status = AlgoStatus.Completed;
+            if (_completedAt == 0) _completedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            OnCompleted();
+        }
+
         // Fallback chart sampling — if OnMarketData hasn't sampled in >1.5s (stop when done)
         if (CurrentBid > 0 && CurrentAsk > 0 && CurrentBid < CurrentAsk
             && Status is not (AlgoStatus.Completed or AlgoStatus.Stopped))

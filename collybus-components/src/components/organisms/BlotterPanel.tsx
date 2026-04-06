@@ -284,6 +284,28 @@ const ALGO_ORDER_COLUMNS: BlotterColumn[] = [
   col('status', 'Status', { width: 90, format: 'status' }),
   col('side', 'Side', { width: 60, format: 'side' }),
   col('filledSize', 'Cum Qty', { width: 90, format: 'qty', align: 'right' }),
+  col('progress', 'Progress', { width: 100, minWidth: 80, sortable: false, align: 'left',
+    render: (_v, row) => {
+      const filled = row.filledSize || 0
+      const total = row.totalSize || 0
+      if (total <= 0) return null
+      const pct = Math.min(100, (filled / total) * 100)
+      const st = String(row.status ?? '').toUpperCase()
+      const color = st === 'COMPLETED' ? '#00c896'
+        : st === 'STOPPED' || st === 'ERROR' ? '#e05252'
+        : st === 'PAUSED' ? '#f0a500'
+        : '#4488ff'
+      return (
+        <div style={{ width: '100%', position: 'relative', height: 14 }}>
+          <div style={{ position: 'absolute', inset: 0, background: '#1a1a28', borderRadius: 3, border: '1px solid #2a2a3a' }} />
+          <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: `${pct}%`, background: color, borderRadius: 3, opacity: 0.85, transition: 'width 0.3s ease' }} />
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: pct > 45 ? '#000' : '#aaa', letterSpacing: '0.03em' }}>
+            {pct.toFixed(0)}%
+          </div>
+        </div>
+      )
+    },
+  }),
   col('avgFillPrice', 'Avg Price', { width: 100, format: 'price', align: 'right' }),
   col('totalSize', 'Order Qty', { width: 90, format: 'qty', align: 'right' }),
   col('targetPrice', 'Order Price', { width: 100, format: 'price', align: 'right' }),
@@ -483,47 +505,59 @@ export function BlotterPanel({ data, callbacks, height, onHeightChange }: Blotte
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {tab === 'Orders' && (
             <BlotterTable columns={orderCols} rows={filteredOrders as any[]} rowKey={r => r.id} storageKey="orders" emptyMessage="No orders" statusField="status"
+              defaultSortKey="updatedAt" defaultSortDir="desc"
               onRowDoubleClick={r => {
                 const o = r as unknown as BlotterOrder
                 o.status === 'open' ? callbacks?.onAmendOrder?.(o) : callbacks?.onViewOrder?.(o)
               }} />
           )}
           {tab === 'Trades' && (
-            <BlotterTable columns={TRADE_COLUMNS} rows={tradesWithUsd as any[]} rowKey={r => r.id} storageKey="trades" emptyMessage="No trades" />
+            <BlotterTable columns={TRADE_COLUMNS} rows={tradesWithUsd as any[]} rowKey={r => r.id} storageKey="trades" emptyMessage="No trades"
+              defaultSortKey="timestamp" defaultSortDir="desc" />
           )}
           {tab === 'Positions' && (
-            <BlotterTable columns={POSITION_COLUMNS} rows={data.positions as any[]} rowKey={r => r.id} storageKey="positions" emptyMessage="No open positions" />
+            <BlotterTable columns={POSITION_COLUMNS} rows={data.positions as any[]} rowKey={r => r.id} storageKey="positions" emptyMessage="No open positions"
+              defaultSortKey="updatedAt" defaultSortDir="desc" />
           )}
           {tab === 'Options Orders' && (
             <BlotterTable columns={optOrderCols} rows={optionsOrders as any[]} rowKey={r => r.id} storageKey="options-orders" emptyMessage="No options orders" statusField="status"
+              defaultSortKey="updatedAt" defaultSortDir="desc"
               onRowDoubleClick={r => {
                 const o = r as unknown as BlotterOrder
                 o.status === 'open' ? callbacks?.onAmendOrder?.(o) : callbacks?.onViewOrder?.(o)
               }} />
           )}
           {tab === 'Options Trades' && (
-            <BlotterTable columns={optionsTradeColumns()} rows={optionsTradesWithUsd as any[]} rowKey={r => r.id} storageKey="options-trades" emptyMessage="No options trades" />
+            <BlotterTable columns={optionsTradeColumns()} rows={optionsTradesWithUsd as any[]} rowKey={r => r.id} storageKey="options-trades" emptyMessage="No options trades"
+              defaultSortKey="timestamp" defaultSortDir="desc" />
           )}
           {tab === 'Options Positions' && (
-            <BlotterTable columns={OPTIONS_POSITION_COLUMNS} rows={optionsPositions as any[]} rowKey={r => r.id} storageKey="options-positions" emptyMessage="No options positions" />
+            <BlotterTable columns={OPTIONS_POSITION_COLUMNS} rows={optionsPositions as any[]} rowKey={r => r.id} storageKey="options-positions" emptyMessage="No options positions"
+              defaultSortKey="updatedAt" defaultSortDir="desc" />
           )}
           {tab === 'Alert Blotter' && (
-            <BlotterTable columns={ALERT_COLUMNS} rows={data.alerts ?? []} rowKey={r => r.id} storageKey="alerts" emptyMessage="No alerts" statusField="status" />
+            <BlotterTable columns={ALERT_COLUMNS} rows={data.alerts ?? []} rowKey={r => r.id} storageKey="alerts" emptyMessage="No alerts" statusField="status"
+              defaultSortKey="updatedAt" defaultSortDir="desc" />
           )}
           {tab === 'Alert Search' && (
-            <BlotterTable columns={ALERT_SEARCH_COLUMNS} rows={data.alerts ?? []} rowKey={r => r.id} storageKey="alert-search" emptyMessage="No alerts" statusField="status" />
+            <BlotterTable columns={ALERT_SEARCH_COLUMNS} rows={data.alerts ?? []} rowKey={r => r.id} storageKey="alert-search" emptyMessage="No alerts" statusField="status"
+              defaultSortKey="updatedAt" defaultSortDir="desc" />
           )}
           {tab === 'Algo Orders' && (
-            <BlotterTable columns={ALGO_ORDER_COLUMNS} rows={(data.algoStrategies ?? []) as any[]} rowKey={r => r.strategyId} storageKey="algo-orders" emptyMessage="No algo orders" statusField="status" />
+            <BlotterTable columns={ALGO_ORDER_COLUMNS} rows={(data.algoStrategies ?? []) as any[]} rowKey={r => r.strategyId} storageKey="algo-orders" emptyMessage="No algo orders" statusField="status"
+              defaultSortKey="updatedAt" defaultSortDir="desc" />
           )}
           {tab === 'Notifications' && (
-            <BlotterTable columns={NOTIFICATION_COLUMNS} rows={(data.notifications ?? []) as any[]} rowKey={r => r.id} storageKey="notifications" emptyMessage="No notifications" />
+            <BlotterTable columns={NOTIFICATION_COLUMNS} rows={(data.notifications ?? []) as any[]} rowKey={r => r.id} storageKey="notifications" emptyMessage="No notifications"
+              defaultSortKey="timestamp" defaultSortDir="desc" />
           )}
           {tab === 'Notification Search' && (
-            <BlotterTable columns={NOTIFICATION_SEARCH_COLUMNS} rows={(data.notifications ?? []) as any[]} rowKey={r => r.id} storageKey="notification-search" emptyMessage="No notifications" />
+            <BlotterTable columns={NOTIFICATION_SEARCH_COLUMNS} rows={(data.notifications ?? []) as any[]} rowKey={r => r.id} storageKey="notification-search" emptyMessage="No notifications"
+              defaultSortKey="timestamp" defaultSortDir="desc" />
           )}
           {tab === 'Cash Balance' && (
-            <BlotterTable columns={CASH_BALANCE_COLUMNS} rows={data.balances as any[]} rowKey={r => `${r.exchange}-${r.currency}`} storageKey="cash-balance" emptyMessage="No balance data — connect an exchange" />
+            <BlotterTable columns={CASH_BALANCE_COLUMNS} rows={data.balances as any[]} rowKey={r => `${r.exchange}-${r.currency}`} storageKey="cash-balance" emptyMessage="No balance data — connect an exchange"
+              defaultSortKey="lastChanged" defaultSortDir="desc" />
           )}
         </div>
       )}

@@ -151,8 +151,8 @@ public class AlgoEngine : BackgroundService
             }
             foreach (var strategy in _strategies.Values.ToArray())
             {
-                // Always publish: running strategies + recently completed (so UI gets final state)
-                await _events.PublishStatusAsync(strategy.GetStatus());
+                if (strategy.Status is not (AlgoStatus.Completed or AlgoStatus.Stopped))
+                    await _events.PublishStatusAsync(strategy.GetStatus());
             }
         }
     }

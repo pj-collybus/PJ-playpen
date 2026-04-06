@@ -486,6 +486,7 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
                 Commission = t["fee"]?.GetValue<decimal?>() ?? 0,
                 CommissionAsset = t["fee_currency"]?.GetValue<string>() ?? "",
             };
+            Console.WriteLine($"[hub-fill] sending FillUpdate: fillId={fill.FillId} symbol={fill.Symbol} price={fill.FillPrice} size={fill.FillSize}");
             _ = Hub.Clients.All.SendAsync("FillUpdate", fill);
             // Also push as a market trade for VWAP/POV/IS strategies
             OnTradeUpdate?.Invoke(Venue, fill.Symbol, fill.FillPrice, fill.FillSize,

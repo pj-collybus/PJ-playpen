@@ -41,6 +41,14 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
   const [accQtyEdited, setAccQtyEdited] = useState(false)
   const [accelConfirm, setAccelConfirm] = useState(false)
   const accelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [minimised, setMinimised] = useState(
+    () => { try { return localStorage.getItem(`collybus.monitor.${status.strategyId}.minimised`) === 'true' } catch { return false } }
+  )
+  const toggleMinimise = () => {
+    const next = !minimised
+    setMinimised(next)
+    try { localStorage.setItem(`collybus.monitor.${status.strategyId}.minimised`, String(next)) } catch {}
+  }
   const [showChart, setShowChart] = useState(false)
   const [chartDetached, setChartDetached] = useState(false)
   const [chartPos, setChartPos] = useState({ x: 0, y: 0 })
@@ -52,15 +60,6 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
 
   useEffect(() => { monitorPositions[status.strategyId] = pos; savePos(`monitor.${status.strategyType}`, pos) }, [pos, status.strategyId, status.strategyType])
   useEffect(() => { if (showChart && !chartDetached) setChartPos({ x: pos.x + 360, y: pos.y }) }, [pos, showChart, chartDetached])
-
-  // Diagnostic: log chart fields that affect Y axis
-  console.log('[chart-fields]', status.strategyId?.slice(0, 8),
-    'target:', status.chartTargetPrice,
-    'snipe:', status.chartSnipeLevel,
-    'levels:', JSON.stringify(status.chartLevelPrices),
-    'vwap.last3:', status.chartVwap?.slice(-3),
-    'fills:', status.chartFills?.length, 'fills[0]:', status.chartFills?.[0]
-  )
 
   const [lockedHeight, setLockedHeight] = useState(0)
 
@@ -95,8 +94,8 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
         width: 350, background: S.bg, border: '1px solid #4a4a60',
         borderLeft: `3px solid ${statusColor}`, borderRadius: 8,
         boxShadow: '0 20px 80px rgba(0,0,0,0.95), 0 0 0 1px rgba(100,100,150,0.3)', userSelect: 'none',
-        height: lockedHeight > 0 ? lockedHeight : undefined,
-        maxHeight: '85vh', overflow: 'hidden',
+        height: minimised ? 'auto' : (lockedHeight > 0 ? lockedHeight : undefined),
+        maxHeight: minimised ? undefined : '85vh', overflow: 'hidden',
         display: 'flex', flexDirection: 'column',
       }}>
         {/* Header — draggable */}
@@ -119,14 +118,22 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
               <span style={{ fontSize: 10, color: sideColor, fontWeight: 700 }}>{status.side}</span>
             </div>
             <div style={{ display: 'flex', gap: 3 }}>
-              <button onClick={() => setShowChart(v => !v)} title="Chart" style={{
-                background: showChart ? 'rgba(43,121,221,0.2)' : 'none', border: showChart ? '1px solid rgba(43,121,221,0.4)' : '1px solid #363C4E',
-                borderRadius: 4, color: showChart ? S.blue : S.muted, cursor: 'pointer', fontSize: 9, fontWeight: 700, padding: '2px 6px', fontFamily: 'inherit',
-              }}>CHART</button>
-              <button onClick={() => setShowOrders(v => !v)} title="Orders" style={{
-                background: showOrders ? 'rgba(43,121,221,0.2)' : 'none', border: showOrders ? '1px solid rgba(43,121,221,0.4)' : '1px solid #363C4E',
-                borderRadius: 4, color: showOrders ? S.blue : S.muted, cursor: 'pointer', fontSize: 9, fontWeight: 700, padding: '2px 6px', fontFamily: 'inherit',
-              }}>FILLS</button>
+              {!minimised && (
+                <>
+                  <button onClick={() => setShowChart(v => !v)} title="Chart" style={{
+                    background: showChart ? 'rgba(43,121,221,0.2)' : 'none', border: showChart ? '1px solid rgba(43,121,221,0.4)' : '1px solid #363C4E',
+                    borderRadius: 4, color: showChart ? S.blue : S.muted, cursor: 'pointer', fontSize: 9, fontWeight: 700, padding: '2px 6px', fontFamily: 'inherit',
+                  }}>CHART</button>
+                  <button onClick={() => setShowOrders(v => !v)} title="Orders" style={{
+                    background: showOrders ? 'rgba(43,121,221,0.2)' : 'none', border: showOrders ? '1px solid rgba(43,121,221,0.4)' : '1px solid #363C4E',
+                    borderRadius: 4, color: showOrders ? S.blue : S.muted, cursor: 'pointer', fontSize: 9, fontWeight: 700, padding: '2px 6px', fontFamily: 'inherit',
+                  }}>FILLS</button>
+                </>
+              )}
+              <button onClick={toggleMinimise} title={minimised ? 'Restore' : 'Minimise'} style={{
+                background: 'none', border: '1px solid #363C4E', borderRadius: 4,
+                color: S.muted, cursor: 'pointer', fontSize: 9, fontWeight: 700, padding: '2px 6px', fontFamily: 'inherit',
+              }}>{minimised ? '▲' : '—'}</button>
               <button onClick={() => onClose(status.strategyId)} style={{
                 background: 'none', border: 'none', color: S.muted, cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '0 2px',
               }}>×</button>
@@ -137,11 +144,16 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
           <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8, background: `${statusColor}22`, color: statusColor, border: `1px solid ${statusColor}44` }}>{status.status.toUpperCase()}</span>
             <span style={{ fontSize: 9, color: S.muted }}>{pct.toFixed(1)}%</span>
-            {urgencyStr && <span style={{ fontSize: 9, color: S.dim }}>{urgencyStr}</span>}
-            {status.pauseReason && <span style={{ fontSize: 8, color: S.amber }}>{status.pauseReason}</span>}
+            {!minimised && urgencyStr && <span style={{ fontSize: 9, color: S.dim }}>{urgencyStr}</span>}
+            {!minimised && status.pauseReason && <span style={{ fontSize: 8, color: S.amber }}>{status.pauseReason}</span>}
+            {minimised && status.filledSize > 0 && (
+              <span style={{ fontSize: 9, color: S.muted }}>{status.filledSize}/{status.totalSize}</span>
+            )}
           </div>
         </div>
 
+        {/* Body — hidden when minimised */}
+        {!minimised && <>
         {/* Summary line — structured, colour-coded, wraps naturally */}
         <div style={{ padding: '0 10px 4px', fontSize: 11, lineHeight: 1.5, whiteSpace: 'normal', wordWrap: 'break-word' }}>
           <span style={{ color: status.side === 'BUY' ? S.positive : S.negative, fontWeight: 700 }}>{status.side}</span>
@@ -263,10 +275,11 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
             </div>
           )}
         </div>
+        </>}
       </div>
 
       {/* Execution chart panel */}
-      {showChart && (
+      {showChart && !minimised && (
         <div
           onMouseDown={chartDetached ? (e => {
             if ((e.target as HTMLElement).closest('button')) return

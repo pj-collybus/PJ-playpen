@@ -59,10 +59,22 @@ class SignalRClient {
     this.connection.on('OrderBookUpdate', (payload: { key: string; book: Parameters<typeof setOrderBook>[1] }) => {
       setOrderBook(payload.key, payload.book)
     })
-    this.connection.on('OrderUpdate', (data) => { if (data?.orderId) useBlotterStore.getState().upsertOrder(data) })
-    this.connection.on('FillUpdate', (data) => { if (data?.fillId) useBlotterStore.getState().upsertTrade(data) })
-    this.connection.on('PositionUpdate', (data) => { if (data?.symbol) useBlotterStore.getState().upsertPosition(data) })
-    this.connection.on('BalanceUpdate', (data) => { if (data?.exchange) useBlotterStore.getState().upsertBalance(data) })
+    this.connection.on('OrderUpdate', (data) => {
+      console.log('[blotter] order update:', data?.orderId, data?.state ?? data?.status, data?.symbol)
+      if (data?.orderId) useBlotterStore.getState().upsertOrder(data)
+    })
+    this.connection.on('FillUpdate', (data) => {
+      console.log('[blotter] fill update:', data?.fillId, data?.fillPrice, data?.fillSize, data?.symbol)
+      if (data?.fillId) useBlotterStore.getState().upsertTrade(data)
+    })
+    this.connection.on('PositionUpdate', (data) => {
+      console.log('[blotter] position update:', data?.symbol, 'size:', data?.size, 'side:', data?.side)
+      if (data?.symbol) useBlotterStore.getState().upsertPosition(data)
+    })
+    this.connection.on('BalanceUpdate', (data) => {
+      console.log('[blotter] balance update:', data?.exchange, data?.currency, 'total:', data?.total)
+      if (data?.exchange) useBlotterStore.getState().upsertBalance(data)
+    })
     this.connection.on('AlgoProgress', (data) => {
       if (data?.strategyId) {
         console.log('[AlgoProgress]', data.strategyId, 'bids:', data.chartBids?.length, 'fills:', data.chartFills?.length, 'fills[0]:', data.chartFills?.[0], 'chartOrder.last3:', data.chartOrder?.slice(-3), 'status:', data.status)

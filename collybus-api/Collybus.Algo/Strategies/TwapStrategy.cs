@@ -277,10 +277,12 @@ public class TwapStrategy : BaseStrategy
     private bool CheckCompleting(long now)
     {
         if (Status != AlgoStatus.Completing) return false;
-        if (now > _completingDeadline)
+        if (IsComplete() || now > _completingDeadline)
         {
+            Console.WriteLine($"[twap] completing→completed: filled={FilledSize}/{Params.TotalSize} remaining={RemainingSize} timedOut={now > _completingDeadline}");
             Status = AlgoStatus.Completed;
             OnCompleted();
+            try { _ = Events.PublishStatusAsync(GetStatus()); } catch { }
         }
         return true;
     }
@@ -476,6 +478,7 @@ public class TwapStrategy : BaseStrategy
     // ═══════════════════════════════════════════════════════════════════════
     protected override void OnFillReceived(AlgoFill fill)
     {
+        Console.WriteLine($"[twap] OnFill: fillSize={fill.FillSize} filledSize={FilledSize} totalSize={Params.TotalSize} remaining={RemainingSize} status={Status}");
         // cappedFill is the effective fill size (already capped by base class)
         var cappedFill = fill.FillSize;
 
