@@ -10,7 +10,9 @@ public class OptionsController : ControllerBase
 {
     private static readonly HttpClient _http = new();
     private static readonly Dictionary<string, (DateTime cachedAt, object data)> _cache = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime ts, object resp)> _responseCache = new();
     private const int CacheTtlSeconds = 5;
+    private const int ResponseCacheTtlSeconds = 8;
     private const string DeribitUrl = "https://test.deribit.com/api/v2";
 
     [HttpGet("matrix")]
@@ -24,6 +26,10 @@ public class OptionsController : ControllerBase
         [FromQuery] bool atmOnly = false,
         [FromQuery] string exchange = "Deribit")
     {
+        var cacheKey = $"{exchange}:{instrument}:{type}:{minStrike}:{maxStrike}:{fromExpiry}:{toExpiry}:{atmOnly}";
+        if (_responseCache.TryGetValue(cacheKey, out var cached) && (DateTime.UtcNow - cached.ts).TotalSeconds < ResponseCacheTtlSeconds)
+            return Ok(cached.resp);
+
         Console.WriteLine($"[options] GET /api/options/matrix: exchange={exchange} instrument={instrument} type={type} atm={atmOnly} toExpiry={toExpiry}");
         try
         {
@@ -148,7 +154,7 @@ public class OptionsController : ControllerBase
 
             var atmStrike = indexPrice > 0 ? strikes.OrderBy(s => Math.Abs(s - indexPrice)).FirstOrDefault() : 0;
 
-            return Ok(new
+            var response = new
             {
                 strikes = strikes.ToList(),
                 expiries = expiries.ToList(),
@@ -158,7 +164,9 @@ public class OptionsController : ControllerBase
                 instrument,
                 type,
                 timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            });
+            };
+            _responseCache[cacheKey] = (DateTime.UtcNow, response);
+            return Ok(response);
         }
         catch (Exception ex)
         {

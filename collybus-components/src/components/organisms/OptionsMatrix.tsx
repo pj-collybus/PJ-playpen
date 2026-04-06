@@ -70,6 +70,12 @@ const INVERSE_BASES = new Set(['BTC', 'ETH'])
 export interface OptionsMatrixProps { apiBase?: string; initialInstrument?: string; onOrderClick?: (cell: MatrixCell) => void; onClose?: () => void }
 
 const fmtStrike = (v: number) => v >= 1 ? `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : `$${v.toFixed(4)}`
+const parseStrike = (val: string): number => {
+  const s = val.toLowerCase().trim()
+  if (s.endsWith('k')) return parseFloat(s) * 1000
+  if (s.endsWith('m')) return parseFloat(s) * 1000000
+  return parseFloat(s.replace(/,/g, ''))
+}
 const fmtIndex = (v: number) => `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
 
 // ── Exchange pill — exact same style as price panel headers ──
@@ -168,6 +174,7 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
   const [expiryTo, setExpiryTo] = useState('')
   const [data, setData] = useState<MatrixResponse | null>(null)
   const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastFetchTs, setLastFetchTs] = useState(0)
   const [now, setNow] = useState(Date.now())
@@ -217,7 +224,9 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
   // Stage 2: Fetch full matrix when expiryTo is selected
   const fetchMatrix = useCallback(async () => {
     if (!expiryTo) return
-    setLoading(true); setError(null)
+    const isFirstLoad = !data
+    if (isFirstLoad) setLoading(true)
+    else setRefreshing(true)
     try {
       const params = new URLSearchParams()
       params.set('exchange', 'Deribit')
@@ -229,6 +238,7 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
       const resp = await fetch(`${apiBase}/api/options/matrix?${params}`)
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const json = await resp.json()
+      setError(null)
       // Merge: never overwrite valid prices with null/empty
       setData(prev => {
         if (!prev) return json
@@ -249,15 +259,20 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
       })
       setIndexPrice(json.indexPrice ?? 0)
       setLastFetchTs(Date.now())
-    } catch (e: any) { setError(e.message ?? 'Fetch failed') }
-    finally { setLoading(false) }
-  }, [apiBase, instrument, optionType, atmMode, expiryFrom, expiryTo])
+    } catch (e: any) {
+      // Keep last good data — only set error, never clear matrix
+      console.warn('[options] poll failed, keeping last data:', e.message)
+      if (!data) setError(e.message ?? 'Fetch failed')
+    }
+    finally { setLoading(false); setRefreshing(false) }
+  }, [apiBase, instrument, optionType, atmMode, expiryFrom, expiryTo, data])
 
   useEffect(() => {
     if (!expiryTo) return
     fetchMatrix()
     if (!polling) return
-    const id = setInterval(fetchMatrix, 5000)
+    const jitter = Math.random() * 2000
+    const id = setInterval(fetchMatrix, 10000 + jitter)
     return () => clearInterval(id)
   }, [fetchMatrix, polling, expiryTo])
 
@@ -276,8 +291,8 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
         strikes = strikes.slice(Math.max(0, atmIdx - 4), Math.min(strikes.length, atmIdx + 5))
       }
     } else if (!atmMode && (strikeMin || strikeMax)) {
-      const mn = strikeMin ? parseFloat(strikeMin) : 0
-      const mx = strikeMax ? parseFloat(strikeMax) : Infinity
+      const mn = strikeMin ? parseStrike(strikeMin) : 0
+      const mx = strikeMax ? parseStrike(strikeMax) : Infinity
       strikes = strikes.filter(s => s >= mn && s <= mx)
     }
     return strikes
@@ -344,6 +359,7 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
             <span style={{ fontSize: 12, fontWeight: 700, color: S.text }}>OPTIONS MATRIX</span>
             <ExchPill ex="DERIBIT" />
             {loading && <span style={{ fontSize: 9, color: S.amber }}>loading...</span>}
+            {refreshing && !loading && <span style={{ fontSize: 9, color: S.dim }}>↻</span>}
             {error && <span style={{ fontSize: 9, color: S.negative }}>{error}</span>}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
