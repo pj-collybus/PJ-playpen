@@ -68,7 +68,11 @@ const INSTRUMENT_LABELS: Record<InstrumentId, string> = {
 }
 const INVERSE_BASES = new Set(['BTC', 'ETH'])
 
-export interface OptionsMatrixProps { apiBase?: string; initialInstrument?: string; onOrderClick?: (cell: MatrixCell) => void; onClose?: () => void }
+export interface OptionsMatrixProps {
+  apiBase?: string; initialInstrument?: string
+  onOrderClick?: (cell: MatrixCell) => void; onClose?: () => void
+  layoutWidth?: number; layoutHeight?: number  // when controlled by parent layout
+}
 
 const fmtStrike = (v: number) => v >= 1 ? `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : `$${v.toFixed(4)}`
 const parseStrike = (val: string): number => {
@@ -154,7 +158,8 @@ const fmtExpiry = (exp: string) => {
   return exp
 }
 
-function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onClose }: OptionsMatrixProps) {
+function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onClose, layoutWidth, layoutHeight }: OptionsMatrixProps) {
+  const isLayoutControlled = layoutWidth != null && layoutHeight != null
   // ── All useState declarations first ──
   const posKey = 'optionsMatrix'
   const [pos, setPos] = useState(() => loadPos(posKey, { x: 80, y: 60 }))
@@ -373,14 +378,18 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
 
   return (
     <div style={{
-      position: 'fixed', left: pos.x, top: pos.y, zIndex: 600,
-      width: size.w, minWidth: toolbarMinW, height: size.h,
+      position: isLayoutControlled ? 'relative' : 'fixed',
+      left: isLayoutControlled ? 0 : pos.x, top: isLayoutControlled ? 0 : pos.y,
+      zIndex: isLayoutControlled ? undefined : 600,
+      width: isLayoutControlled ? '100%' : size.w,
+      minWidth: isLayoutControlled ? undefined : toolbarMinW,
+      height: isLayoutControlled ? '100%' : size.h,
       background: S.bg, border: `1px solid ${S.border}`, borderRadius: 8,
       boxShadow: '0 20px 80px rgba(0,0,0,0.95), 0 0 0 1px rgba(100,100,150,0.2)',
       display: 'flex', flexDirection: 'column', userSelect: 'none', fontFamily: 'inherit',
     }}>
       {/* ── Header ── */}
-      <div onMouseDown={onHeaderMouseDown} style={{ padding: '8px 10px 6px', cursor: 'grab', borderBottom: `1px solid ${S.border}` }}>
+      <div onMouseDown={isLayoutControlled ? undefined : onHeaderMouseDown} style={{ padding: '8px 10px 6px', cursor: isLayoutControlled ? 'default' : 'grab', borderBottom: `1px solid ${S.border}` }}>
         {/* Row 1 */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -545,14 +554,16 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
         </span>
       </div>
 
-      {/* ── Resize handle ── */}
-      <div onMouseDown={onResizeMouseDown} style={{ position: 'absolute', right: 0, bottom: 0, width: 14, height: 14, cursor: 'nwse-resize', opacity: 0.4 }}>
-        <svg width="14" height="14" viewBox="0 0 14 14">
-          <line x1="10" y1="4" x2="4" y2="10" stroke={S.muted} strokeWidth="1" />
-          <line x1="12" y1="6" x2="6" y2="12" stroke={S.muted} strokeWidth="1" />
-          <line x1="14" y1="8" x2="8" y2="14" stroke={S.muted} strokeWidth="1" />
-        </svg>
-      </div>
+      {/* ── Resize handle (only when self-managed) ── */}
+      {!isLayoutControlled && (
+        <div onMouseDown={onResizeMouseDown} style={{ position: 'absolute', right: 0, bottom: 0, width: 14, height: 14, cursor: 'nwse-resize', opacity: 0.4 }}>
+          <svg width="14" height="14" viewBox="0 0 14 14">
+            <line x1="10" y1="4" x2="4" y2="10" stroke={S.muted} strokeWidth="1" />
+            <line x1="12" y1="6" x2="6" y2="12" stroke={S.muted} strokeWidth="1" />
+            <line x1="14" y1="8" x2="8" y2="14" stroke={S.muted} strokeWidth="1" />
+          </svg>
+        </div>
+      )}
       <style>{`@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.5 } }`}</style>
     </div>
   )

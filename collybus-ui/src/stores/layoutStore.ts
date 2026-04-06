@@ -144,8 +144,8 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
     const newPanel: Panel = {
       id: genId(), type,
       x: -1, y: -1,
-      width: 600,
-      height: type === 'price' ? 180 : 400,
+      width: type === 'options-matrix' ? 900 : 600,
+      height: type === 'price' ? 180 : type === 'options-matrix' ? 500 : 400,
       config,
     }
     return {

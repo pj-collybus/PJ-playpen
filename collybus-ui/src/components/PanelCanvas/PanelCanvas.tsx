@@ -1,8 +1,62 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import { useLayoutStore } from '../../stores/layoutStore'
 import { PricePanel } from '../PricePanel/PricePanel'
 import { OptionsMatrix } from '@collybus/components'
 import { snapToGrid, findFreePosition, resolveOverlaps, type PanelRect } from '../../utils/layoutEngine'
+
+// Wrapper that positions OptionsMatrix in the panel layout grid (same as PricePanel)
+function OptionsMatrixWrapper({ id, x, y, width, height, initialInstrument, onMove, onResize, onClose }: {
+  id: string; x: number; y: number; width: number; height: number; initialInstrument: string
+  onMove: (id: string, x: number, y: number) => void
+  onResize: (id: string, w: number, h: number) => void
+  onClose: () => void
+}) {
+  const dragRef = useRef<{ ox: number; oy: number } | null>(null)
+  const resizeRef = useRef<{ sx: number; sy: number; sw: number; sh: number } | null>(null)
+
+  const onHeaderMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button,input,select,label')) return
+    e.preventDefault()
+    dragRef.current = { ox: e.clientX - x, oy: e.clientY - y }
+    const mv = (ev: MouseEvent) => {
+      if (!dragRef.current) return
+      onMove(id, ev.clientX - dragRef.current.ox, ev.clientY - dragRef.current.oy)
+    }
+    const up = () => { dragRef.current = null; document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up) }
+    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up)
+  }
+
+  const onResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault(); e.stopPropagation()
+    resizeRef.current = { sx: e.clientX, sy: e.clientY, sw: width, sh: height }
+    const mv = (ev: MouseEvent) => {
+      if (!resizeRef.current) return
+      onResize(id, resizeRef.current.sw + ev.clientX - resizeRef.current.sx, resizeRef.current.sh + ev.clientY - resizeRef.current.sy)
+    }
+    const up = () => { resizeRef.current = null; document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up) }
+    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up)
+  }
+
+  return (
+    <div style={{ position: 'absolute', left: x, top: y, width, height }}>
+      {/* Invisible drag handle over the header area */}
+      <div onMouseDown={onHeaderMouseDown} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 90, cursor: 'grab', zIndex: 1 }} />
+      <OptionsMatrix
+        apiBase=""
+        initialInstrument={initialInstrument}
+        onOrderClick={(cell: any) => console.log('[OptionsMatrix] order click:', cell)}
+        onClose={onClose}
+        layoutWidth={width}
+        layoutHeight={height}
+      />
+      {/* Resize handle */}
+      <div onMouseDown={onResizeMouseDown} style={{
+        position: 'absolute', right: 0, bottom: 0, width: 16, height: 16,
+        cursor: 'nwse-resize', zIndex: 2,
+      }} />
+    </div>
+  )
+}
 
 interface PanelCanvasProps {
   availableExchanges: string[]
@@ -104,16 +158,44 @@ export function PanelCanvas({ availableExchanges }: PanelCanvasProps) {
         }
         if (panel.type === 'options-matrix' && panel.x >= 0) {
           return (
-            <div key={panel.id} style={{ position: 'absolute', left: panel.x, top: panel.y }}>
-              <OptionsMatrix
-                apiBase=""
-                initialInstrument={(panel.config.instrument as string) || 'BTC_USDC'}
-                onOrderClick={(instr, side) => {
-                  console.log('[OptionsMatrix] order click:', instr, side)
-                }}
-                onClose={() => removePanel(panel.id)}
-              />
-            </div>
+            <OptionsMatrixWrapper
+              key={panel.id}
+              id={panel.id}
+              x={panel.x}
+              y={panel.y}
+              width={panel.width}
+              height={panel.height ?? 500}
+              initialInstrument={(panel.config.instrument as string) || 'BTC_USDC'}
+              onMove={(id, x, y) => {
+                const snappedX = snapToGrid(x)
+                const snappedY = snapToGrid(Math.max(0, y))
+                const rects = getPanelRects()
+                const updated = rects.map(r => r.id === id ? { ...r, x: snappedX, y: snappedY } : r)
+                const resolved = resolveOverlaps(updated, id)
+                resolved.forEach(r => {
+                  const orig = rects.find(p => p.id === r.id)
+                  if (orig && (orig.x !== r.x || orig.y !== r.y)) {
+                    updatePanel(r.id, { x: r.x, y: r.y })
+                  }
+                })
+              }}
+              onResize={(id, w, h) => {
+                const snappedW = Math.max(390, snapToGrid(w))
+                const snappedH = Math.max(300, snapToGrid(h))
+                updatePanel(id, { width: snappedW, height: snappedH })
+                const rects = getPanelRects().map(r => r.id === id ? { ...r, width: snappedW, height: snappedH } : r)
+                const resolved = resolveOverlaps(rects, id)
+                resolved.forEach(r => {
+                  if (r.id !== id) {
+                    const orig = rects.find(p => p.id === r.id)
+                    if (orig && (orig.x !== r.x || orig.y !== r.y)) {
+                      updatePanel(r.id, { x: r.x, y: r.y })
+                    }
+                  }
+                })
+              }}
+              onClose={() => removePanel(panel.id)}
+            />
           )
         }
         return null
