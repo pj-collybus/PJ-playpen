@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { App as AntApp } from 'antd'
 import { ThemeProvider, BlotterPanel, OrderModal, OrderTicket, AlgoMonitor } from '@collybus/components'
 import type { BlotterData, BlotterOrder, BlotterAlgoOrder, AlgoStatusReportUI } from '@collybus/components'
@@ -11,6 +11,48 @@ import { AdminPanel } from './components/Admin/AdminPanel'
 import { PanelCanvas } from './components/PanelCanvas/PanelCanvas'
 import { useLayoutStore } from './stores/layoutStore'
 import './App.css'
+
+function AddPanelMenu({ items }: { items: { label: string; onClick: () => void }[] }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+  return (
+    <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
+      <button onClick={() => setOpen(v => !v)} style={{
+        background: 'linear-gradient(to bottom, #1a2a4a 0%, #0d1a30 100%)',
+        border: '1px solid #2a4a7a', color: '#4488ff',
+        fontSize: 11, fontWeight: 700, padding: '0 12px', height: 28,
+        borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit', outline: 'none',
+        boxShadow: 'inset 0px 2px 1px rgba(255,255,255,0.1), inset 0px -2px 1px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.4)',
+      }}>+ Add Panel</button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', right: 0, zIndex: 1000,
+          background: '#0d0d14', border: '1px solid #2a2a3a', borderRadius: 6,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.8), 0 0 0 1px rgba(100,100,150,0.2)',
+          minWidth: 160, padding: '4px 0', marginTop: 2,
+        }}>
+          {items.map((item, i) => (
+            <button key={i} onClick={() => { item.onClick(); setOpen(false) }}
+              onMouseEnter={e => { e.currentTarget.style.background = '#1a1a2a'; e.currentTarget.style.color = '#fff' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#ccc' }}
+              style={{
+                display: 'block', width: '100%', padding: '7px 14px',
+                background: 'transparent', border: 'none', color: '#ccc',
+                fontSize: 11, fontWeight: 500, textAlign: 'left', cursor: 'pointer',
+                letterSpacing: '0.03em', whiteSpace: 'nowrap', fontFamily: 'inherit',
+              }}>{item.label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function App() {
   const [connected, setConnected] = useState(false)
@@ -281,28 +323,7 @@ export default function App() {
               </div>
 
               {/* Add Panel dropdown */}
-              <div style={{ position: 'relative', flexShrink: 0 }}>
-                <select
-                  onChange={e => {
-                    const item = panelMenuItems[parseInt(e.target.value)]
-                    if (item) { item.onClick(); e.target.value = '' }
-                  }}
-                  defaultValue=""
-                  style={{
-                    background: 'linear-gradient(to bottom, #1a2a4a 0%, #0d1a30 100%)',
-                    border: '1px solid #2a4a7a', color: '#4488ff',
-                    fontSize: 11, fontWeight: 700, padding: '0 12px', height: 28,
-                    borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
-                    outline: 'none',
-                    boxShadow: 'inset 0px 2px 1px rgba(255,255,255,0.1), inset 0px -2px 1px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.4)',
-                  }}
-                >
-                  <option value="" disabled>+ Add Panel</option>
-                  {panelMenuItems.map((item, i) => (
-                    <option key={i} value={i}>{item.label}</option>
-                  ))}
-                </select>
-              </div>
+              <AddPanelMenu items={panelMenuItems} />
             </div>
           </header>
 
