@@ -13,20 +13,7 @@ function OptionsMatrixWrapper({ id, x, y, width, height, initialInstrument, pane
   onClose: () => void
   onConfigChange: (config: Record<string, unknown>) => void
 }) {
-  const dragRef = useRef<{ ox: number; oy: number } | null>(null)
   const resizeRef = useRef<{ sx: number; sy: number; sw: number; sh: number } | null>(null)
-
-  const onHeaderMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button,input,select,label')) return
-    e.preventDefault()
-    dragRef.current = { ox: e.clientX - x, oy: e.clientY - y }
-    const mv = (ev: MouseEvent) => {
-      if (!dragRef.current) return
-      onMove(id, ev.clientX - dragRef.current.ox, ev.clientY - dragRef.current.oy)
-    }
-    const up = () => { dragRef.current = null; document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up) }
-    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up)
-  }
 
   const onResizeMouseDown = (e: React.MouseEvent) => {
     e.preventDefault(); e.stopPropagation()
@@ -39,10 +26,17 @@ function OptionsMatrixWrapper({ id, x, y, width, height, initialInstrument, pane
     document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up)
   }
 
+  // Drag handler passed to OptionsMatrix — attached to header background, not overlay
+  const onDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const ox = e.clientX - x, oy = e.clientY - y
+    const mv = (ev: MouseEvent) => onMove(id, ev.clientX - ox, ev.clientY - oy)
+    const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up) }
+    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up)
+  }, [id, x, y, onMove])
+
   return (
     <div style={{ position: 'absolute', left: x, top: y, width, height }}>
-      {/* Invisible drag handle over the header area */}
-      <div onMouseDown={onHeaderMouseDown} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 90, cursor: 'grab', zIndex: 1 }} />
       <OptionsMatrix
         apiBase=""
         initialInstrument={initialInstrument}
@@ -60,6 +54,7 @@ function OptionsMatrixWrapper({ id, x, y, width, height, initialInstrument, pane
         onOrderClick={(cell: any) => console.log('[OptionsMatrix] order click:', cell)}
         onClose={onClose}
         onConfigChange={onConfigChange}
+        onDrag={onDrag}
         layoutWidth={width}
         layoutHeight={height}
       />

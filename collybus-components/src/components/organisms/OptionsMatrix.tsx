@@ -85,6 +85,7 @@ export interface OptionsMatrixProps {
   initialConfig?: OptionsMatrixConfig
   onOrderClick?: (cell: MatrixCell) => void; onClose?: () => void
   onConfigChange?: (config: OptionsMatrixConfig) => void
+  onDrag?: (e: React.MouseEvent) => void  // layout-controlled drag handler
   layoutWidth?: number; layoutHeight?: number
 }
 
@@ -172,7 +173,7 @@ const fmtExpiry = (exp: string) => {
   return exp
 }
 
-function OptionsMatrixInner({ apiBase = '', initialInstrument, initialConfig, onOrderClick, onClose, onConfigChange, layoutWidth, layoutHeight }: OptionsMatrixProps) {
+function OptionsMatrixInner({ apiBase = '', initialInstrument, initialConfig, onOrderClick, onClose, onConfigChange, onDrag, layoutWidth, layoutHeight }: OptionsMatrixProps) {
   const isLayoutControlled = layoutWidth != null && layoutHeight != null
   const ic = initialConfig
   // ── All useState declarations first ──
@@ -408,7 +409,11 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, initialConfig, on
       display: 'flex', flexDirection: 'column', userSelect: 'none', fontFamily: 'inherit',
     }}>
       {/* ── Header ── */}
-      <div onMouseDown={isLayoutControlled ? undefined : onHeaderMouseDown} style={{ padding: '8px 10px 6px', cursor: isLayoutControlled ? 'default' : 'grab', borderBottom: `1px solid ${S.border}` }}>
+      <div onMouseDown={(e) => {
+        if ((e.target as HTMLElement).closest('button,input,select,label,[role=button]')) return
+        if (isLayoutControlled && onDrag) onDrag(e)
+        else if (!isLayoutControlled) onHeaderMouseDown(e)
+      }} style={{ padding: '8px 10px 6px', cursor: 'grab', borderBottom: `1px solid ${S.border}` }}>
         {/* Row 1 */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
