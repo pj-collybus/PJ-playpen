@@ -203,10 +203,10 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, initialConfig, on
   const dragRef = useRef<{ ox: number; oy: number } | null>(null)
   const resizeRef = useRef<any>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
-  const autoSelectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const restoredExpiryFrom = useRef(ic?.expiryFrom ?? '')
-  const restoredExpiryTo = useRef(ic?.expiryTo ?? '')
-  const mountedRef = useRef(false)
+  // autoSelectTimer removed — expiry set immediately on load
+  const isFirstLoad = useRef(true)
+  const savedExpiryTo = useRef(ic?.expiryTo ?? '')
+  const savedExpiryFrom = useRef(ic?.expiryFrom ?? '')
 
   // ── useEffect — position/size persistence ──
   useEffect(() => { savePos(posKey, pos) }, [pos])
@@ -225,52 +225,50 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, initialConfig, on
     })
   }, [instrument, optionType, atmMode])
 
-  // Stage 1: Fetch expiries + subscribe to websocket on instrument change
-  const fetchExpiries = useCallback(async () => {
-    try {
-      const params = new URLSearchParams({ instrument, type: optionType === 'both' ? 'calls' : optionType })
-      const resp = await fetch(`${apiBase}/api/options/expiries?${params}`)
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-      const json: ExpiriesResponse = await resp.json()
-      setAvailableExpiries(json.expiries ?? [])
-      setIndexPrice(json.indexPrice ?? 0)
-      // On first mount: restore saved values. On subsequent calls (instrument change): reset.
-      if (!mountedRef.current) {
-        mountedRef.current = true
-        if (restoredExpiryFrom.current) setExpiryFrom(restoredExpiryFrom.current)
-        if (restoredExpiryTo.current) {
-          setExpiryTo(restoredExpiryTo.current)
-        } else if (json.expiries?.length > 0) {
-          setExpiryTo(json.expiries[0])
-        }
-      } else {
-        // User changed instrument — reset expiry selections
-        setExpiryFrom('')
-        setExpiryTo('')
-        setData(null)
-        if (autoSelectTimer.current) clearTimeout(autoSelectTimer.current)
-        autoSelectTimer.current = setTimeout(() => {
-          if (json.expiries?.length > 0) setExpiryTo(json.expiries[0])
-        }, 2000)
-      }
-      // Subscribe to websocket summary feed
-      fetch(`${apiBase}/api/options/subscribe`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instrument }),
-      }).catch(() => {})
-    } catch (e: any) { setError(e.message ?? 'Failed to load expiries') }
-  }, [apiBase, instrument, optionType])
-
-  useEffect(() => { fetchExpiries() }, [fetchExpiries])
-  // Unsubscribe on unmount
+  // Load expiries on instrument change — single effect, no useCallback
   useEffect(() => {
+    let cancelled = false
+    const loadExpiries = async () => {
+      try {
+        const params = new URLSearchParams({ instrument, type: optionType === 'both' ? 'calls' : optionType })
+        const resp = await fetch(`${apiBase}/api/options/expiries?${params}`)
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        const json: ExpiriesResponse = await resp.json()
+        if (cancelled) return
+
+        const dates = json.expiries ?? []
+        setAvailableExpiries(dates)
+        setIndexPrice(json.indexPrice ?? 0)
+
+        if (isFirstLoad.current) {
+          isFirstLoad.current = false
+          const restoredTo = dates.includes(savedExpiryTo.current)
+            ? savedExpiryTo.current
+            : dates[dates.length - 1] ?? ''
+          setExpiryTo(restoredTo)
+          setExpiryFrom(savedExpiryFrom.current || '')
+        } else {
+          setExpiryFrom('')
+          setExpiryTo(dates[dates.length - 1] ?? '')
+          setData(null)
+        }
+
+        // Subscribe to websocket summary feed
+        fetch(`${apiBase}/api/options/subscribe`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instrument }),
+        }).catch(() => {})
+      } catch (e: any) { if (!cancelled) setError(e.message ?? 'Failed to load expiries') }
+    }
+    loadExpiries()
     return () => {
+      cancelled = true
       fetch(`${apiBase}/api/options/unsubscribe`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ instrument }),
       }).catch(() => {})
     }
-  }, [apiBase, instrument])
+  }, [apiBase, instrument, optionType])
 
   // Stage 2: Initial matrix load when expiryTo selected (one-time REST fetch for structure)
   const fetchMatrix = useCallback(async () => {
