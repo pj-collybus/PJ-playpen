@@ -28,9 +28,13 @@ public class OptionsController : ControllerBase
     {
         var cacheKey = $"{exchange}:{instrument}:{type}:{minStrike}:{maxStrike}:{fromExpiry}:{toExpiry}:{atmOnly}";
         if (_responseCache.TryGetValue(cacheKey, out var cached) && (DateTime.UtcNow - cached.ts).TotalSeconds < ResponseCacheTtlSeconds)
+        {
+            Console.WriteLine($"[options] cache hit for {cacheKey}");
             return Ok(cached.resp);
+        }
 
-        Console.WriteLine($"[options] GET /api/options/matrix: exchange={exchange} instrument={instrument} type={type} atm={atmOnly} toExpiry={toExpiry}");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        Console.WriteLine($"[options] starting matrix fetch for {instrument} type={type} atm={atmOnly} toExpiry={toExpiry}");
         try
         {
             // Map instrument to Deribit currency
@@ -95,7 +99,22 @@ public class OptionsController : ControllerBase
                 tryLinear = false; // fallback to inverse
             }
 
-            // Get order books for filtered instruments (batch)
+            Console.WriteLine($"[options] got {filtered.Count} filtered instruments in {sw.ElapsedMilliseconds}ms");
+
+            // Bulk fetch ALL option summaries for this currency in ONE call
+            var summaryResp = await CachedGet($"{DeribitUrl}/public/get_book_summary_by_currency?currency={currency}&kind=option");
+            var summaries = summaryResp?["result"]?.AsArray() ?? new JsonArray();
+            Console.WriteLine($"[options] got {summaries.Count} summaries in {sw.ElapsedMilliseconds}ms");
+
+            // Index summaries by instrument_name for O(1) lookup
+            var summaryMap = new Dictionary<string, JsonNode>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in summaries)
+            {
+                var sName = s?["instrument_name"]?.GetValue<string>();
+                if (sName != null) summaryMap[sName] = s!;
+            }
+
+            // Build cells from filtered instruments + summary data
             var cells = new Dictionary<string, Dictionary<string, object>>();
             var strikes = new SortedSet<double>();
             var expiries = new SortedSet<string>();
@@ -112,46 +131,40 @@ public class OptionsController : ControllerBase
                 strikes.Add(strike);
                 expiries.Add(expiryStr);
 
-                // Get ticker for this instrument
-                try
+                if (!summaryMap.TryGetValue(name, out var sm)) continue;
+
+                var bid = sm["bid_price"]?.GetValue<double?>() ?? 0;
+                var ask = sm["ask_price"]?.GetValue<double?>() ?? 0;
+                var mark = sm["mark_price"]?.GetValue<double?>() ?? 0;
+                var markIv = sm["mark_iv"]?.GetValue<double?>() ?? 0;
+                var bidIv = sm["bid_iv"]?.GetValue<double?>() ?? 0;
+                var askIv = sm["ask_iv"]?.GetValue<double?>() ?? 0;
+                var volume = sm["volume"]?.GetValue<double?>() ?? 0;
+                var oi = sm["open_interest"]?.GetValue<double?>() ?? 0;
+
+                var strikeKey = strike.ToString("F0");
+                if (!cells.ContainsKey(strikeKey))
+                    cells[strikeKey] = new Dictionary<string, object>();
+
+                cells[strikeKey][expiryStr] = new
                 {
-                    var tickerResp = await CachedGet($"{DeribitUrl}/public/ticker?instrument_name={name}");
-                    var result = tickerResp?["result"];
-                    if (result == null) continue;
-
-                    var bid = result["best_bid_price"]?.GetValue<double?>() ?? 0;
-                    var ask = result["best_ask_price"]?.GetValue<double?>() ?? 0;
-                    var mark = result["mark_price"]?.GetValue<double?>() ?? 0;
-                    var markIv = result["mark_iv"]?.GetValue<double?>() ?? 0;
-                    var bidIv = result["bid_iv"]?.GetValue<double?>() ?? 0;
-                    var askIv = result["ask_iv"]?.GetValue<double?>() ?? 0;
-                    var volume = result["stats"]?["volume"]?.GetValue<double?>() ?? 0;
-                    var oi = result["open_interest"]?.GetValue<double?>() ?? 0;
-
-                    var strikeKey = strike.ToString("F0");
-                    if (!cells.ContainsKey(strikeKey))
-                        cells[strikeKey] = new Dictionary<string, object>();
-
-                    cells[strikeKey][expiryStr] = new
-                    {
-                        instrument = name,
-                        optionType,
-                        strike,
-                        expiry = expiryStr,
-                        dte,
-                        bid,
-                        ask,
-                        mark,
-                        markIv,
-                        bidIv,
-                        askIv,
-                        volume,
-                        openInterest = oi,
-                    };
-                }
-                catch { /* skip failed tickers */ }
+                    instrument = name,
+                    optionType,
+                    strike,
+                    expiry = expiryStr,
+                    dte,
+                    bid,
+                    ask,
+                    mark,
+                    markIv,
+                    bidIv,
+                    askIv,
+                    volume,
+                    openInterest = oi,
+                };
             }
 
+            Console.WriteLine($"[options] built {cells.Count} strike rows in {sw.ElapsedMilliseconds}ms");
             var atmStrike = indexPrice > 0 ? strikes.OrderBy(s => Math.Abs(s - indexPrice)).FirstOrDefault() : 0;
 
             var response = new
@@ -166,6 +179,7 @@ public class OptionsController : ControllerBase
                 timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             };
             _responseCache[cacheKey] = (DateTime.UtcNow, response);
+            Console.WriteLine($"[options] total request time: {sw.ElapsedMilliseconds}ms");
             return Ok(response);
         }
         catch (Exception ex)
