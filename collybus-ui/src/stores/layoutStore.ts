@@ -146,12 +146,19 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
     // Height: toolbar(32×2) + colHeader(36) + 9 rows(52) + footer(24) = 592 × 1.25 = 740
     const OM_W = 80 + 100 * 3 + 16 // 396
     const OM_H = Math.round((32 * 2 + 36 + 52 * 9 + 24) * 0.875) // 518
+    // Options Ladder: calls(6 default cols × 64px) + strike(70) + puts(6 × 64px) + scrollbar = 838
+    // Height: header(60) + 17 rows(28) + footer(24) = 560
+    const OL_W = 64 * 6 + 70 + 64 * 6 + 16 // 854
+    const OL_H = 60 + 28 * 17 + 24 // 560
+    const panelWidth = type === 'options-matrix' ? OM_W : type === 'options-ladder' ? OL_W : 600
+    const panelHeight = type === 'price' ? 180 : type === 'options-matrix' ? OM_H : type === 'options-ladder' ? OL_H : 400
+    const panelConfig = (type === 'options-matrix' || type === 'options-ladder') ? { atmOnly: true, ...config } : config
     const newPanel: Panel = {
       id: genId(), type,
       x: -1, y: -1,
-      width: type === 'options-matrix' ? OM_W : 600,
-      height: type === 'price' ? 180 : type === 'options-matrix' ? OM_H : 400,
-      config: type === 'options-matrix' ? { atmOnly: true, ...config } : config,
+      width: panelWidth,
+      height: panelHeight,
+      config: panelConfig,
     }
     return {
       layouts: s.layouts.map(l =>

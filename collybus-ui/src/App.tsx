@@ -173,6 +173,7 @@ export default function App() {
     { label: 'Price Panel', onClick: () => addPanel('price', { exchange: availableExchanges[0] ?? 'DERIBIT', symbol: '' }) },
     { label: 'Blotter', onClick: () => addPanel('blotter', {}) },
     { label: 'Options Matrix', onClick: () => addPanel('options-matrix', { instrument: 'BTC' }) },
+    { label: 'Options Ladder', onClick: () => addPanel('options-ladder', { instrument: 'BTC', atmOnly: true }) },
   ]
 
   return (
