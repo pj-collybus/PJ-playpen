@@ -206,6 +206,7 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, initialConfig, on
   const autoSelectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const restoredExpiryFrom = useRef(ic?.expiryFrom ?? '')
   const restoredExpiryTo = useRef(ic?.expiryTo ?? '')
+  const mountedRef = useRef(false)
 
   // ── useEffect — position/size persistence ──
   useEffect(() => { savePos(posKey, pos) }, [pos])
@@ -233,20 +234,20 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, initialConfig, on
       const json: ExpiriesResponse = await resp.json()
       setAvailableExpiries(json.expiries ?? [])
       setIndexPrice(json.indexPrice ?? 0)
-      // Restore saved expiry values on first load, reset on instrument change
-      if (restoredExpiryFrom.current) {
-        setExpiryFrom(restoredExpiryFrom.current)
-        restoredExpiryFrom.current = ''
+      // On first mount: restore saved values. On subsequent calls (instrument change): reset.
+      if (!mountedRef.current) {
+        mountedRef.current = true
+        if (restoredExpiryFrom.current) setExpiryFrom(restoredExpiryFrom.current)
+        if (restoredExpiryTo.current) {
+          setExpiryTo(restoredExpiryTo.current)
+        } else if (json.expiries?.length > 0) {
+          setExpiryTo(json.expiries[0])
+        }
       } else {
+        // User changed instrument — reset expiry selections
         setExpiryFrom('')
-      }
-      if (restoredExpiryTo.current) {
-        setExpiryTo(restoredExpiryTo.current)
-        restoredExpiryTo.current = ''
-      } else {
         setExpiryTo('')
         setData(null)
-        // Auto-select nearest expiry after 2s only if no restored value
         if (autoSelectTimer.current) clearTimeout(autoSelectTimer.current)
         autoSelectTimer.current = setTimeout(() => {
           if (json.expiries?.length > 0) setExpiryTo(json.expiries[0])
