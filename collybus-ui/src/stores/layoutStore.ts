@@ -141,12 +141,16 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
   addPanel: (type, config) => set(s => {
     const activeLayout = s.layouts.find(l => l.id === s.activeLayoutId)
     if (!activeLayout) return s
-    // Options Matrix: strike(80) + 3 cols(98ea) + scrollbar(16) = 390, height 400
+    // Options Matrix: 9 strikes × 3 expiry columns
+    // Width: strike(80) + 3 cols(100) + scrollbar(16) = 396
+    // Height: toolbar(32×2) + colHeader(36) + 9 rows(52) + footer(24) = 592 × 1.25 = 740
+    const OM_W = 80 + 100 * 3 + 16 // 396
+    const OM_H = Math.round((32 * 2 + 36 + 52 * 9 + 24) * 1.25) // 740
     const newPanel: Panel = {
       id: genId(), type,
       x: -1, y: -1,
-      width: type === 'options-matrix' ? 390 : 600,
-      height: type === 'price' ? 180 : type === 'options-matrix' ? 400 : 400,
+      width: type === 'options-matrix' ? OM_W : 600,
+      height: type === 'price' ? 180 : type === 'options-matrix' ? OM_H : 400,
       config: type === 'options-matrix' ? { atmOnly: true, ...config } : config,
     }
     return {
