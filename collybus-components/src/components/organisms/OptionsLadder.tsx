@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useState, useRef, useEffect, useCallback, useMemo, Component } from 'react'
+import React, { useState, useRef, useEffect, useCallback, useMemo, Component } from 'react'
 
 const S = {
   bg: '#18171C', panel: '#141418', border: '#2a2a38', bgInput: '#0e0e14',
@@ -10,12 +10,13 @@ const S = {
 type InstrumentId = 'BTC' | 'BTC_USDC' | 'ETH' | 'ETH_USDC' | 'SOL_USDC' | 'XRP_USDC'
 type CpFilter = 'calls' | 'puts' | 'both'
 
-// Pills: BTC, ETH, SOL, XRP — all map to USDC-settled
+// All instrument pills in order
 const PILL_INSTRUMENTS: { label: string; id: InstrumentId }[] = [
-  { label: 'BTC', id: 'BTC' }, { label: 'ETH', id: 'ETH' },
-  { label: 'SOL', id: 'SOL_USDC' }, { label: 'XRP', id: 'XRP_USDC' },
+  { label: 'BTC', id: 'BTC' }, { label: 'BTC USDC', id: 'BTC_USDC' },
+  { label: 'ETH', id: 'ETH' }, { label: 'ETH USDC', id: 'ETH_USDC' },
+  { label: 'SOL USDC', id: 'SOL_USDC' }, { label: 'XRP USDC', id: 'XRP_USDC' },
 ]
-const OTHER_INSTRUMENTS: InstrumentId[] = ['BTC_USDC', 'ETH_USDC']
+const PILL_IDS = new Set(PILL_INSTRUMENTS.map(p => p.id))
 const LABELS: Record<InstrumentId, string> = { BTC: 'BTC', BTC_USDC: 'BTC USDC', ETH: 'ETH', ETH_USDC: 'ETH USDC', SOL_USDC: 'SOL USDC', XRP_USDC: 'XRP USDC' }
 const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC']
 
@@ -311,24 +312,34 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
     if (idx >= 0) gridRef.current.scrollTop = Math.max(0, idx * 28 - gridRef.current.clientHeight / 2 + 14)
   }, [atmStrike, filteredRows.length])
 
-  // Render cell — green for calls bid/ask, red for puts bid/ask
+  // Heatmap for size/OI columns
+  const maxVolume = useMemo(() => filteredRows.reduce((mx, r) => Math.max(mx, r.call?.volume ?? 0, r.put?.volume ?? 0), 1), [filteredRows])
+  const maxOI = useMemo(() => filteredRows.reduce((mx, r) => Math.max(mx, r.call?.openInterest ?? 0, r.put?.openInterest ?? 0), 1), [filteredRows])
+  const heatColor = (val: number, max: number) => {
+    if (!val || !max) return 'transparent'
+    const t = Math.min(1, val / max)
+    return `rgba(68,136,255,${(0.08 + t * 0.35).toFixed(2)})`
+  }
+
+  // Render cell — plain colored text, no buttons
   const renderCell = (cell: any, col: ColDef, isPut: boolean) => {
     const val = cell?.[col.key]
-    const text = fmtCell(val, col.style === 'iv' ? 'iv' : col.style === 'greek' ? 'greek' : col.style === 'vol' || col.style === 'size' ? 'vol' : 'price')
+    const fmt = col.style === 'iv' ? 'iv' : col.style === 'greek' ? 'greek' : col.style === 'vol' || col.style === 'size' ? 'vol' : 'price'
+    const text = fmtCell(val, fmt)
     if (text === '—') return <span style={{ color: '#2a2a3a', fontSize: 9 }}>—</span>
     if (col.style === 'bid' || col.style === 'ask') {
-      const g = isPut ? GRAD_SELL : GRAD_BUY; const gh = isPut ? GRAD_SELL_H : GRAD_BUY_H
-      return <button onClick={() => cell && onOrderClick?.(cell, isPut ? 'sell' : 'buy')}
-        onMouseEnter={e => e.currentTarget.style.background = gh} onMouseLeave={e => e.currentTarget.style.background = g}
-        style={{ background: g, border: 'none', borderRadius: 3, padding: '1px 2px', cursor: 'pointer', width: '100%', textAlign: 'center', fontFamily: 'inherit', boxShadow: SHADOW_BTN }}>
-        <span style={{ fontSize: 10, fontWeight: 400, color: '#fff' }}>{text}</span>
-      </button>
+      return <span onClick={() => cell && onOrderClick?.(cell, isPut ? 'sell' : 'buy')}
+        style={{ fontSize: 10, color: isPut ? '#e05252' : '#00c896', cursor: 'pointer' }}>{text}</span>
     }
-    if (col.style === 'greek') return <span style={{ fontSize: 9, color: '#666' }}>{text}</span>
-    if (col.style === 'mark') return <span style={{ fontSize: 10, color: '#fff' }}>{text}</span>
-    if (col.style === 'iv') return <span style={{ fontSize: 9, color: S.muted }}>{text}</span>
-    if (col.style === 'vol' || col.style === 'size') return <span style={{ fontSize: 9, color: S.muted }}>{text}</span>
-    return <span style={{ fontSize: 10, color: S.text }}>{text}</span>
+    if (col.style === 'mark') return <span style={{ fontSize: 10, color: '#ccc' }}>{text}</span>
+    return <span style={{ fontSize: 9, color: '#888' }}>{text}</span>
+  }
+
+  // Cell background for heatmap columns
+  const cellBg = (col: ColDef, cell: any) => {
+    if (col.style === 'vol') return heatColor(cell?.openInterest ?? 0, maxOI)
+    if (col.style === 'size') return heatColor(cell?.volume ?? 0, maxVolume)
+    return 'transparent'
   }
 
   const showCalls = cpFilter === 'calls' || cpFilter === 'both'
@@ -351,20 +362,18 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
             <span style={{ fontSize: 9, color: '#888', marginRight: 4 }}>DERIBIT</span>
             {PILL_INSTRUMENTS.map(p => <Pill key={p.id} active={instrument === p.id} onClick={() => setInstrument(p.id)}>{p.label}</Pill>)}
             <div ref={othersRef} style={{ position: 'relative' }}>
-              <Pill active={OTHER_INSTRUMENTS.includes(instrument)} onClick={() => setOthersOpen(v => !v)}>Others</Pill>
-              {othersOpen && <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 1000, background: '#0d0d14', border: '1px solid #2a2a3a', borderRadius: 6, padding: '4px 0', marginTop: 2, boxShadow: '0 8px 32px rgba(0,0,0,0.8)' }}>
-                {OTHER_INSTRUMENTS.map(i => <button key={i} onClick={() => { setInstrument(i); setOthersOpen(false) }}
+              <Pill active={!PILL_IDS.has(instrument)} onClick={() => setOthersOpen(v => !v)}>Others</Pill>
+              {othersOpen && <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 1000, background: '#0d0d14', border: '1px solid #2a2a3a', borderRadius: 6, padding: '4px 0', marginTop: 2, minWidth: 120, boxShadow: '0 8px 32px rgba(0,0,0,0.8)' }}>
+                {['DOGE', 'HYPE', 'TRX', 'AVAX', 'LINK', 'MATIC'].map(c => <button key={c} onClick={() => { setOthersOpen(false) }}
                   style={{ display: 'block', width: '100%', padding: '5px 12px', background: 'transparent', border: 'none', color: '#ccc', fontSize: 10, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#1a1a2a'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>{LABELS[i]}</button>)}
+                  onMouseEnter={e => e.currentTarget.style.background = '#1a1a2a'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>{c}</button>)}
               </div>}
             </div>
             <span style={{ width: 1, height: 16, background: S.border }} />
             {(['calls', 'puts', 'both'] as CpFilter[]).map(t => <Pill key={t} active={cpFilter === t} onClick={() => setCpFilter(t)} color={t === 'calls' ? S.positive : t === 'puts' ? S.negative : S.blue}>{t === 'calls' ? 'Calls' : t === 'puts' ? 'Puts' : 'Both'}</Pill>)}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            {indexPrice > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: S.text }}><span style={{ color: S.muted, fontSize: 9, marginRight: 3 }}>INDEX</span>{fmtIndex(indexPrice)}</span>}
             {isLive && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8, background: 'rgba(0,199,88,0.15)', color: S.positive, border: '1px solid rgba(0,199,88,0.4)', animation: 'pulse 2s ease-in-out infinite' }}>LIVE</span>}
-            <button onClick={() => setSettingsOpen(true)} style={{ background: 'none', border: 'none', color: S.muted, cursor: 'pointer', fontSize: 14 }}>⚙</button>
             {onClose && <button onClick={onClose} style={{ background: 'none', border: 'none', color: S.muted, cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>×</button>}
           </div>
         </div>
@@ -411,22 +420,30 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
             </thead>
             <tbody>
               {filteredRows.map((row, ri) => {
-                const isAtm = row.strike === atmStrike
                 const pctFromAtm = atmStrike > 0 ? ((row.strike - atmStrike) / atmStrike * 100) : 0
                 const pctColor = pctFromAtm > 0 ? S.positive : pctFromAtm < 0 ? S.negative : S.muted
+                const totalCols = (showCalls ? callCols.length : 0) + 1 + (showPuts ? putCols.length : 0)
+                // ATM divider line — insert between row where strike crosses index
+                const prevRow = ri > 0 ? filteredRows[ri - 1] : null
+                const showAtmLine = prevRow && indexPrice > 0 && prevRow.strike < indexPrice && row.strike >= indexPrice
                 return (
-                  <tr key={row.strike} style={{ background: isAtm ? 'rgba(204,170,68,0.06)' : ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                    {showCalls && callCols.map((c, i) => <td key={`c-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, borderLeft: isAtm && i === 0 ? '3px solid #ccaa44' : undefined, width: c.width }}>{renderCell(row.call, c, false)}</td>)}
-                    <td style={{ padding: '1px 2px', textAlign: 'center', borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}10`, background: isAtm ? '#1a1a20' : S.panel, whiteSpace: 'nowrap' }}>
-                      <button style={{ background: GRAD_BUY, border: 'none', borderRadius: 3, padding: '2px 4px', width: '100%', cursor: 'default', fontFamily: 'inherit', boxShadow: SHADOW_BTN }}>
-                        <div style={{ fontSize: 10, fontWeight: isAtm ? 700 : 400, color: isAtm ? '#ccaa44' : '#fff' }}>
-                          {fmtStrike(row.strike)}{isAtm && <span style={{ fontSize: 7, marginLeft: 2 }}>ATM</span>}
-                        </div>
-                        {!isAtm && pctFromAtm !== 0 && <div style={{ fontSize: 8, color: pctColor, marginTop: -1 }}>{pctFromAtm > 0 ? '+' : ''}{pctFromAtm.toFixed(2)}%</div>}
-                      </button>
-                    </td>
-                    {showPuts && putCols.map((c, i) => <td key={`p-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, borderRight: isAtm && i === putCols.length - 1 ? '3px solid #ccaa44' : undefined, width: c.width }}>{renderCell(row.put, c, true)}</td>)}
-                  </tr>
+                  <React.Fragment key={row.strike}>
+                    {showAtmLine && (
+                      <tr><td colSpan={totalCols} style={{ padding: 0, border: 'none' }}>
+                        <div style={{ height: 2, background: 'linear-gradient(to right, transparent, #ccaa44, #ccaa44, transparent)', margin: '0 8px', boxShadow: '0 0 6px rgba(204,170,68,0.6)' }} />
+                      </td></tr>
+                    )}
+                    <tr style={{ background: ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                      {showCalls && callCols.map(c => <td key={`c-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, width: c.width, background: cellBg(c, row.call) }}>{renderCell(row.call, c, false)}</td>)}
+                      <td style={{ padding: '1px 2px', textAlign: 'center', borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}10`, background: S.panel, whiteSpace: 'nowrap' }}>
+                        <button style={{ background: GRAD_BUY, border: 'none', borderRadius: 3, padding: '2px 4px', width: '100%', cursor: 'default', fontFamily: 'inherit', boxShadow: SHADOW_BTN }}>
+                          <div style={{ fontSize: 10, fontWeight: 400, color: '#fff' }}>{fmtStrike(row.strike)}</div>
+                          {pctFromAtm !== 0 && <div style={{ fontSize: 8, color: pctColor, marginTop: -1 }}>{pctFromAtm > 0 ? '+' : ''}{pctFromAtm.toFixed(2)}%</div>}
+                        </button>
+                      </td>
+                      {showPuts && putCols.map(c => <td key={`p-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, width: c.width, background: cellBg(c, row.put) }}>{renderCell(row.put, c, true)}</td>)}
+                    </tr>
+                  </React.Fragment>
                 )
               })}
             </tbody>
@@ -441,7 +458,7 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
       {/* Right button bar */}
       <div style={{ width: 28, flexShrink: 0, background: '#111015', borderLeft: `1px solid ${S.border}`, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 0', gap: 2 }}>
         {[
-          { icon: '×', title: 'Close', onClick: onClose },
+          { icon: 'D', title: 'Exchange', onClick: undefined },
           { icon: '⚙', title: 'Settings', onClick: () => setSettingsOpen(true) },
           { icon: '🔔', title: 'Alert', onClick: undefined },
           { icon: '🔒', title: 'Lock', onClick: undefined },
