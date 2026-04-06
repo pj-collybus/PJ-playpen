@@ -99,7 +99,7 @@ public class OptionsController : ControllerBase
                 var name = inst!["instrument_name"]?.GetValue<string>() ?? "";
                 var strike = inst["strike"]?.GetValue<double>() ?? 0;
                 var expiryTs = inst["expiration_timestamp"]?.GetValue<long>() ?? 0;
-                var expiryStr = DateTimeOffset.FromUnixTimeMilliseconds(expiryTs).ToString("ddMMMyy").ToUpper();
+                var expiryStr = DateTimeOffset.FromUnixTimeMilliseconds(expiryTs).UtcDateTime.ToString("yyyy-MM-dd");
                 var optionType = inst["option_type"]?.GetValue<string>() ?? "";
                 var dte = (int)Math.Ceiling((expiryTs - now) / 86400000.0);
 

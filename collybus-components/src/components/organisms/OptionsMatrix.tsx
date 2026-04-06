@@ -152,7 +152,8 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
   const posKey = 'optionsMatrix'
   const [pos, setPos] = useState(() => loadPos(posKey, { x: 80, y: 60 }))
   const [size, setSize] = useState(() => loadSize(posKey, { w: 920, h: 580 }))
-  const [toolbarMinW, setToolbarMinW] = useState(370)
+  // Min width: strike col (80) + 3 expiry cols (98 each) + scrollbar (16) = 390
+  const [toolbarMinW, setToolbarMinW] = useState(80 + 98 * 3 + 16)
   const [instrument, setInstrument] = useState<InstrumentId>((initialInstrument as InstrumentId) || 'BTC')
   const [optionType, setOptionType] = useState<OptionType>('calls')
   const [sideMode, setSideMode] = useState<SideMode>('buy')
@@ -228,7 +229,24 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
       const resp = await fetch(`${apiBase}/api/options/matrix?${params}`)
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const json = await resp.json()
-      setData(json)
+      // Merge: never overwrite valid prices with null/empty
+      setData(prev => {
+        if (!prev) return json
+        const merged = { ...json }
+        if (json.cells && prev.cells) {
+          const mc: Record<string, Record<string, any>> = {}
+          for (const sk of Object.keys(json.cells)) {
+            mc[sk] = {}
+            for (const exp of Object.keys(json.cells[sk] ?? {})) {
+              const nc = json.cells[sk]?.[exp]
+              const pc = prev.cells[sk]?.[exp]
+              mc[sk][exp] = (nc?.bid || nc?.ask) ? nc : (pc ?? nc)
+            }
+          }
+          merged.cells = mc
+        }
+        return merged
+      })
       setIndexPrice(json.indexPrice ?? 0)
       setLastFetchTs(Date.now())
     } catch (e: any) { setError(e.message ?? 'Fetch failed') }
