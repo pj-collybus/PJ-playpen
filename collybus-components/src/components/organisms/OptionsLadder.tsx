@@ -414,7 +414,13 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
           <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: S.muted, cursor: 'pointer' }}>
             <input type="checkbox" checked={atmOnly} onChange={() => setAtmOnly(v => !v)} style={{ accentColor: S.blue }} /> ATM ±
           </label>
-          {atmOnly && <input value={atmN} onChange={e => setAtmN(Math.max(1, parseInt(e.target.value) || 8))} type="number" min={1} max={50} style={{ width: 36, height: 22, background: S.bgInput, border: `1px solid ${S.border}`, borderRadius: 3, color: S.text, fontSize: 10, padding: '0 4px', outline: 'none', textAlign: 'center', fontFamily: 'inherit' }} />}
+          {atmOnly && <div style={{ display: 'flex', alignItems: 'center', background: '#0d0d14', border: '1px solid #2a2a3a', borderRadius: 4, height: 24, overflow: 'hidden' }}>
+            <input type="number" value={atmN} onChange={e => setAtmN(Math.max(1, parseInt(e.target.value) || 8))} style={{ width: 32, background: 'transparent', border: 'none', color: '#ccc', fontSize: 11, textAlign: 'center', outline: 'none', fontFamily: 'inherit' }} />
+            <div style={{ display: 'flex', flexDirection: 'column', borderLeft: '1px solid #2a2a3a' }}>
+              <button onClick={() => setAtmN(n => n + 1)} style={{ height: 12, width: 16, background: 'linear-gradient(to bottom, #1a2a4a, #0d1a30)', border: 'none', borderBottom: '1px solid #2a2a3a', color: '#4488ff', fontSize: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>▲</button>
+              <button onClick={() => setAtmN(n => Math.max(1, n - 1))} style={{ height: 12, width: 16, background: 'linear-gradient(to bottom, #1a2a4a, #0d1a30)', border: 'none', color: '#4488ff', fontSize: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>▼</button>
+            </div>
+          </div>}
           {!atmOnly && <>
             <input value={strikeMin} onChange={e => setStrikeMin(e.target.value)} placeholder="Min" style={{ width: 50, height: 22, background: S.bgInput, border: `1px solid ${S.border}`, borderRadius: 3, color: S.text, fontSize: 10, padding: '0 4px', outline: 'none', fontFamily: 'inherit' }} />
             <span style={{ fontSize: 9, color: S.dim }}>–</span>
