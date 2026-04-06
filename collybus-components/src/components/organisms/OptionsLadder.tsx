@@ -79,9 +79,10 @@ const ALL_COLUMNS: ColDef[] = [
 
 const GRAD_BUY = 'linear-gradient(to right, #1A3A94 0%, #2B79DD 100%)'
 const GRAD_BUY_H = 'linear-gradient(to right, #2656b7 0%, #3A8FE4 100%)'
-const GRAD_SELL = 'linear-gradient(to right, #941A1A 0%, #DD2B2B 100%)'
-const GRAD_SELL_H = 'linear-gradient(to right, #b72626 0%, #E43A3A 100%)'
 const SHADOW_BTN = 'inset 0px 3px 1px rgba(255,255,255,0.25), inset 0px -3px 1px rgba(0,0,0,0.25), inset 0px 4px 4px rgba(0,0,0,0.25)'
+// Vertical bar button style — exact match of OrderTypeButton from PricePanel
+const GRAD_SEC = 'linear-gradient(to bottom, #3C3B42 0%, #323138 50%, #2B2A2F 100%)'
+const GRAD_ACT = 'linear-gradient(to right, #1A3A94 0%, #2B79DD 100%)'
 
 function fmtCell(val: any, format: string): string {
   if (val == null || val === 0) return '—'
@@ -209,10 +210,14 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
   // Build rows from bulk summary data
   const buildRows = useCallback((summaries: any[], idxPrice: number) => {
     const expiryStr = toDeribitExpiry(expiry)
+    const isUsdc = instrument.includes('USDC')
     const rowMap: Record<number, { call: any; put: any }> = {}
     for (const s of summaries) {
       const name = s.instrument_name ?? s.instrument ?? ''
       if (!name.includes(expiryStr)) continue
+      // Filter by USDC/inverse: BTC_USDC instruments contain '_USDC-', inverse don't
+      if (isUsdc && !name.includes('_USDC')) continue
+      if (!isUsdc && name.includes('_USDC')) continue
       // Parse: BTC-7APR26-69000-C
       const parts = name.split('-')
       const strike = parseFloat(parts[parts.length - 2])
@@ -244,7 +249,10 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
     setLoading(true)
     const load = async () => {
       try {
-        const currency = instrument.startsWith('ETH') ? 'ETH' : instrument.startsWith('SOL') ? 'SOL' : instrument.startsWith('XRP') ? 'XRP' : 'BTC'
+        // BTC_USDC → fetch BTC currency, filter by USDC prefix. SOL_USDC/XRP_USDC → USDC currency
+        const currency = instrument === 'SOL_USDC' || instrument === 'XRP_USDC' ? 'USDC'
+          : instrument.startsWith('ETH') ? 'ETH' : 'BTC'
+        console.log('[ladder] fetching', currency, 'for instrument', instrument)
         const resp = await fetch(`https://test.deribit.com/api/v2/public/get_book_summary_by_currency?currency=${currency}&kind=option`)
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
         const json = await resp.json()
@@ -321,16 +329,14 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
     return `rgba(68,136,255,${(0.08 + t * 0.35).toFixed(2)})`
   }
 
-  // Render cell — plain colored text, no buttons
+  // Render cell — plain colored text: Bid=green, Ask=red on both sides
   const renderCell = (cell: any, col: ColDef, isPut: boolean) => {
     const val = cell?.[col.key]
     const fmt = col.style === 'iv' ? 'iv' : col.style === 'greek' ? 'greek' : col.style === 'vol' || col.style === 'size' ? 'vol' : 'price'
     const text = fmtCell(val, fmt)
     if (text === '—') return <span style={{ color: '#2a2a3a', fontSize: 9 }}>—</span>
-    if (col.style === 'bid' || col.style === 'ask') {
-      return <span onClick={() => cell && onOrderClick?.(cell, isPut ? 'sell' : 'buy')}
-        style={{ fontSize: 10, color: isPut ? '#e05252' : '#00c896', cursor: 'pointer' }}>{text}</span>
-    }
+    if (col.style === 'bid') return <span onClick={() => cell && onOrderClick?.(cell, 'buy')} style={{ fontSize: 10, color: '#00c896', cursor: 'pointer' }}>{text}</span>
+    if (col.style === 'ask') return <span onClick={() => cell && onOrderClick?.(cell, 'sell')} style={{ fontSize: 10, color: '#e05252', cursor: 'pointer' }}>{text}</span>
     if (col.style === 'mark') return <span style={{ fontSize: 10, color: '#ccc' }}>{text}</span>
     return <span style={{ fontSize: 9, color: '#888' }}>{text}</span>
   }
@@ -364,7 +370,7 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
             <div ref={othersRef} style={{ position: 'relative' }}>
               <Pill active={!PILL_IDS.has(instrument)} onClick={() => setOthersOpen(v => !v)}>Others</Pill>
               {othersOpen && <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 1000, background: '#0d0d14', border: '1px solid #2a2a3a', borderRadius: 6, padding: '4px 0', marginTop: 2, minWidth: 120, boxShadow: '0 8px 32px rgba(0,0,0,0.8)' }}>
-                {['DOGE', 'HYPE', 'TRX', 'AVAX', 'LINK', 'MATIC'].map(c => <button key={c} onClick={() => { setOthersOpen(false) }}
+                {['DOGE', 'HYPE', 'TRX', 'AVAX', 'LINK', 'MATIC'].map(c => <button key={c} onClick={() => { console.log('[ladder] instrument changed to:', c); setInstrument(c as any); setOthersOpen(false) }}
                   style={{ display: 'block', width: '100%', padding: '5px 12px', background: 'transparent', border: 'none', color: '#ccc', fontSize: 10, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
                   onMouseEnter={e => e.currentTarget.style.background = '#1a1a2a'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>{c}</button>)}
               </div>}
@@ -422,18 +428,17 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
               {filteredRows.map((row, ri) => {
                 const pctFromAtm = atmStrike > 0 ? ((row.strike - atmStrike) / atmStrike * 100) : 0
                 const pctColor = pctFromAtm > 0 ? S.positive : pctFromAtm < 0 ? S.negative : S.muted
-                const totalCols = (showCalls ? callCols.length : 0) + 1 + (showPuts ? putCols.length : 0)
-                // ATM divider line — insert between row where strike crosses index
+                // ATM divider — borderTop on first row where strike >= indexPrice
                 const prevRow = ri > 0 ? filteredRows[ri - 1] : null
-                const showAtmLine = prevRow && indexPrice > 0 && prevRow.strike < indexPrice && row.strike >= indexPrice
+                const isAtmBorder = prevRow && indexPrice > 0 && prevRow.strike < indexPrice && row.strike >= indexPrice
+                // Row volume heatmap
+                const rowVol = Math.max(row.call?.volume ?? 0, row.put?.volume ?? 0)
+                const rowHeatBg = rowVol > 0 && maxVolume > 0 ? `rgba(68,136,255,${(0.04 + (rowVol / maxVolume) * 0.18).toFixed(2)})` : ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)'
                 return (
-                  <React.Fragment key={row.strike}>
-                    {showAtmLine && (
-                      <tr><td colSpan={totalCols} style={{ padding: 0, border: 'none' }}>
-                        <div style={{ height: 2, background: 'linear-gradient(to right, transparent, #ccaa44, #ccaa44, transparent)', margin: '0 8px', boxShadow: '0 0 6px rgba(204,170,68,0.6)' }} />
-                      </td></tr>
-                    )}
-                    <tr style={{ background: ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                    <tr key={row.strike} style={{
+                      background: rowHeatBg,
+                      ...(isAtmBorder ? { borderTop: '2px solid #ccaa44', boxShadow: '0 -2px 8px rgba(204,170,68,0.4)' } : {}),
+                    }}>
                       {showCalls && callCols.map(c => <td key={`c-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, width: c.width, background: cellBg(c, row.call) }}>{renderCell(row.call, c, false)}</td>)}
                       <td style={{ padding: '1px 2px', textAlign: 'center', borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}10`, background: S.panel, whiteSpace: 'nowrap' }}>
                         <button style={{ background: GRAD_BUY, border: 'none', borderRadius: 3, padding: '2px 4px', width: '100%', cursor: 'default', fontFamily: 'inherit', boxShadow: SHADOW_BTN }}>
@@ -443,7 +448,6 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
                       </td>
                       {showPuts && putCols.map(c => <td key={`p-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, width: c.width, background: cellBg(c, row.put) }}>{renderCell(row.put, c, true)}</td>)}
                     </tr>
-                  </React.Fragment>
                 )
               })}
             </tbody>
@@ -455,24 +459,24 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
         )}
       </div>
 
-      {/* Right button bar */}
-      <div style={{ width: 28, flexShrink: 0, background: '#111015', borderLeft: `1px solid ${S.border}`, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 0', gap: 2 }}>
+      {/* Right button bar — exact OrderTypeButton style from PricePanel */}
+      <div style={{ width: 32, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 2px', gap: 2, borderLeft: `1px solid ${S.border}`, background: S.panel }}>
         {[
-          { icon: 'D', title: 'Exchange', onClick: undefined },
-          { icon: '⚙', title: 'Settings', onClick: () => setSettingsOpen(true) },
-          { icon: '🔔', title: 'Alert', onClick: undefined },
-          { icon: '🔒', title: 'Lock', onClick: undefined },
+          { label: 'D', title: 'Exchange (Deribit)' },
+          { label: '⚙', title: 'Settings', onClick: () => setSettingsOpen(true) },
+          { label: '🔔', title: 'Alerts' },
+          { label: '🔒', title: 'Lock position' },
         ].map((btn, i) => (
-          <button key={i} onClick={btn.onClick ?? undefined} title={btn.title}
-            disabled={!btn.onClick}
-            onMouseEnter={e => { if (btn.onClick) e.currentTarget.style.background = '#2a2a38' }}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          <button key={i} onClick={btn.onClick} title={btn.title}
+            onMouseEnter={e => { e.currentTarget.style.background = GRAD_ACT; e.currentTarget.style.color = 'white' }}
+            onMouseLeave={e => { e.currentTarget.style.background = GRAD_SEC; e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}
             style={{
-              width: 24, height: 24, background: 'transparent', border: 'none',
-              borderRadius: 3, color: btn.onClick ? S.muted : '#2a2a38',
-              cursor: btn.onClick ? 'pointer' : 'default', fontSize: 12, lineHeight: 1,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>{btn.icon}</button>
+              width: 28, padding: '4px 0', fontSize: 9,
+              background: GRAD_SEC, border: 'none', borderRadius: 4,
+              color: 'rgba(255,255,255,0.3)', cursor: 'pointer',
+              textAlign: 'center', lineHeight: 1.2, fontFamily: 'inherit',
+              transition: 'color 0.1s',
+            }}>{btn.label}</button>
         ))}
       </div>
       </div>
