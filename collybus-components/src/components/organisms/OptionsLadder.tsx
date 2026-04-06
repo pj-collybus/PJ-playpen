@@ -414,11 +414,11 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
           <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: S.muted, cursor: 'pointer' }}>
             <input type="checkbox" checked={atmOnly} onChange={() => setAtmOnly(v => !v)} style={{ accentColor: S.blue }} /> ATM ±
           </label>
-          {atmOnly && <div style={{ display: 'flex', alignItems: 'center', background: '#0d0d14', border: '1px solid #2a2a3a', borderRadius: 4, height: 24, overflow: 'hidden' }}>
+          {atmOnly && <div style={{ display: 'flex', alignItems: 'center', background: '#0d0d14', border: '1px solid #2a2a3a', borderRadius: 4, height: 32, overflow: 'hidden' }}>
             <input type="number" value={atmN} onChange={e => setAtmN(Math.max(1, parseInt(e.target.value) || 8))} style={{ width: 32, background: 'transparent', border: 'none', color: '#ccc', fontSize: 11, textAlign: 'center', outline: 'none', fontFamily: 'inherit' }} />
-            <div style={{ display: 'flex', flexDirection: 'column', borderLeft: '1px solid #2a2a3a' }}>
-              <button onClick={() => setAtmN(n => n + 1)} style={{ height: 12, width: 16, background: 'linear-gradient(to bottom, #1a2a4a, #0d1a30)', border: 'none', borderBottom: '1px solid #2a2a3a', color: '#4488ff', fontSize: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>▲</button>
-              <button onClick={() => setAtmN(n => Math.max(1, n - 1))} style={{ height: 12, width: 16, background: 'linear-gradient(to bottom, #1a2a4a, #0d1a30)', border: 'none', color: '#4488ff', fontSize: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>▼</button>
+            <div style={{ display: 'flex', flexDirection: 'column', borderLeft: '1px solid #1a1a20' }}>
+              <button onClick={() => setAtmN(n => n + 1)} style={{ width: 18, height: 16, background: 'linear-gradient(to bottom, #3C3B42, #2B2A2F)', border: 'none', borderBottom: '1px solid #1a1a20', color: '#8a8a9a', fontSize: 8, cursor: 'pointer', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0px 1px 0px rgba(255,255,255,0.12)' }}>▲</button>
+              <button onClick={() => setAtmN(n => Math.max(1, n - 1))} style={{ width: 18, height: 16, background: 'linear-gradient(to bottom, #2B2A2F, #232228)', border: 'none', color: '#8a8a9a', fontSize: 8, cursor: 'pointer', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0px 1px 0px rgba(255,255,255,0.06)' }}>▼</button>
             </div>
           </div>}
           {!atmOnly && <>
