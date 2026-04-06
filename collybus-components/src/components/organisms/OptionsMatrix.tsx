@@ -1,6 +1,5 @@
 // @ts-nocheck
 import { useState, useRef, useEffect, useCallback, useMemo, Component } from 'react'
-import { ExchangePill } from '../shared/ExchangePill'
 
 // Error boundary to prevent OptionsMatrix crashes from blanking the whole app
 class OptionsMatrixErrorBoundary extends Component {
@@ -431,7 +430,7 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, initialConfig, on
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: S.text }}>OPTIONS MATRIX</span>
-            <ExchangePill exchange="DERIBIT" />
+            <span style={{ fontSize: 9, color: '#888', flexShrink: 0 }}>DERIBIT</span>
             {loading && <span style={{ fontSize: 9, color: S.amber }}>loading...</span>}
             {error && <span style={{ fontSize: 9, color: S.negative }}>{error}</span>}
           </div>

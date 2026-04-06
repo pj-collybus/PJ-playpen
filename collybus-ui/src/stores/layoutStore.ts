@@ -145,7 +145,7 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
     // Width: strike(80) + 3 cols(100) + scrollbar(16) = 396
     // Height: toolbar(32×2) + colHeader(36) + 9 rows(52) + footer(24) = 592 × 1.25 = 740
     const OM_W = 80 + 100 * 3 + 16 // 396
-    const OM_H = Math.round((32 * 2 + 36 + 52 * 9 + 24) * 1.25) // 740
+    const OM_H = Math.round((32 * 2 + 36 + 52 * 9 + 24) * 0.875) // 518
     const newPanel: Panel = {
       id: genId(), type,
       x: -1, y: -1,
