@@ -1,5 +1,24 @@
 // @ts-nocheck
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, Component } from 'react'
+
+// Error boundary to prevent OptionsMatrix crashes from blanking the whole app
+class OptionsMatrixErrorBoundary extends Component {
+  state = { error: null }
+  static getDerivedStateFromError(error) { return { error } }
+  componentDidCatch(error, info) { console.error('[OptionsMatrix] crash:', error, info) }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ position: 'fixed', left: 100, top: 100, zIndex: 600, padding: 20, background: '#18171C', border: '1px solid #4a1a1a', borderRadius: 8, color: '#e05252', fontSize: 12, maxWidth: 400 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Options Matrix Error</div>
+          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>{String(this.state.error)}</div>
+          <button onClick={() => this.setState({ error: null })} style={{ marginTop: 8, background: '#2a2a38', border: '1px solid #363C4E', borderRadius: 4, color: '#aaa', padding: '4px 12px', cursor: 'pointer', fontSize: 10 }}>Retry</button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 const S = {
   bg: '#18171C', panel: '#141418', border: '#2a2a38', bgInput: '#0e0e14',
@@ -48,7 +67,7 @@ const INSTRUMENT_LABELS: Record<InstrumentId, string> = {
 }
 const INVERSE_BASES = new Set(['BTC', 'ETH'])
 
-export interface OptionsMatrixProps { apiBase?: string; onOrderClick?: (cell: MatrixCell) => void; onClose?: () => void }
+export interface OptionsMatrixProps { apiBase?: string; initialInstrument?: string; onOrderClick?: (cell: MatrixCell) => void; onClose?: () => void }
 
 const fmtStrike = (v: number) => v >= 1 ? `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : `$${v.toFixed(4)}`
 const fmtIndex = (v: number) => `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
@@ -128,7 +147,7 @@ const fmtExpiry = (exp: string) => {
   return exp
 }
 
-export function OptionsMatrix({ apiBase = '', onOrderClick, onClose }: OptionsMatrixProps) {
+function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onClose }: OptionsMatrixProps) {
   const posKey = 'optionsMatrix'
   const [pos, setPos] = useState(() => loadPos(posKey, { x: 80, y: 60 }))
   const [size, setSize] = useState(() => loadSize(posKey, { w: 920, h: 580 }))
@@ -149,7 +168,7 @@ export function OptionsMatrix({ apiBase = '', onOrderClick, onClose }: OptionsMa
   }, [instrument, optionType, atmMode])
 
   // Filters
-  const [instrument, setInstrument] = useState<InstrumentId>('BTC')
+  const [instrument, setInstrument] = useState<InstrumentId>((initialInstrument as InstrumentId) || 'BTC')
   const [optionType, setOptionType] = useState<OptionType>('calls')
   const [sideMode, setSideMode] = useState<SideMode>('buy')
   const [viewMode, setViewMode] = useState<ViewMode>('bidask')
@@ -480,5 +499,13 @@ export function OptionsMatrix({ apiBase = '', onOrderClick, onClose }: OptionsMa
       </div>
       <style>{`@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.5 } }`}</style>
     </div>
+  )
+}
+
+export function OptionsMatrix(props: OptionsMatrixProps) {
+  return (
+    <OptionsMatrixErrorBoundary>
+      <OptionsMatrixInner {...props} />
+    </OptionsMatrixErrorBoundary>
   )
 }
