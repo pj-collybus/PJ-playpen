@@ -334,12 +334,12 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
   const baseCcy = instrument === 'BTC' ? 'BTC' : instrument === 'ETH' ? 'ETH' : null
   const fmtBidAsk = (price: number | null) => {
     if (price == null || price === 0) return null
-    if (isInverse && baseCcy && indexPrice > 0) {
+    if (isInverse && indexPrice > 0) {
       const usd = price * indexPrice
       return (
-        <div style={{ lineHeight: 1.2 }}>
-          <div style={{ fontSize: 11, fontWeight: 700 }}>{price.toFixed(4)} {baseCcy}</div>
-          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>${usd.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+        <div style={{ lineHeight: 1.2, textAlign: 'center' }}>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>{price.toFixed(4)}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#ffffff' }}>${usd.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
         </div>
       )
     }
