@@ -82,6 +82,9 @@ class SignalRClient {
         window.dispatchEvent(new CustomEvent('algo-status-update', { detail: data }))
       }
     })
+    this.connection.on('OptionsUpdate', (data) => {
+      if (data?.summaries) window.dispatchEvent(new CustomEvent('options-update', { detail: data }))
+    })
     this.connection.on('BlotterUpdate', (snapshot: {
       orders?: Parameters<typeof upsertOrder>[0][]
       trades?: Parameters<typeof upsertTrade>[0][]

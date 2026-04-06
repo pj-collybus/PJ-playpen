@@ -1,12 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Collybus.Api.Adapters;
 
 namespace Collybus.Api.Controllers;
 
 [ApiController]
 [Route("api/options")]
-public class OptionsController : ControllerBase
+public class OptionsController(DeribitAdapter deribit) : ControllerBase
 {
     private static readonly HttpClient _http = new();
     private static readonly Dictionary<string, (DateTime cachedAt, object data)> _cache = new();
@@ -243,6 +244,41 @@ public class OptionsController : ControllerBase
         }
         catch (Exception ex) { return BadRequest(new { error = ex.Message }); }
     }
+
+    [HttpPost("subscribe")]
+    public async Task<IActionResult> SubscribeOptionsSummary([FromBody] SubscribeRequest req)
+    {
+        try
+        {
+            var currency = MapCurrency(req.Instrument ?? "BTC");
+            await deribit.SubscribeOptionsSummaryAsync(currency);
+            return Ok(new { ok = true, currency });
+        }
+        catch (Exception ex) { return BadRequest(new { error = ex.Message }); }
+    }
+
+    [HttpPost("unsubscribe")]
+    public async Task<IActionResult> UnsubscribeOptionsSummary([FromBody] SubscribeRequest req)
+    {
+        try
+        {
+            var currency = MapCurrency(req.Instrument ?? "BTC");
+            await deribit.UnsubscribeOptionsSummaryAsync(currency);
+            return Ok(new { ok = true });
+        }
+        catch (Exception ex) { return BadRequest(new { error = ex.Message }); }
+    }
+
+    public record SubscribeRequest { public string? Instrument { get; init; } }
+
+    private static string MapCurrency(string instrument) => instrument switch
+    {
+        "BTC" or "BTC_USDC" => "BTC",
+        "ETH" or "ETH_USDC" => "ETH",
+        "SOL_USDC" => "SOL",
+        "XRP_USDC" => "XRP",
+        _ => "BTC"
+    };
 
     private async Task<JsonNode?> CachedGet(string url)
     {

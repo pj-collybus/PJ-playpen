@@ -69,6 +69,27 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
         await RpcAsync("public/subscribe", new { channels });
     }
 
+    // Options summary subscription — pushes all option summaries for a currency
+    private readonly HashSet<string> _optionsSubs = new(StringComparer.OrdinalIgnoreCase);
+
+    public async Task SubscribeOptionsSummaryAsync(string currency)
+    {
+        var key = currency.ToUpper();
+        if (!_optionsSubs.Add(key)) return; // already subscribed
+        if (_ws?.State != System.Net.WebSockets.WebSocketState.Open) await ConnectAsync();
+        var channel = $"book_summary.{key}.option";
+        Console.WriteLine($"[Deribit] subscribing to {channel}");
+        await RpcAsync("public/subscribe", new { channels = new[] { channel } });
+    }
+
+    public async Task UnsubscribeOptionsSummaryAsync(string currency)
+    {
+        var key = currency.ToUpper();
+        if (!_optionsSubs.Remove(key)) return;
+        if (_ws?.State != System.Net.WebSockets.WebSocketState.Open) return;
+        try { await RpcAsync("public/unsubscribe", new { channels = new[] { $"book_summary.{key}.option" } }); } catch { }
+    }
+
     public async Task UnsubscribeAsync(string venueSymbol)
     {
         _subscriptions.Remove(venueSymbol);
@@ -337,6 +358,41 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
         else if (channel.StartsWith("user.portfolio.")) HandleUserPortfolio(data, receivedTs);
         else if (channel.StartsWith("user.trades.")) HandleUserTrades(data, receivedTs);
         else if (channel.StartsWith("user.orders.")) HandleUserOrders(data, receivedTs);
+        else if (channel.StartsWith("book_summary.")) HandleBookSummary(channel, data, receivedTs);
+    }
+
+    private void HandleBookSummary(string channel, JsonNode? data, long receivedTs)
+    {
+        if (data is null) return;
+        // channel = book_summary.BTC.option
+        var parts = channel.Split('.');
+        var currency = parts.Length > 1 ? parts[1] : "";
+        var items = data is JsonArray arr ? arr.Select(x => x).ToList()
+                  : data is JsonObject ? [data] : [];
+
+        var summaries = new List<object>();
+        foreach (var s in items)
+        {
+            if (s is null) continue;
+            var name = s["instrument_name"]?.GetValue<string>() ?? "";
+            if (string.IsNullOrEmpty(name) || !name.Contains("-")) continue;
+            summaries.Add(new
+            {
+                instrument = name,
+                bidPrice = s["bid_price"]?.GetValue<double?>() ?? 0,
+                askPrice = s["ask_price"]?.GetValue<double?>() ?? 0,
+                markPrice = s["mark_price"]?.GetValue<double?>() ?? 0,
+                markIv = s["mark_iv"]?.GetValue<double?>() ?? 0,
+                bidIv = s["bid_iv"]?.GetValue<double?>() ?? 0,
+                askIv = s["ask_iv"]?.GetValue<double?>() ?? 0,
+                underlyingPrice = s["underlying_price"]?.GetValue<double?>() ?? 0,
+                volume = s["volume"]?.GetValue<double?>() ?? 0,
+                openInterest = s["open_interest"]?.GetValue<double?>() ?? 0,
+            });
+        }
+
+        if (summaries.Count > 0)
+            _ = Hub.Clients.All.SendAsync("OptionsUpdate", new { currency, summaries, timestamp = receivedTs });
     }
 
     private void HandleTicker(string channel, JsonNode? data, long receivedTs)

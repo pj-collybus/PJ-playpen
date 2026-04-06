@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useState, useRef, useEffect, useCallback, useMemo, Component } from 'react'
+import { ExchangePill } from '../shared/ExchangePill'
 
 // Error boundary to prevent OptionsMatrix crashes from blanking the whole app
 class OptionsMatrixErrorBoundary extends Component {
@@ -167,14 +168,12 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
   const [atmMode, setAtmMode] = useState(true)
   const [strikeMin, setStrikeMin] = useState('')
   const [strikeMax, setStrikeMax] = useState('')
-  const [polling, setPolling] = useState(true)
   const [availableExpiries, setAvailableExpiries] = useState<string[]>([])
   const [indexPrice, setIndexPrice] = useState(0)
   const [expiryFrom, setExpiryFrom] = useState('')
   const [expiryTo, setExpiryTo] = useState('')
   const [data, setData] = useState<MatrixResponse | null>(null)
   const [loading, setLoading] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastFetchTs, setLastFetchTs] = useState(0)
   const [now, setNow] = useState(Date.now())
@@ -198,7 +197,7 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
     })
   }, [instrument, optionType, atmMode])
 
-  // Stage 1: Fetch expiries on instrument/type change
+  // Stage 1: Fetch expiries + subscribe to websocket on instrument change
   const fetchExpiries = useCallback(async () => {
     try {
       const params = new URLSearchParams({ instrument, type: optionType === 'both' ? 'calls' : optionType })
@@ -207,26 +206,36 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
       const json: ExpiriesResponse = await resp.json()
       setAvailableExpiries(json.expiries ?? [])
       setIndexPrice(json.indexPrice ?? 0)
-      // Reset selections
       setExpiryFrom('')
       setExpiryTo('')
       setData(null)
-      // Auto-select nearest expiry after 2s if user doesn't pick
       if (autoSelectTimer.current) clearTimeout(autoSelectTimer.current)
       autoSelectTimer.current = setTimeout(() => {
         if (json.expiries?.length > 0) setExpiryTo(json.expiries[0])
       }, 2000)
+      // Subscribe to websocket summary feed
+      fetch(`${apiBase}/api/options/subscribe`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instrument }),
+      }).catch(() => {})
     } catch (e: any) { setError(e.message ?? 'Failed to load expiries') }
   }, [apiBase, instrument, optionType])
 
   useEffect(() => { fetchExpiries() }, [fetchExpiries])
+  // Unsubscribe on unmount
+  useEffect(() => {
+    return () => {
+      fetch(`${apiBase}/api/options/unsubscribe`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instrument }),
+      }).catch(() => {})
+    }
+  }, [apiBase, instrument])
 
-  // Stage 2: Fetch full matrix when expiryTo is selected
+  // Stage 2: Initial matrix load when expiryTo selected (one-time REST fetch for structure)
   const fetchMatrix = useCallback(async () => {
     if (!expiryTo) return
-    const isFirstLoad = !data
-    if (isFirstLoad) setLoading(true)
-    else setRefreshing(true)
+    setLoading(true)
     try {
       const params = new URLSearchParams()
       params.set('exchange', 'Deribit')
@@ -239,47 +248,66 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const json = await resp.json()
       setError(null)
-      // Merge: never overwrite valid prices with null/empty
-      setData(prev => {
-        if (!prev) return json
-        const merged = { ...json }
-        if (json.cells && prev.cells) {
-          const mc: Record<string, Record<string, any>> = {}
-          for (const sk of Object.keys(json.cells)) {
-            mc[sk] = {}
-            for (const exp of Object.keys(json.cells[sk] ?? {})) {
-              const nc = json.cells[sk]?.[exp]
-              const pc = prev.cells[sk]?.[exp]
-              mc[sk][exp] = (nc?.bid || nc?.ask) ? nc : (pc ?? nc)
-            }
-          }
-          merged.cells = mc
-        }
-        return merged
-      })
+      setData(json)
       setIndexPrice(json.indexPrice ?? 0)
       setLastFetchTs(Date.now())
-    } catch (e: any) {
-      // Keep last good data — only set error, never clear matrix
-      console.warn('[options] poll failed, keeping last data:', e.message)
-      if (!data) setError(e.message ?? 'Fetch failed')
-    }
-    finally { setLoading(false); setRefreshing(false) }
-  }, [apiBase, instrument, optionType, atmMode, expiryFrom, expiryTo, data])
+    } catch (e: any) { setError(e.message ?? 'Fetch failed') }
+    finally { setLoading(false) }
+  }, [apiBase, instrument, optionType, atmMode, expiryFrom, expiryTo])
 
+  // Fetch initial matrix data once when expiryTo changes
+  useEffect(() => { if (expiryTo) fetchMatrix() }, [expiryTo, instrument, optionType, atmMode])
+
+  // Live websocket updates — merge incoming summaries into existing cells
   useEffect(() => {
-    if (!expiryTo) return
-    fetchMatrix()
-    if (!polling) return
-    const jitter = Math.random() * 2000
-    const id = setInterval(fetchMatrix, 10000 + jitter)
-    return () => clearInterval(id)
-  }, [fetchMatrix, polling, expiryTo])
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (!detail?.summaries) return
+      setLastFetchTs(Date.now())
+      const sums = detail.summaries as any[]
+      // Build lookup by instrument name
+      const sumMap: Record<string, any> = {}
+      for (const s of sums) if (s.instrument) sumMap[s.instrument] = s
+      // Update index price from underlying
+      const anySum = sums[0]
+      if (anySum?.underlyingPrice > 0) setIndexPrice(anySum.underlyingPrice)
+      // Merge into existing data
+      setData(prev => {
+        if (!prev) return prev
+        const merged = { ...prev, timestamp: Date.now() }
+        const mc = { ...prev.cells }
+        for (const sk of Object.keys(mc)) {
+          mc[sk] = { ...mc[sk] }
+          for (const exp of Object.keys(mc[sk])) {
+            const cell = mc[sk][exp] as any
+            if (!cell?.instrument) continue
+            const update = sumMap[cell.instrument]
+            if (update && (update.bidPrice || update.askPrice)) {
+              mc[sk][exp] = {
+                ...cell,
+                bid: update.bidPrice ?? cell.bid,
+                ask: update.askPrice ?? cell.ask,
+                mark: update.markPrice ?? cell.mark,
+                markIv: update.markIv ?? cell.markIv,
+                bidIv: update.bidIv ?? cell.bidIv,
+                askIv: update.askIv ?? cell.askIv,
+                volume: update.volume ?? cell.volume,
+                openInterest: update.openInterest ?? cell.openInterest,
+              }
+            }
+          }
+        }
+        merged.cells = mc
+        return merged
+      })
+    }
+    window.addEventListener('options-update', handler)
+    return () => window.removeEventListener('options-update', handler)
+  }, [])
 
-  // Freshness indicator: LIVE if updated within 20s, STALE if older, nothing before first load
+  // Freshness indicator — live if last update within 10s
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id) }, [])
-  const isLive = lastFetchTs > 0 && (now - lastFetchTs) < 20000
-  const isStale = lastFetchTs > 0 && !isLive
+  const isLive = lastFetchTs > 0 && (now - lastFetchTs) < 10000
 
   // ATM filter: 4 above + ATM + 4 below = 9 strikes
   const filteredStrikes = useMemo(() => {
@@ -357,9 +385,8 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: S.text }}>OPTIONS MATRIX</span>
-            <ExchPill ex="DERIBIT" />
+            <ExchangePill exchange="DERIBIT" />
             {loading && <span style={{ fontSize: 9, color: S.amber }}>loading...</span>}
-            {refreshing && !loading && <span style={{ fontSize: 9, color: S.dim }}>↻</span>}
             {error && <span style={{ fontSize: 9, color: S.negative }}>{error}</span>}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -369,15 +396,9 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, onOrderClick, onC
                 {fmtIndex(indexPrice)}
               </span>
             )}
-            {isLive && polling && (
+            {isLive && (
               <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 8, background: 'rgba(0,199,88,0.15)', color: S.positive, border: '1px solid rgba(0,199,88,0.4)', animation: 'pulse 2s ease-in-out infinite' }}>LIVE</span>
             )}
-            {isStale && (
-              <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 8, background: 'rgba(245,158,11,0.15)', color: S.amber, border: '1px solid rgba(245,158,11,0.4)' }}>STALE</span>
-            )}
-            <Pill active={polling} onClick={() => setPolling(v => !v)} color={polling ? S.positive : S.muted} style={{ fontSize: 9, padding: '1px 6px' }}>
-              {polling ? 'ON' : 'OFF'}
-            </Pill>
             {onClose && <button onClick={onClose} style={{ background: 'none', border: 'none', color: S.muted, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '0 3px' }}>×</button>}
           </div>
         </div>
