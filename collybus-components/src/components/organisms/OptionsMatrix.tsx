@@ -204,6 +204,8 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, initialConfig, on
   const resizeRef = useRef<any>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
   const autoSelectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const restoredExpiryFrom = useRef(ic?.expiryFrom ?? '')
+  const restoredExpiryTo = useRef(ic?.expiryTo ?? '')
 
   // ── useEffect — position/size persistence ──
   useEffect(() => { savePos(posKey, pos) }, [pos])
@@ -231,13 +233,25 @@ function OptionsMatrixInner({ apiBase = '', initialInstrument, initialConfig, on
       const json: ExpiriesResponse = await resp.json()
       setAvailableExpiries(json.expiries ?? [])
       setIndexPrice(json.indexPrice ?? 0)
-      setExpiryFrom('')
-      setExpiryTo('')
-      setData(null)
-      if (autoSelectTimer.current) clearTimeout(autoSelectTimer.current)
-      autoSelectTimer.current = setTimeout(() => {
-        if (json.expiries?.length > 0) setExpiryTo(json.expiries[0])
-      }, 2000)
+      // Restore saved expiry values on first load, reset on instrument change
+      if (restoredExpiryFrom.current) {
+        setExpiryFrom(restoredExpiryFrom.current)
+        restoredExpiryFrom.current = ''
+      } else {
+        setExpiryFrom('')
+      }
+      if (restoredExpiryTo.current) {
+        setExpiryTo(restoredExpiryTo.current)
+        restoredExpiryTo.current = ''
+      } else {
+        setExpiryTo('')
+        setData(null)
+        // Auto-select nearest expiry after 2s only if no restored value
+        if (autoSelectTimer.current) clearTimeout(autoSelectTimer.current)
+        autoSelectTimer.current = setTimeout(() => {
+          if (json.expiries?.length > 0) setExpiryTo(json.expiries[0])
+        }, 2000)
+      }
       // Subscribe to websocket summary feed
       fetch(`${apiBase}/api/options/subscribe`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
