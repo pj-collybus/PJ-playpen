@@ -434,12 +434,10 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
                 // Row volume heatmap
                 const rowVol = Math.max(row.call?.volume ?? 0, row.put?.volume ?? 0)
                 const rowHeatBg = rowVol > 0 && maxVolume > 0 ? `rgba(68,136,255,${(0.04 + (rowVol / maxVolume) * 0.18).toFixed(2)})` : ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)'
-                const ROW_H = 36
                 return (
                     <tr key={row.strike} style={{
-                      height: ROW_H,
                       background: rowHeatBg,
-                      boxShadow: isAtmBorder ? 'inset 0 2px 0 #ccaa44' : 'none',
+                      ...(isAtmBorder ? { borderTop: '2px solid #ccaa44', boxShadow: '0 -2px 8px rgba(204,170,68,0.4)' } : {}),
                     }}>
                       {showCalls && callCols.map(c => <td key={`c-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, width: c.width, background: cellBg(c, row.call) }}>{renderCell(row.call, c, false)}</td>)}
                       <td style={{ padding: '1px 2px', textAlign: 'center', borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}10`, background: S.panel, whiteSpace: 'nowrap' }}>
