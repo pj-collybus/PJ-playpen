@@ -431,12 +431,9 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
                 // ATM divider — borderTop on first row where strike >= indexPrice
                 const prevRow = ri > 0 ? filteredRows[ri - 1] : null
                 const isAtmBorder = prevRow && indexPrice > 0 && prevRow.strike < indexPrice && row.strike >= indexPrice
-                // Row volume heatmap
-                const rowVol = Math.max(row.call?.volume ?? 0, row.put?.volume ?? 0)
-                const rowHeatBg = rowVol > 0 && maxVolume > 0 ? `rgba(68,136,255,${(0.04 + (rowVol / maxVolume) * 0.18).toFixed(2)})` : ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)'
                 return (
                     <tr key={row.strike} style={{
-                      background: rowHeatBg,
+                      background: ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
                       ...(isAtmBorder ? { boxShadow: 'inset 0 2px 0 #ccaa44, 0 -2px 8px rgba(204,170,68,0.4)' } : {}),
                     }}>
                       {showCalls && callCols.map(c => <td key={`c-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, width: c.width, background: cellBg(c, row.call) }}>{renderCell(row.call, c, false)}</td>)}
@@ -459,25 +456,15 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
         )}
       </div>
 
-      {/* Right button bar — exact OrderTypeButton style from PricePanel */}
-      <div style={{ width: 32, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 2px', gap: 2, borderLeft: `1px solid ${S.border}`, background: S.panel }}>
-        {[
-          { label: 'D', title: 'Exchange (Deribit)' },
-          { label: '⚙', title: 'Settings', onClick: () => setSettingsOpen(true) },
-          { label: '🔔', title: 'Alerts' },
-          { label: '🔒', title: 'Lock position' },
-        ].map((btn, i) => (
-          <button key={i} onClick={btn.onClick} title={btn.title}
-            onMouseEnter={e => { e.currentTarget.style.background = GRAD_ACT; e.currentTarget.style.color = 'white' }}
-            onMouseLeave={e => { e.currentTarget.style.background = GRAD_SEC; e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}
-            style={{
-              width: 28, padding: '4px 0', fontSize: 9,
-              background: GRAD_SEC, border: 'none', borderRadius: 4,
-              color: 'rgba(255,255,255,0.3)', cursor: 'pointer',
-              textAlign: 'center', lineHeight: 1.2, fontFamily: 'inherit',
-              transition: 'color 0.1s',
-            }}>{btn.label}</button>
-        ))}
+      {/* Right button bar — exact PricePanel style */}
+      <div style={{ width: 22, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <button onClick={onClose} style={{ height: 22, width: 22, background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 12, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; e.currentTarget.style.color = '#fff' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)' }}
+        >×</button>
+        <button onClick={() => setSettingsOpen(true)} title="Settings" style={{ height: 28, width: 22, background: 'transparent', border: 'none', color: settingsOpen ? '#2B79DD' : '#fff', cursor: 'pointer', fontSize: 14, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⚙</button>
+        <button title="Alerts" style={{ height: 28, width: 22, background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 14, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔔</button>
+        <button title="Lock" style={{ height: 28, width: 22, background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 14, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔓</button>
       </div>
       </div>
 
