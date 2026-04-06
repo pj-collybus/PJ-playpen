@@ -332,28 +332,28 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
   // Format bid/ask with native + USD for inverse instruments
   const isInverse = instrument === 'BTC' || instrument === 'ETH'
   const baseCcy = instrument === 'BTC' ? 'BTC' : instrument === 'ETH' ? 'ETH' : null
-  const fmtBidAsk = (price: number | null) => {
+  const fmtBidAsk = (price: number | null, color: string) => {
     if (price == null || price === 0) return null
     if (isInverse && indexPrice > 0) {
       const usd = price * indexPrice
       return (
         <div style={{ lineHeight: 1.2, textAlign: 'center' }}>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>{price.toFixed(4)}</div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#ffffff' }}>${usd.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{price.toFixed(4)}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color }}>${usd.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
         </div>
       )
     }
-    return `$${price.toLocaleString('en-US', { minimumFractionDigits: price < 1 ? 4 : 2, maximumFractionDigits: price < 1 ? 4 : 2 })}`
+    return <span style={{ color, fontWeight: 700, fontSize: 13 }}>${price.toLocaleString('en-US', { minimumFractionDigits: price < 1 ? 4 : 2, maximumFractionDigits: price < 1 ? 4 : 2 })}</span>
   }
 
   // Render cell — plain colored text: Bid=green, Ask=red on both sides
   const renderCell = (cell: any, col: ColDef, isPut: boolean) => {
     const val = cell?.[col.key]
     if (col.style === 'bid' || col.style === 'ask') {
-      const content = fmtBidAsk(val)
-      if (!content) return <span style={{ color: '#2a2a3a', fontSize: 9 }}>—</span>
       const color = col.style === 'bid' ? '#00c896' : '#e05252'
-      return <span onClick={() => cell && onOrderClick?.(cell, col.style === 'bid' ? 'buy' : 'sell')} style={{ color, cursor: 'pointer' }}>{content}</span>
+      const content = fmtBidAsk(val, color)
+      if (!content) return <span style={{ color: '#2a2a3a', fontSize: 9 }}>—</span>
+      return <span onClick={() => cell && onOrderClick?.(cell, col.style === 'bid' ? 'buy' : 'sell')} style={{ cursor: 'pointer' }}>{content}</span>
     }
     const fmt = col.style === 'iv' ? 'iv' : col.style === 'greek' ? 'greek' : col.style === 'vol' || col.style === 'size' ? 'vol' : 'price'
     const text = fmtCell(val, fmt)
