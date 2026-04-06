@@ -10,9 +10,13 @@ const S = {
 type InstrumentId = 'BTC' | 'BTC_USDC' | 'ETH' | 'ETH_USDC' | 'SOL_USDC' | 'XRP_USDC'
 type CpFilter = 'calls' | 'puts' | 'both'
 
-const MAIN_INSTRUMENTS: InstrumentId[] = ['BTC', 'ETH', 'SOL_USDC', 'XRP_USDC']
+// Pills: BTC, ETH, SOL, XRP — all map to USDC-settled
+const PILL_INSTRUMENTS: { label: string; id: InstrumentId }[] = [
+  { label: 'BTC', id: 'BTC' }, { label: 'ETH', id: 'ETH' },
+  { label: 'SOL', id: 'SOL_USDC' }, { label: 'XRP', id: 'XRP_USDC' },
+]
 const OTHER_INSTRUMENTS: InstrumentId[] = ['BTC_USDC', 'ETH_USDC']
-const LABELS: Record<InstrumentId, string> = { BTC: 'BTC', BTC_USDC: 'BTC USDC', ETH: 'ETH', ETH_USDC: 'ETH USDC', SOL_USDC: 'SOL', XRP_USDC: 'XRP' }
+const LABELS: Record<InstrumentId, string> = { BTC: 'BTC', BTC_USDC: 'BTC USDC', ETH: 'ETH', ETH_USDC: 'ETH USDC', SOL_USDC: 'SOL USDC', XRP_USDC: 'XRP USDC' }
 const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC']
 
 const fmtStrike = (v: number) => v >= 1 ? `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : `$${v.toFixed(4)}`
@@ -30,17 +34,17 @@ const toDeribitExpiry = (exp: string) => {
 // Column definitions
 interface ColDef { key: string; label: string; width: number; defaultVisible: boolean; format: 'price' | 'iv' | 'greek' | 'vol' | 'size' }
 const ALL_COLUMNS: ColDef[] = [
-  { key: 'bid', label: 'Bid', width: 64, defaultVisible: true, format: 'price' },
-  { key: 'ask', label: 'Ask', width: 64, defaultVisible: true, format: 'price' },
-  { key: 'mark', label: 'Mark', width: 64, defaultVisible: true, format: 'price' },
-  { key: 'markIv', label: 'IV', width: 52, defaultVisible: true, format: 'iv' },
-  { key: 'last', label: 'Last', width: 56, defaultVisible: false, format: 'price' },
-  { key: 'volume', label: 'Vol', width: 52, defaultVisible: true, format: 'vol' },
-  { key: 'openInterest', label: 'OI', width: 52, defaultVisible: true, format: 'vol' },
-  { key: 'delta', label: 'Delta', width: 52, defaultVisible: false, format: 'greek' },
-  { key: 'gamma', label: 'Gamma', width: 52, defaultVisible: false, format: 'greek' },
-  { key: 'vega', label: 'Vega', width: 52, defaultVisible: false, format: 'greek' },
-  { key: 'theta', label: 'Theta', width: 52, defaultVisible: false, format: 'greek' },
+  { key: 'bid', label: 'Bid', width: 58, defaultVisible: true, format: 'price' },
+  { key: 'ask', label: 'Ask', width: 58, defaultVisible: true, format: 'price' },
+  { key: 'mark', label: 'Mark', width: 54, defaultVisible: true, format: 'price' },
+  { key: 'markIv', label: 'IV', width: 44, defaultVisible: true, format: 'iv' },
+  { key: 'last', label: 'Last', width: 50, defaultVisible: false, format: 'price' },
+  { key: 'volume', label: 'Vol', width: 44, defaultVisible: true, format: 'vol' },
+  { key: 'openInterest', label: 'OI', width: 44, defaultVisible: true, format: 'vol' },
+  { key: 'delta', label: 'Δ', width: 42, defaultVisible: false, format: 'greek' },
+  { key: 'gamma', label: 'Γ', width: 42, defaultVisible: false, format: 'greek' },
+  { key: 'vega', label: 'V', width: 42, defaultVisible: false, format: 'greek' },
+  { key: 'theta', label: 'Θ', width: 42, defaultVisible: false, format: 'greek' },
 ]
 
 const GRAD_BUY = 'linear-gradient(to right, #1A3A94 0%, #2B79DD 100%)'
@@ -279,20 +283,23 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
     if (idx >= 0) gridRef.current.scrollTop = Math.max(0, idx * 28 - gridRef.current.clientHeight / 2 + 14)
   }, [atmStrike, filteredRows.length])
 
-  // Render cell
-  const renderCell = (cell: any, col: ColDef, isSell: boolean) => {
+  // Render cell — green for calls, red for puts bid/ask
+  const renderCell = (cell: any, col: ColDef, isPut: boolean) => {
     const val = cell?.[col.key]
     const text = fmtCell(val, col.format)
-    if (text === '—') return <span style={{ color: S.dim, fontSize: 10 }}>—</span>
+    if (text === '—') return <span style={{ color: S.dim, fontSize: 9 }}>—</span>
     if (col.key === 'bid' || col.key === 'ask') {
-      const g = isSell ? GRAD_SELL : GRAD_BUY; const gh = isSell ? GRAD_SELL_H : GRAD_BUY_H
-      return <button onClick={() => cell && onOrderClick?.(cell, isSell ? 'sell' : 'buy')}
+      const g = isPut ? GRAD_SELL : GRAD_BUY; const gh = isPut ? GRAD_SELL_H : GRAD_BUY_H
+      return <button onClick={() => cell && onOrderClick?.(cell, isPut ? 'sell' : 'buy')}
         onMouseEnter={e => e.currentTarget.style.background = gh} onMouseLeave={e => e.currentTarget.style.background = g}
-        style={{ background: g, border: 'none', borderRadius: 3, padding: '2px 3px', cursor: 'pointer', width: '100%', textAlign: 'center', fontFamily: 'inherit', boxShadow: SHADOW_BTN }}>
+        style={{ background: g, border: 'none', borderRadius: 3, padding: '1px 2px', cursor: 'pointer', width: '100%', textAlign: 'center', fontFamily: 'inherit', boxShadow: SHADOW_BTN }}>
         <span style={{ fontSize: 10, fontWeight: 400, color: '#fff' }}>{text}</span>
       </button>
     }
-    return <span style={{ fontSize: 10, color: col.format === 'greek' ? '#888' : S.text }}>{text}</span>
+    if (col.format === 'greek') return <span style={{ fontSize: 9, color: '#666', textAlign: 'right' }}>{text}</span>
+    if (col.key === 'mark') return <span style={{ fontSize: 10, color: S.muted }}>{text}</span>
+    if (col.format === 'vol') return <span style={{ fontSize: 9, color: S.muted }}>{text}</span>
+    return <span style={{ fontSize: 10, color: S.text }}>{text}</span>
   }
 
   const showCalls = cpFilter === 'calls' || cpFilter === 'both'
@@ -313,9 +320,9 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
           <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: S.text, marginRight: 4 }}>OPTIONS LADDER</span>
             <span style={{ fontSize: 9, color: '#888', marginRight: 4 }}>DERIBIT</span>
-            {MAIN_INSTRUMENTS.map(i => <Pill key={i} active={instrument === i} onClick={() => setInstrument(i)}>{LABELS[i]}</Pill>)}
+            {PILL_INSTRUMENTS.map(p => <Pill key={p.id} active={instrument === p.id} onClick={() => setInstrument(p.id)}>{p.label}</Pill>)}
             <div ref={othersRef} style={{ position: 'relative' }}>
-              <Pill active={OTHER_INSTRUMENTS.includes(instrument)} onClick={() => setOthersOpen(v => !v)}>…</Pill>
+              <Pill active={OTHER_INSTRUMENTS.includes(instrument)} onClick={() => setOthersOpen(v => !v)}>Others</Pill>
               {othersOpen && <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 1000, background: '#0d0d14', border: '1px solid #2a2a3a', borderRadius: 6, padding: '4px 0', marginTop: 2, boxShadow: '0 8px 32px rgba(0,0,0,0.8)' }}>
                 {OTHER_INSTRUMENTS.map(i => <button key={i} onClick={() => { setInstrument(i); setOthersOpen(false) }}
                   style={{ display: 'block', width: '100%', padding: '5px 12px', background: 'transparent', border: 'none', color: '#ccc', fontSize: 10, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
@@ -357,17 +364,15 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
       <div ref={gridRef} style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         {filteredRows.length > 0 ? (
           <table style={{ borderCollapse: 'collapse', fontSize: 10, fontFamily: 'inherit', width: 'max-content' }}>
-            <thead>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
               <tr>
-                {/* CALLS super-header */}
-                {showCalls && <th colSpan={callCols.length} style={{ position: 'sticky', top: 0, zIndex: 3, background: S.panel, padding: '3px 0', textAlign: 'center', color: S.positive, fontWeight: 700, fontSize: 9, letterSpacing: '0.08em', borderBottom: `1px solid ${S.border}` }}>CALLS</th>}
-                <th rowSpan={2} style={{ position: 'sticky', top: 0, zIndex: 4, background: S.panel, padding: '3px 6px', textAlign: 'center', color: S.muted, fontWeight: 700, fontSize: 9, borderBottom: `1px solid ${S.border}`, borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, width: 70, minWidth: 70, verticalAlign: 'bottom' }}>STRIKE</th>
-                {/* PUTS super-header */}
-                {showPuts && <th colSpan={putCols.length} style={{ position: 'sticky', top: 0, zIndex: 3, background: S.panel, padding: '3px 0', textAlign: 'center', color: S.negative, fontWeight: 700, fontSize: 9, letterSpacing: '0.08em', borderBottom: `1px solid ${S.border}` }}>PUTS</th>}
+                {showCalls && <th colSpan={callCols.length} style={{ background: '#0d0d14', padding: '2px 0 0', textAlign: 'center', color: S.positive, fontWeight: 700, fontSize: 9, letterSpacing: '0.08em' }}>CALLS</th>}
+                <th rowSpan={2} style={{ background: '#0d0d14', padding: '2px 4px', textAlign: 'center', color: S.muted, fontWeight: 700, fontSize: 9, borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}`, width: 68, minWidth: 68, verticalAlign: 'bottom' }}>STRIKE</th>
+                {showPuts && <th colSpan={putCols.length} style={{ background: '#0d0d14', padding: '2px 0 0', textAlign: 'center', color: S.negative, fontWeight: 700, fontSize: 9, letterSpacing: '0.08em' }}>PUTS</th>}
               </tr>
               <tr>
-                {showCalls && callCols.map(c => <th key={`ch-${c.key}`} style={{ position: 'sticky', top: 22, zIndex: 2, background: S.panel, padding: '2px 2px', textAlign: 'center', color: S.muted, fontWeight: 600, fontSize: 8, textTransform: 'uppercase', borderBottom: `1px solid ${S.border}`, width: c.width, minWidth: c.width }}>{c.label}</th>)}
-                {showPuts && putCols.map(c => <th key={`ph-${c.key}`} style={{ position: 'sticky', top: 22, zIndex: 2, background: S.panel, padding: '2px 2px', textAlign: 'center', color: S.muted, fontWeight: 600, fontSize: 8, textTransform: 'uppercase', borderBottom: `1px solid ${S.border}`, width: c.width, minWidth: c.width }}>{c.label}</th>)}
+                {showCalls && callCols.map(c => <th key={`ch-${c.key}`} style={{ background: '#0d0d14', padding: '1px 1px 2px', textAlign: 'center', color: S.muted, fontWeight: 600, fontSize: 8, textTransform: 'uppercase', borderBottom: `1px solid ${S.border}`, width: c.width, minWidth: c.width }}>{c.label}</th>)}
+                {showPuts && putCols.map(c => <th key={`ph-${c.key}`} style={{ background: '#0d0d14', padding: '1px 1px 2px', textAlign: 'center', color: S.muted, fontWeight: 600, fontSize: 8, textTransform: 'uppercase', borderBottom: `1px solid ${S.border}`, width: c.width, minWidth: c.width }}>{c.label}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -375,11 +380,11 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
                 const isAtm = row.strike === atmStrike
                 return (
                   <tr key={row.strike} style={{ background: isAtm ? 'rgba(204,170,68,0.06)' : 'transparent' }}>
-                    {showCalls && callCols.map((c, i) => <td key={`c-${c.key}`} style={{ padding: '2px 2px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, borderLeft: isAtm && i === 0 ? '3px solid #ccaa44' : undefined, width: c.width }}>{renderCell(row.call, c, false)}</td>)}
-                    <td style={{ padding: '2px 4px', textAlign: 'center', fontWeight: isAtm ? 700 : 500, color: isAtm ? '#ccaa44' : S.text, fontSize: 11, borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}10`, background: isAtm ? '#1e1c14' : S.panel, whiteSpace: 'nowrap' }}>
+                    {showCalls && callCols.map((c, i) => <td key={`c-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, borderLeft: isAtm && i === 0 ? '3px solid #ccaa44' : undefined, width: c.width }}>{renderCell(row.call, c, false)}</td>)}
+                    <td style={{ padding: '1px 3px', textAlign: 'center', fontWeight: isAtm ? 700 : 500, color: isAtm ? '#ccaa44' : S.text, fontSize: 10, borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}10`, background: isAtm ? '#1a1a20' : S.panel, whiteSpace: 'nowrap' }}>
                       {fmtStrike(row.strike)}{isAtm && <span style={{ fontSize: 7, color: '#ccaa44', marginLeft: 2 }}>ATM</span>}
                     </td>
-                    {showPuts && putCols.map((c, i) => <td key={`p-${c.key}`} style={{ padding: '2px 2px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, borderRight: isAtm && i === putCols.length - 1 ? '3px solid #ccaa44' : undefined, width: c.width }}>{renderCell(row.put, c, true)}</td>)}
+                    {showPuts && putCols.map((c, i) => <td key={`p-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, borderRight: isAtm && i === putCols.length - 1 ? '3px solid #ccaa44' : undefined, width: c.width }}>{renderCell(row.put, c, true)}</td>)}
                   </tr>
                 )
               })}
