@@ -453,8 +453,8 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
                 {showPuts && <th colSpan={putCols.length} style={{ background: '#0d0d14', padding: '2px 0 0', textAlign: 'center', color: S.negative, fontWeight: 700, fontSize: 9, letterSpacing: '0.08em' }}>PUTS</th>}
               </tr>
               <tr>
-                {showCalls && callCols.map(c => <th key={`ch-${c.key}`} style={{ background: '#0d0d14', padding: '1px 1px 2px', textAlign: 'center', color: S.muted, fontWeight: 600, fontSize: 7, textTransform: 'uppercase', borderBottom: `1px solid ${S.border}`, width: c.width, minWidth: c.width }}>{c.label}</th>)}
-                {showPuts && putCols.map(c => <th key={`ph-${c.key}`} style={{ background: '#0d0d14', padding: '1px 1px 2px', textAlign: 'center', color: S.muted, fontWeight: 600, fontSize: 7, textTransform: 'uppercase', borderBottom: `1px solid ${S.border}`, width: c.width, minWidth: c.width }}>{c.label}</th>)}
+                {showCalls && callCols.map(c => <th key={`ch-${c.key}`} style={{ background: '#0d0d14', padding: '1px 1px 2px', textAlign: 'center', color: S.muted, fontWeight: 600, fontSize: 7, textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.1)', borderRight: '1px solid rgba(255,255,255,0.04)', width: c.width, minWidth: c.width }}>{c.label}</th>)}
+                {showPuts && putCols.map(c => <th key={`ph-${c.key}`} style={{ background: '#0d0d14', padding: '1px 1px 2px', textAlign: 'center', color: S.muted, fontWeight: 600, fontSize: 7, textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.1)', borderRight: '1px solid rgba(255,255,255,0.04)', width: c.width, minWidth: c.width }}>{c.label}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -469,14 +469,14 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
                       background: ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
                       ...(isAtmBorder ? { boxShadow: 'inset 0 2px 0 #ccaa44, 0 -2px 8px rgba(204,170,68,0.4)' } : {}),
                     }}>
-                      {showCalls && callCols.map(c => <td key={`c-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, width: c.width, background: cellBg(c, row.call) }}>{renderCell(row.call, c, false)}</td>)}
-                      <td style={{ padding: '1px 2px', textAlign: 'center', borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}10`, background: S.panel, whiteSpace: 'nowrap' }}>
+                      {showCalls && callCols.map(c => <td key={`c-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.04)', borderRight: '1px solid rgba(255,255,255,0.04)', width: c.width, background: cellBg(c, row.call) }}>{renderCell(row.call, c, false)}</td>)}
+                      <td style={{ padding: '1px 2px', textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.08)', borderRight: '1px solid rgba(255,255,255,0.08)', borderBottom: '1px solid rgba(255,255,255,0.04)', background: S.panel, whiteSpace: 'nowrap' }}>
                         <button style={{ background: GRAD_BUY, border: 'none', borderRadius: 3, padding: '2px 4px', width: '100%', cursor: 'default', fontFamily: 'inherit', boxShadow: SHADOW_BTN }}>
                           <div style={{ fontSize: 10, fontWeight: 400, color: '#fff' }}>{fmtStrike(row.strike)}</div>
                           <div style={{ fontSize: 9, marginTop: -1, color: pctFromAtm > 0 ? '#00c896' : pctFromAtm < 0 ? '#e05252' : '#ccaa44' }}>{pctFromAtm === 0 ? 'ATM' : `${pctFromAtm > 0 ? '+' : ''}${pctFromAtm.toFixed(2)}%`}</div>
                         </button>
                       </td>
-                      {showPuts && putCols.map(c => <td key={`p-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, width: c.width, background: cellBg(c, row.put) }}>{renderCell(row.put, c, true)}</td>)}
+                      {showPuts && putCols.map(c => <td key={`p-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.04)', borderRight: '1px solid rgba(255,255,255,0.04)', width: c.width, background: cellBg(c, row.put) }}>{renderCell(row.put, c, true)}</td>)}
                     </tr>
                 )
               })}
