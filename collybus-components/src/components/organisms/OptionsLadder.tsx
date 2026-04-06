@@ -437,7 +437,7 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
                 return (
                     <tr key={row.strike} style={{
                       background: rowHeatBg,
-                      ...(isAtmBorder ? { borderTop: '2px solid #ccaa44', boxShadow: '0 -2px 8px rgba(204,170,68,0.4)' } : {}),
+                      ...(isAtmBorder ? { boxShadow: 'inset 0 2px 0 #ccaa44, 0 -2px 8px rgba(204,170,68,0.4)' } : {}),
                     }}>
                       {showCalls && callCols.map(c => <td key={`c-${c.key}`} style={{ padding: '1px 1px', textAlign: 'center', borderBottom: `1px solid ${S.border}10`, width: c.width, background: cellBg(c, row.call) }}>{renderCell(row.call, c, false)}</td>)}
                       <td style={{ padding: '1px 2px', textAlign: 'center', borderLeft: `1px solid ${S.border}`, borderRight: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}10`, background: S.panel, whiteSpace: 'nowrap' }}>
