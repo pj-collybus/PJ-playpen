@@ -443,17 +443,26 @@ export function BlotterTable({ columns, rows, rowKey, storageKey, emptyMessage, 
         >⚙</button>
         {settingsOpen && (() => {
           const rect = settingsRef.current?.getBoundingClientRect()
-          const spaceBelow = rect ? window.innerHeight - rect.bottom : 999
-          const openUp = spaceBelow < 320
+          const maxH = rect ? Math.min(400, rect.top - 8) : 400
+          const allCols = colOrder.filter(k => colMap.has(k))
           return (
           <div style={{
-            position: 'absolute', right: 0,
-            ...(openUp ? { bottom: '100%', marginBottom: 4 } : { top: 28, marginTop: 0 }),
-            background: '#1F1E23', border: '1px solid #363C4E', borderRadius: 6,
-            padding: '6px 0', minWidth: 220, maxHeight: 360, overflowY: 'auto',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+            position: 'fixed',
+            right: rect ? window.innerWidth - rect.right : 0,
+            bottom: rect ? window.innerHeight - rect.top + 4 : 40,
+            zIndex: 2000,
+            background: '#0d0d14', border: '1px solid #2a2a3a', borderRadius: 6,
+            padding: '8px 0', minWidth: 220, maxHeight: maxH, overflowY: 'auto',
+            boxShadow: '0 -8px 32px rgba(0,0,0,0.8), 0 0 0 1px rgba(100,100,150,0.2)',
           }}>
-            {colOrder.filter(k => colMap.has(k)).map(key => {
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 12px 6px', borderBottom: '1px solid #1e1e28', marginBottom: 4 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#888', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Columns</span>
+              <button onClick={handleReset} style={{
+                background: 'transparent', border: 'none', color: '#2B79DD', fontSize: 9, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: '2px 6px',
+              }}>Reset</button>
+            </div>
+            {allCols.map(key => {
               const c = colMap.get(key)!
               const isTarget = settingsDropTarget === key
               return (
@@ -471,7 +480,7 @@ export function BlotterTable({ columns, rows, rowKey, storageKey, emptyMessage, 
                     borderTop: isTarget ? '2px solid #2B79DD' : '2px solid transparent',
                     opacity: settingsDragCol === key ? 0.4 : 1,
                   }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+                  onMouseEnter={e => e.currentTarget.style.background = '#1a1a2a'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                 >
                   <span style={{ color: '#363C4E', fontSize: 10, cursor: 'grab' }}>⠿</span>
@@ -482,23 +491,11 @@ export function BlotterTable({ columns, rows, rowKey, storageKey, emptyMessage, 
                       onChange={() => toggleCol(key)}
                       style={{ accentColor: '#2B79DD' }}
                     />
-                    {c.label}
+                    {c.label || key}
                   </label>
                 </div>
               )
             })}
-            <div style={{ borderTop: '1px solid #363C4E', padding: '6px 12px', marginTop: 4 }}>
-              <button
-                onClick={handleReset}
-                style={{
-                  background: 'rgba(43,121,221,0.12)', border: '1px solid rgba(43,121,221,0.3)',
-                  borderRadius: 4, color: '#2B79DD', fontSize: 10, fontWeight: 600,
-                  padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit', width: '100%',
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(43,121,221,0.25)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'rgba(43,121,221,0.12)'}
-              >Reset to Defaults</button>
-            </div>
           </div>
           )
         })()}
