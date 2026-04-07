@@ -29,7 +29,7 @@ export interface AlgoLaunchParams {
 }
 
 type StrategyType = 'TWAP' | 'VWAP' | 'SNIPER' | 'ICEBERG' | 'POV'
-type Urgency = 'passive' | 'aggressive'
+
 type StartMode = 'immediate' | 'scheduled' | 'trigger'
 
 const S = {
@@ -94,7 +94,7 @@ export function AlgoModal({ exchange, symbol, baseCurrency, quoteCurrency, tickS
   const [bandBps, setBandBps] = useState('20')
   const [maxDevBps, setMaxDevBps] = useState('50')
   const [sniperMode, setSniperMode] = useState<'snipe' | 'post_snipe'>('snipe')
-  const [levelMode, setLevelMode] = useState('simultaneous')
+  const [levelMode, _setLevelMode] = useState('simultaneous')
   const [levels, setLevels] = useState([{ price: String(ask), pct: '100' }])
   const [postPx, setPostPx] = useState(String(bid))
   const [postPct, setPostPct] = useState('50')

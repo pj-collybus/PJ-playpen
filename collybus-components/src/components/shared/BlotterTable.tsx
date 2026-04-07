@@ -89,7 +89,7 @@ function formatCell(col: BlotterColumn, row: Record<string, any>): React.ReactNo
   }
 }
 
-function getRowBg(row: Record<string, any>, idx: number, _statusField?: string): string {
+function getRowBg(_row: Record<string, any>, idx: number, _statusField?: string): string {
   // No status-based row tinting — keep uniform dark background
   return idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)'
 }
