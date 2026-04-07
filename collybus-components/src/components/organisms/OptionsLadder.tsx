@@ -322,7 +322,7 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
   const greeks = useOptionGreeks(visibleInstruments, apiBase, 5000)
 
   // Merge greeks into display rows
-  const displayRows = useMemo(() => displayRows.map(row => ({
+  const displayRows = useMemo(() => filteredRows.map(row => ({
     ...row,
     call: row.call ? { ...row.call, ...(greeks[row.call.instrument] ?? {}) } : null,
     put: row.put ? { ...row.put, ...(greeks[row.put.instrument] ?? {}) } : null,
