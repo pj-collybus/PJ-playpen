@@ -1,5 +1,6 @@
 // @ts-nocheck
 import React, { useState, useRef, useEffect, useCallback, useMemo, Component } from 'react'
+import { useOptionGreeks } from '../../hooks/useOptionGreeks'
 
 const S = {
   bg: '#18171C', panel: '#141418', border: '#2a2a38', bgInput: '#0e0e14',
@@ -313,16 +314,58 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
   const callCols = useMemo(() => CALL_COLUMNS.filter(c => visibleCols.has(c.key)), [visibleCols])
   const putCols = useMemo(() => PUT_COLUMNS.filter(c => visibleCols.has(c.key)), [visibleCols])
 
+  // Greeks polling for visible instruments
+  const visibleInstruments = useMemo(() =>
+    filteredRows.flatMap(r => [r.call?.instrument, r.put?.instrument]).filter(Boolean) as string[],
+    [filteredRows]
+  )
+  const greeks = useOptionGreeks(visibleInstruments, apiBase, 5000)
+
+  // Merge greeks into display rows
+  const displayRows = useMemo(() => displayRows.map(row => ({
+    ...row,
+    call: row.call ? { ...row.call, ...(greeks[row.call.instrument] ?? {}) } : null,
+    put: row.put ? { ...row.put, ...(greeks[row.put.instrument] ?? {}) } : null,
+  })), [filteredRows, greeks])
+
+  // REST fallback — refetch if no websocket update in 10s
+  const lastWsUpdate = useRef(0)
+  useEffect(() => {
+    const handler = () => { lastWsUpdate.current = Date.now() }
+    window.addEventListener('options-update', handler)
+    return () => window.removeEventListener('options-update', handler)
+  }, [])
+  useEffect(() => {
+    if (!expiry) return
+    const timer = setInterval(() => {
+      if (Date.now() - lastWsUpdate.current > 10000) {
+        // Trigger REST refresh silently
+        const load = async () => {
+          try {
+            const currency = instrument === 'SOL_USDC' || instrument === 'XRP_USDC' ? 'USDC' : instrument.startsWith('ETH') ? 'ETH' : 'BTC'
+            const resp = await fetch(`https://test.deribit.com/api/v2/public/get_book_summary_by_currency?currency=${currency}&kind=option`)
+            if (!resp.ok) return
+            const json = await resp.json()
+            buildRows(json.result ?? [], json.result?.[0]?.underlying_price ?? indexPrice)
+            setLastFetchTs(Date.now())
+          } catch {}
+        }
+        load()
+      }
+    }, 8000)
+    return () => clearInterval(timer)
+  }, [expiry, instrument, buildRows, indexPrice])
+
   // Scroll to ATM
   useEffect(() => {
-    if (!gridRef.current || !filteredRows.length || !atmStrike) return
-    const idx = filteredRows.findIndex(r => r.strike === atmStrike)
+    if (!gridRef.current || !displayRows.length || !atmStrike) return
+    const idx = displayRows.findIndex(r => r.strike === atmStrike)
     if (idx >= 0) gridRef.current.scrollTop = Math.max(0, idx * 28 - gridRef.current.clientHeight / 2 + 14)
-  }, [atmStrike, filteredRows.length])
+  }, [atmStrike, displayRows.length])
 
   // Heatmap for size/OI columns
-  const maxVolume = useMemo(() => filteredRows.reduce((mx, r) => Math.max(mx, r.call?.volume ?? 0, r.put?.volume ?? 0), 1), [filteredRows])
-  const maxOI = useMemo(() => filteredRows.reduce((mx, r) => Math.max(mx, r.call?.openInterest ?? 0, r.put?.openInterest ?? 0), 1), [filteredRows])
+  const maxVolume = useMemo(() => displayRows.reduce((mx, r) => Math.max(mx, r.call?.volume ?? 0, r.put?.volume ?? 0), 1), [displayRows])
+  const maxOI = useMemo(() => displayRows.reduce((mx, r) => Math.max(mx, r.call?.openInterest ?? 0, r.put?.openInterest ?? 0), 1), [displayRows])
   const heatColor = (val: number, max: number) => {
     if (!val || !max) return 'transparent'
     const t = Math.min(1, val / max)
@@ -441,7 +484,7 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
       {/* Grid */}
       <div ref={gridRef} style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-        {filteredRows.length > 0 ? (
+        {displayRows.length > 0 ? (
           <table style={{ borderCollapse: 'collapse', fontSize: 10, fontFamily: 'inherit', width: 'max-content' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
               <tr>
@@ -458,11 +501,11 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((row, ri) => {
+              {displayRows.map((row, ri) => {
                 const pctFromAtm = atmStrike > 0 ? ((row.strike - atmStrike) / atmStrike * 100) : 0
                 const pctColor = pctFromAtm > 0 ? S.positive : pctFromAtm < 0 ? S.negative : S.muted
                 // ATM divider — borderTop on first row where strike >= indexPrice
-                const prevRow = ri > 0 ? filteredRows[ri - 1] : null
+                const prevRow = ri > 0 ? displayRows[ri - 1] : null
                 const isAtmBorder = prevRow && indexPrice > 0 && prevRow.strike < indexPrice && row.strike >= indexPrice
                 return (
                     <tr key={row.strike} style={{
@@ -503,7 +546,7 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
 
       {/* Footer */}
       <div style={{ padding: '3px 10px', borderTop: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', fontSize: 9, color: S.muted, flexShrink: 0 }}>
-        <span>{filteredRows.length > 0 ? `${filteredRows.length} strikes • ${fmtExpiry(expiry)}` : ''}</span>
+        <span>{displayRows.length > 0 ? `${displayRows.length} strikes • ${fmtExpiry(expiry)}` : ''}</span>
         <span>{lastFetchTs > 0 ? new Date(lastFetchTs).toLocaleTimeString() : ''}</span>
       </div>
 

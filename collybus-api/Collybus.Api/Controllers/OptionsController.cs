@@ -271,6 +271,51 @@ public class OptionsController(DeribitAdapter deribit) : ControllerBase
 
     public record SubscribeRequest { public string? Instrument { get; init; } }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime ts, object data)> _greeksCache = new();
+
+    [HttpPost("greeks")]
+    public async Task<IActionResult> GetGreeks([FromBody] string[] instrumentNames)
+    {
+        var limited = instrumentNames.Take(50).ToArray();
+        var results = new Dictionary<string, object>();
+
+        var tasks = limited.Select(async name =>
+        {
+            // Check cache first (5s TTL)
+            if (_greeksCache.TryGetValue(name, out var cached) && (DateTime.UtcNow - cached.ts).TotalSeconds < 5)
+                return (name, cached.data);
+
+            try
+            {
+                var resp = await CachedGet($"{DeribitUrl}/public/ticker?instrument_name={name}");
+                var r = resp?["result"];
+                if (r == null) return (name, (object?)null);
+                var greeks = new
+                {
+                    delta = r["greeks"]?["delta"]?.GetValue<double?>(),
+                    gamma = r["greeks"]?["gamma"]?.GetValue<double?>(),
+                    vega = r["greeks"]?["vega"]?.GetValue<double?>(),
+                    theta = r["greeks"]?["theta"]?.GetValue<double?>(),
+                    rho = r["greeks"]?["rho"]?.GetValue<double?>(),
+                    bidIv = r["bid_iv"]?.GetValue<double?>(),
+                    askIv = r["ask_iv"]?.GetValue<double?>(),
+                    markIv = r["mark_iv"]?.GetValue<double?>(),
+                    openInterest = r["open_interest"]?.GetValue<double?>(),
+                    volume = r["stats"]?["volume"]?.GetValue<double?>(),
+                };
+                _greeksCache[name] = (DateTime.UtcNow, greeks);
+                return (name, (object?)greeks);
+            }
+            catch { return (name, (object?)null); }
+        });
+
+        var all = await Task.WhenAll(tasks);
+        foreach (var (name, data) in all)
+            if (data != null) results[name] = data;
+
+        return Ok(results);
+    }
+
     private static string MapCurrency(string instrument) => instrument switch
     {
         "BTC" or "BTC_USDC" => "BTC",

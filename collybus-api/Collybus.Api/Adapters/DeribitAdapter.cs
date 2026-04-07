@@ -364,6 +364,7 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
     private void HandleBookSummary(string channel, JsonNode? data, long receivedTs)
     {
         if (data is null) return;
+        Console.WriteLine($"[options-ws] received book_summary update: channel={channel} ts={receivedTs}");
         // channel = book_summary.BTC.option
         var parts = channel.Split('.');
         var currency = parts.Length > 1 ? parts[1] : "";
