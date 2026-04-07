@@ -330,6 +330,10 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
 
   // REST fallback — refetch if no websocket update in 10s
   const lastWsUpdate = useRef(0)
+  const buildRowsRef = useRef(buildRows)
+  const indexPriceRef = useRef(indexPrice)
+  buildRowsRef.current = buildRows
+  indexPriceRef.current = indexPrice
   useEffect(() => {
     const handler = () => { lastWsUpdate.current = Date.now() }
     window.addEventListener('options-update', handler)
@@ -346,7 +350,7 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
             const resp = await fetch(`https://test.deribit.com/api/v2/public/get_book_summary_by_currency?currency=${currency}&kind=option`)
             if (!resp.ok) return
             const json = await resp.json()
-            buildRows(json.result ?? [], json.result?.[0]?.underlying_price ?? indexPrice)
+            buildRowsRef.current(json.result ?? [], json.result?.[0]?.underlying_price ?? indexPriceRef.current)
             setLastFetchTs(Date.now())
           } catch {}
         }
@@ -354,7 +358,7 @@ function OptionsLadderInner({ apiBase = '', initialConfig, onOrderClick, onClose
       }
     }, 8000)
     return () => clearInterval(timer)
-  }, [expiry, instrument, buildRows, indexPrice])
+  }, [expiry, instrument])
 
   // Scroll to ATM
   useEffect(() => {
