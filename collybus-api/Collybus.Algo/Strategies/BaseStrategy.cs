@@ -518,7 +518,16 @@ public abstract class BaseStrategy : IAlgoStrategy
     protected virtual Task OnActivateAsync() => Task.CompletedTask;
     protected virtual void OnFillReceived(AlgoFill fill) { }
     protected virtual void OnRejectionReceived(string clientOrderId, string reason) { }
-    protected virtual void OnCompleted() { }
+    protected virtual void OnCompleted()
+    {
+        // Cancel any remaining open orders on the exchange
+        if (PendingOrders.Count > 0)
+        {
+            Logger.LogInformation("[{Type}] {Sid} completed — cancelling {Count} remaining orders",
+                StrategyType, StrategyId, PendingOrders.Count);
+            _ = CancelAllPendingAsync();
+        }
+    }
     protected virtual int GetCurrentSlice() => 0;
     protected virtual int GetTotalSlices() => 0;
     protected virtual long? GetNextSliceAt() => null;
