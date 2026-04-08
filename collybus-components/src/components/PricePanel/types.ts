@@ -48,6 +48,7 @@ export interface PricePanelConfig {
   selectedGranularity?: string
   favourites: string[]
   orderType: OrderTypeMode
+  locked?: boolean
 }
 
 export interface PricePanelCallbacks {

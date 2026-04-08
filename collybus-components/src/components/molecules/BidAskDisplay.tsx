@@ -14,7 +14,7 @@ interface BidAskDisplayProps {
 }
 
 export function BidAskDisplay({ sellPrice, buyPrice, spread, baseCurrency, qtyEntered, submitting, locked, onSell, onBuy }: BidAskDisplayProps) {
-  const btnDisabled = locked || !qtyEntered || submitting !== null
+  const btnDisabled = locked || !qtyEntered
   return (
     <div style={{ position: 'relative', display: 'flex', gap: 2, width: '100%' }}>
       <BuySellButton side="sell" price={sellPrice} baseCurrency={baseCurrency}
