@@ -196,7 +196,7 @@ export function PricePanel({
   }, [id, width, callbacks])
 
   const handleTrade = async (side: 'buy' | 'sell') => {
-    if (!qtyNum || submitting) return
+    if (locked || !qtyNum || submitting) return
     const price = side === 'sell' ? parseFloat(sellPrice.replace('$','')) || bid : parseFloat(buyPrice.replace('$','')) || ask
     setSubmitting(side)
     try { await callbacks.onSubmitOrder({ exchange, symbol, side: side.toUpperCase() as 'BUY'|'SELL', quantity: qtyNum, limitPrice: price, orderType, timeInForce: 'FOK' }) }
@@ -298,6 +298,7 @@ export function PricePanel({
           {/* Buy/Sell */}
           <BidAskDisplay sellPrice={sellPrice} buyPrice={buyPrice} spread={spread}
             baseCurrency={base} qtyEntered={qtyNum > 0} submitting={submitting}
+            locked={locked}
             onSell={() => handleTrade('sell')} onBuy={() => handleTrade('buy')} />
 
           {/* Qty */}
