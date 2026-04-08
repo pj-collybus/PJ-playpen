@@ -200,7 +200,7 @@ export function PricePanel({
     const price = side === 'sell' ? parseFloat(sellPrice.replace('$','')) || bid : parseFloat(buyPrice.replace('$','')) || ask
     setSubmitting(side)
     try { await callbacks.onSubmitOrder({ exchange, symbol, side: side.toUpperCase() as 'BUY'|'SELL', quantity: qtyNum, limitPrice: price, orderType, timeInForce: 'FOK' }) }
-    finally { setTimeout(() => setSubmitting(null), 250) }
+    finally { setTimeout(() => setSubmitting(null), 150) }
   }
 
   const handleSelectSymbol = (sym: string) => { setSymbol(sym); setInstrOpen(false); callbacks.onConfigChange?.(id, { symbol: sym }) }
