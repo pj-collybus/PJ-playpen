@@ -352,7 +352,7 @@ export function PricePanel({
             <button ref={settingsBtnRef} title="Settings" onClick={() => setSettingsOpen(o => !o)}
               style={{ height: 28, width: 22, background: 'transparent', border: 'none', color: settingsOpen ? '#2B79DD' : '#fff', cursor: 'pointer', fontSize: 14, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⚙</button>
             <button title="Alerts" style={{ height: 28, width: 22, background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 14, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔔</button>
-            <button onClick={() => { setLocked(l => { const next = !l; callbacks.onConfigChange?.(id, { locked: next }); return next }) }} title={locked ? 'Unlock' : 'Lock'} style={{ height: 28, width: 22, background: 'transparent', border: 'none', color: locked ? '#F97316' : '#fff', cursor: 'pointer', fontSize: 14, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{locked ? '🔒' : '🔓'}</button>
+            <button onClick={() => { setLocked(l => { const next = !l; callbacks.onConfigChange?.(id, { locked: next }); return next }) }} title={locked ? 'Unlock' : 'Lock'} style={{ height: 28, width: 22, background: 'transparent', border: 'none', color: locked ? '#e05252' : '#666', cursor: 'pointer', fontSize: 14, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'color 0.15s ease' }}>{locked ? '🔒' : '🔓'}</button>
           </div>
         </div>
       </div>
