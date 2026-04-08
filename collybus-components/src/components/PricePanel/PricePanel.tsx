@@ -200,7 +200,7 @@ export function PricePanel({
     const price = side === 'sell' ? parseFloat(sellPrice.replace('$','')) || bid : parseFloat(buyPrice.replace('$','')) || ask
     setSubmitting(side)
     try { await callbacks.onSubmitOrder({ exchange, symbol, side: side.toUpperCase() as 'BUY'|'SELL', quantity: qtyNum, limitPrice: price, orderType, timeInForce: 'FOK' }) }
-    finally { setSubmitting(null) }
+    finally { setTimeout(() => setSubmitting(null), 500) }
   }
 
   const handleSelectSymbol = (sym: string) => { setSymbol(sym); setInstrOpen(false); callbacks.onConfigChange?.(id, { symbol: sym }) }
@@ -216,9 +216,11 @@ export function PricePanel({
   return (
     <div ref={elRef} style={{
       position: 'absolute', left: x, top: y, width, minWidth: 120,
+      outline: submitting ? '2px solid #4488ff' : '2px solid transparent',
       border: `1.25px solid ${S.border}`, borderRadius: 4, overflow: 'visible',
       display: 'flex', flexDirection: 'column', background: S.gradCard,
-      boxShadow: locked ? '0 0 0 1px rgba(240,160,32,0.35), 0 4px 20px rgba(0,0,0,0.6)' : '0 4px 20px rgba(0,0,0,0.5)',
+      boxShadow: submitting ? '0 0 16px rgba(68,136,255,0.5)' : locked ? '0 0 0 1px rgba(240,160,32,0.35), 0 4px 20px rgba(0,0,0,0.6)' : '0 4px 20px rgba(0,0,0,0.5)',
+      transition: 'outline 0.1s ease, box-shadow 0.15s ease',
       userSelect: 'none',
     }}>
       {/* Panel body */}
