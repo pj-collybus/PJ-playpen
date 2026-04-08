@@ -829,6 +829,25 @@ public class DeribitAdapter : BaseExchangeAdapter, IExchangeAdapter
                 }
             }
 
+            // 1b. Fetch currently open orders (not returned by order history)
+            try
+            {
+                var openArr = await DeribitRestGetAsync(http, token, "private/get_open_orders_by_currency",
+                    $"currency={currency}&kind=any");
+                if (openArr != null)
+                {
+                    foreach (var o in openArr)
+                    {
+                        var id = o?["order_id"]?.GetValue<string>() ?? "";
+                        var instr = o?["instrument_name"]?.GetValue<string>() ?? "";
+                        if (!string.IsNullOrEmpty(id) && !results.ContainsKey(id))
+                            results[id] = MapOrder(o);
+                        if (!string.IsNullOrEmpty(instr)) instruments.Add(instr);
+                    }
+                }
+            }
+            catch { }
+
             // 2. Get instruments from positions
             var posArr = await DeribitRestGetAsync(http, token, "private/get_positions",
                 $"currency={currency}&kind=any");
