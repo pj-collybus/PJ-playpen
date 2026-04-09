@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { DepthChart } from '../shared/DepthChart'
 import { BidAskDisplay } from '../molecules/BidAskDisplay'
 import { OrderSizeSelector } from '../molecules/OrderSizeSelector'
@@ -181,6 +181,7 @@ export function OptionPricePanel({
   const [change, setChange] = useState<number | null>(null)
   const [iv, setIv] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
+  const [indexPrice, setIndexPrice] = useState(0)
 
   const elRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ ox: number; oy: number } | null>(null)
@@ -205,6 +206,7 @@ export function OptionPricePanel({
         const json = await resp.json()
         if (cancelled) return
         const dates: string[] = json.expiries ?? []
+        if (json.indexPrice) setIndexPrice(json.indexPrice)
         setExpiries(dates)
         if (dates.length > 0) {
           const sel = dates.includes(expiry) ? expiry : dates[0]
@@ -243,13 +245,14 @@ export function OptionPricePanel({
           instrument: currency,
           type: optionType === 'call' ? 'calls' : 'puts',
           toExpiry: expiry,
-          atmOnly: 'true',
+          atmOnly: 'false',
         })
         const resp = await fetch(`${apiBase}/api/options/matrix?${params}`)
         if (!resp.ok) return
         const json = await resp.json()
         if (cancelled) return
         const stks: number[] = json.strikes ?? []
+        if (json.indexPrice) setIndexPrice(json.indexPrice)
         setStrikes(stks)
         if (stks.length > 0) {
           const atm = json.atmStrike ?? stks[Math.floor(stks.length / 2)]
@@ -390,7 +393,7 @@ export function OptionPricePanel({
       {/* Panel body — matching PricePanel's main row structure */}
       <div onMouseDown={onHeaderMouseDown} style={{
         display: 'flex', flexDirection: 'row', overflow: 'hidden',
-        borderRadius: 4, cursor: locked ? 'default' : 'grab',
+        borderRadius: 4, height: 171, cursor: locked ? 'default' : 'grab',
       }}>
         {/* Bid depth chart */}
         {showDepth && (
@@ -456,6 +459,14 @@ export function OptionPricePanel({
             locked={locked}
             onSell={() => handleTrade('sell')} onBuy={() => handleTrade('buy')}
           />
+
+          {/* USD value derived from index price */}
+          {indexPrice > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 4px' }}>
+              <span style={{ fontSize: 10, color: '#aaa' }}>{bid > 0 ? `$${(bid * indexPrice).toFixed(2)}` : '—'}</span>
+              <span style={{ fontSize: 10, color: '#aaa' }}>{ask > 0 ? `$${(ask * indexPrice).toFixed(2)}` : '—'}</span>
+            </div>
+          )}
 
           {/* Qty — reuses exact same component as PricePanel */}
           <OrderSizeSelector
