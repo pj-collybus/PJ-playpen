@@ -68,7 +68,11 @@ const EXCHANGE_ABBREV: Record<string, string> = {
   DERIBIT: 'D', BITMEX: 'BX', BINANCE: 'BN', BYBIT: 'BB', OKX: 'OX', KRAKEN: 'KR',
 }
 
-const CURRENCIES = ['BTC_USDC', 'ETH_USDC', 'SOL_USDC', 'XRP_USDC']
+// Same instrument list as OptionsMatrix
+const CURRENCIES = ['BTC', 'BTC_USDC', 'ETH', 'ETH_USDC', 'SOL_USDC', 'XRP_USDC']
+const CURRENCY_LABELS: Record<string, string> = {
+  BTC: 'BTC', BTC_USDC: 'BTC USDC', ETH: 'ETH', ETH_USDC: 'ETH USDC', SOL_USDC: 'SOL USDC', XRP_USDC: 'XRP USDC',
+}
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
 const QTY_PRESETS = [1, 5, 10, 25, 100]
 
@@ -158,63 +162,78 @@ export function OptionPricePanel({
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
-  // Fetch expiries when currency changes
+  // Fetch expiries + subscribe on currency change (matches OptionsMatrix exactly)
   useEffect(() => {
     if (!currency) return
     let cancelled = false
     setLoading(true)
     setExpiries([])
-    fetch(`${apiBase}/api/options/expiries?instrument=${currency}&type=both`)
-      .then(r => r.json())
-      .then(data => {
+
+    const loadExpiries = async () => {
+      try {
+        const type = optionType === 'call' ? 'calls' : 'puts'
+        const resp = await fetch(`${apiBase}/api/options/expiries?instrument=${currency}&type=${type}`)
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        const json = await resp.json()
         if (cancelled) return
-        const exps: string[] = data.expiries ?? []
-        setExpiries(exps)
-        if (exps.length > 0) {
-          const sel = exps.includes(expiry) ? expiry : exps[0]
+        const dates: string[] = json.expiries ?? []
+        setExpiries(dates)
+        if (dates.length > 0) {
+          const sel = dates.includes(expiry) ? expiry : dates[0]
           setExpiry(sel)
           onConfigChange?.(id, { expiry: sel })
         }
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [apiBase, currency])
+        // Subscribe to websocket summary feed (same as OptionsMatrix)
+        fetch(`${apiBase}/api/options/subscribe`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instrument: currency }),
+        }).catch(() => {})
+        subscribed.current = currency
+      } catch {} finally { if (!cancelled) setLoading(false) }
+    }
+    loadExpiries()
+    return () => {
+      cancelled = true
+      // Unsubscribe on cleanup (same as OptionsMatrix)
+      fetch(`${apiBase}/api/options/unsubscribe`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instrument: currency }),
+      }).catch(() => {})
+      subscribed.current = null
+    }
+  }, [apiBase, currency, optionType])
 
-  // Fetch strikes when currency or expiry changes
+  // Fetch strikes via matrix endpoint when expiry changes (matches OptionsMatrix)
   useEffect(() => {
     if (!currency || !expiry) return
     let cancelled = false
     setStrikes([])
-    fetch(`${apiBase}/api/options/matrix?instrument=${currency}&type=${optionType === 'call' ? 'calls' : 'puts'}&expiryTo=${expiry}`)
-      .then(r => r.json())
-      .then(data => {
+
+    const fetchStrikes = async () => {
+      try {
+        const params = new URLSearchParams({
+          instrument: currency,
+          type: optionType === 'call' ? 'calls' : 'puts',
+          toExpiry: expiry,
+          atmOnly: 'true',
+        })
+        const resp = await fetch(`${apiBase}/api/options/matrix?${params}`)
+        if (!resp.ok) return
+        const json = await resp.json()
         if (cancelled) return
-        const stks: number[] = data.strikes ?? []
+        const stks: number[] = json.strikes ?? []
         setStrikes(stks)
         if (stks.length > 0) {
-          const atm = data.atmStrike ?? stks[Math.floor(stks.length / 2)]
+          const atm = json.atmStrike ?? stks[Math.floor(stks.length / 2)]
           const sel = stks.includes(strike) ? strike : atm
           setStrike(sel)
           onConfigChange?.(id, { strike: sel })
         }
-      })
-      .catch(() => {})
+      } catch {}
+    }
+    fetchStrikes()
     return () => { cancelled = true }
   }, [apiBase, currency, expiry, optionType])
-
-  // Subscribe to live updates for the currency
-  useEffect(() => {
-    if (!currency) return
-    fetch(`${apiBase}/api/options/subscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrument: currency }) }).catch(() => {})
-    subscribed.current = currency
-    return () => {
-      if (subscribed.current) {
-        fetch(`${apiBase}/api/options/unsubscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrument: subscribed.current }) }).catch(() => {})
-        subscribed.current = null
-      }
-    }
-  }, [apiBase, currency])
 
   // ── SignalR live updates ───────────────────────────────────────────────────
 
@@ -352,7 +371,7 @@ export function OptionPricePanel({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '2px 0' }}>
             <div style={{ display: 'flex', gap: 3 }}>
               <SelectDropdown value={currency}
-                options={CURRENCIES.map(c => ({ label: c.replace('_', '/'), value: c }))}
+                options={CURRENCIES.map(c => ({ label: CURRENCY_LABELS[c] ?? c, value: c }))}
                 onChange={v => { setCurrency(v); onConfigChange?.(id, { currency: v }); setStrikes([]) }} />
               <SelectDropdown value={expiry}
                 options={expiries.length > 0 ? expiries.map(e => ({ label: toDeribitExpiry(e), value: e })) : [{ label: expiry ? toDeribitExpiry(expiry) : '—', value: expiry }]}
