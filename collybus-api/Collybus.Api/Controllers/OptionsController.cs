@@ -16,6 +16,11 @@ public class OptionsController(DeribitAdapter deribit) : ControllerBase
     private const int ResponseCacheTtlSeconds = 8;
     private const string DeribitUrl = "https://test.deribit.com/api/v2";
 
+    // Normalise instrument name — convert hyphens to underscores for USDC pairs:
+    // 'XRP-USDC' → 'XRP_USDC', 'BTC-USDC' → 'BTC_USDC'
+    private static string NormaliseInstrument(string instrument) =>
+        instrument.Replace('-', '_').ToUpperInvariant();
+
     [HttpGet("matrix")]
     public async Task<IActionResult> GetMatrix(
         [FromQuery] string instrument = "BTC_USDC",
@@ -27,6 +32,7 @@ public class OptionsController(DeribitAdapter deribit) : ControllerBase
         [FromQuery] bool atmOnly = false,
         [FromQuery] string exchange = "Deribit")
     {
+        instrument = NormaliseInstrument(instrument);
         var cacheKey = $"{exchange}:{instrument}:{type}:{minStrike}:{maxStrike}:{fromExpiry}:{toExpiry}:{atmOnly}";
         if (_responseCache.TryGetValue(cacheKey, out var cached) && (DateTime.UtcNow - cached.ts).TotalSeconds < ResponseCacheTtlSeconds)
         {
@@ -194,6 +200,7 @@ public class OptionsController(DeribitAdapter deribit) : ControllerBase
         [FromQuery] string instrument = "BTC_USDC",
         [FromQuery] string type = "calls")
     {
+        instrument = NormaliseInstrument(instrument);
         try
         {
             var currency = instrument switch
@@ -250,7 +257,7 @@ public class OptionsController(DeribitAdapter deribit) : ControllerBase
     {
         try
         {
-            var currency = MapCurrency(req.Instrument ?? "BTC");
+            var currency = MapCurrency(NormaliseInstrument(req.Instrument ?? "BTC"));
             await deribit.SubscribeOptionsSummaryAsync(currency);
             return Ok(new { ok = true, currency });
         }
@@ -262,7 +269,7 @@ public class OptionsController(DeribitAdapter deribit) : ControllerBase
     {
         try
         {
-            var currency = MapCurrency(req.Instrument ?? "BTC");
+            var currency = MapCurrency(NormaliseInstrument(req.Instrument ?? "BTC"));
             await deribit.UnsubscribeOptionsSummaryAsync(currency);
             return Ok(new { ok = true });
         }
