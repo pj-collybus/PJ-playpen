@@ -405,9 +405,9 @@ export function OptionPricePanel({
         )}
 
         {/* Centre column — same structure as PricePanel centre column */}
-        <div style={{ width: showDepth ? 200 : undefined, flex: showDepth ? undefined : 1, flexShrink: 0, display: 'flex', flexDirection: 'column',
-          padding: '4px 4px', gap: 3, overflow: 'hidden', justifyContent: 'center',
-          borderLeft: showDepth ? `1px solid ${S.borderInner}` : 'none', borderRight: `1px solid ${S.borderInner}`,
+        <div style={{ width: showDepth ? 200 : undefined, flex: showDepth ? undefined : 1, flexShrink: 0, height: '100%', display: 'flex', flexDirection: 'column',
+          padding: '4px 4px', gap: 3, overflow: 'hidden',
+          borderLeft: showDepth ? `1px solid ${S.borderInner}` : 'none', borderRight: `1px solid ${S.borderInner}`, justifyContent: 'center',
         }}>
           {/* Instrument header */}
           <div style={{ height: 28, display: 'flex', alignItems: 'center', padding: '0 4px' }}>
