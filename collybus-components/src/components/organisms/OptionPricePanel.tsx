@@ -92,8 +92,14 @@ const toDeribitExpiry = (exp: string) => {
   return exp
 }
 
+// Extract base for instrument name: BTC_USDC → BTC, ETH_USDC → ETH, BTC → BTC
+function toInstrumentBase(currency: string): string {
+  return currency.split('_')[0]
+}
+
+// Deribit option instrument: BTC-13APR26-71500-C (always uses base, never _USDC)
 const getInstrumentName = (currency: string, expiry: string, strike: number, type: 'call' | 'put') =>
-  `${currency}-${toDeribitExpiry(expiry)}-${strike}-${type === 'call' ? 'C' : 'P'}`
+  `${toInstrumentBase(currency)}-${toDeribitExpiry(expiry)}-${strike}-${type === 'call' ? 'C' : 'P'}`
 
 function baseCurrency(symbol: string): string {
   return symbol.split('-')[0].split('_')[0]
@@ -181,18 +187,14 @@ export function OptionPricePanel({
     const loadExpiries = async () => {
       try {
         const type = optionType === 'call' ? 'calls' : 'puts'
-        console.log('[option-panel] fetching expiries for currency:', currency, 'type:', type, 'apiBase:', apiBase)
         const resp = await fetch(`${apiBase}/api/options/expiries?instrument=${currency}&type=${type}`)
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
         const json = await resp.json()
-        console.log('[option-panel] expiries response:', json)
         if (cancelled) return
         const dates: string[] = json.expiries ?? []
-        console.log('[option-panel] expiries parsed:', dates.length, 'first:', dates[0])
         setExpiries(dates)
         if (dates.length > 0) {
           const sel = dates.includes(expiry) ? expiry : dates[0]
-          console.log('[option-panel] selected expiry:', sel)
           setExpiry(sel)
           onConfigChange?.(id, { expiry: sel })
         }
@@ -230,22 +232,19 @@ export function OptionPricePanel({
           toExpiry: expiry,
           atmOnly: 'true',
         })
-        console.log('[option-panel] fetching strikes:', `${apiBase}/api/options/matrix?${params}`)
         const resp = await fetch(`${apiBase}/api/options/matrix?${params}`)
-        if (!resp.ok) { console.log('[option-panel] strikes fetch failed:', resp.status); return }
+        if (!resp.ok) return
         const json = await resp.json()
-        console.log('[option-panel] strikes response: count=', json.strikes?.length, 'atm=', json.atmStrike)
         if (cancelled) return
         const stks: number[] = json.strikes ?? []
         setStrikes(stks)
         if (stks.length > 0) {
           const atm = json.atmStrike ?? stks[Math.floor(stks.length / 2)]
           const sel = stks.includes(strike) ? strike : atm
-          console.log('[option-panel] selected strike:', sel)
           setStrike(sel)
           onConfigChange?.(id, { strike: sel })
         }
-      } catch (e) { console.error('[option-panel] strikes fetch error:', e) }
+      } catch {}
     }
     fetchStrikes()
     return () => { cancelled = true }
