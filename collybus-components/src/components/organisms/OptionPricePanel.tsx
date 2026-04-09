@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { DepthChart } from '../shared/DepthChart'
 import { BidAskDisplay } from '../molecules/BidAskDisplay'
 import { OrderSizeSelector } from '../molecules/OrderSizeSelector'
 import { ExchangeSelector } from '../molecules/ExchangeSelector'
@@ -37,6 +38,17 @@ export interface TickerOverrides {
   change: number | null
 }
 
+export interface OrderBookLevel {
+  price: number
+  size: number
+}
+
+export interface OrderBookOverrides {
+  bids: OrderBookLevel[]
+  asks: OrderBookLevel[]
+  timestamp: number
+}
+
 export interface OptionPricePanelProps {
   id: string
   x: number
@@ -50,6 +62,7 @@ export interface OptionPricePanelProps {
   onMove?: (id: string, x: number, y: number) => void
   onResize?: (id: string, width: number) => void
   tickerOverrides?: TickerOverrides
+  orderBook?: OrderBookOverrides
 }
 
 // ── Constants (same as PricePanel) ────────────────────────────────────────────
@@ -144,7 +157,7 @@ function TypeBtn({ active, disabled, onClick, children, title }: {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function OptionPricePanel({
-  id, x, y, width: initialWidth, apiBase, config, onConfigChange, onSubmitOrder, onClose, onMove, onResize, tickerOverrides,
+  id, x, y, width: initialWidth, apiBase, config, onConfigChange, onSubmitOrder, onClose, onMove, onResize, tickerOverrides, orderBook,
 }: OptionPricePanelProps) {
   const [width, setWidth] = useState(initialWidth)
   const widthRef = useRef(initialWidth)
@@ -353,6 +366,16 @@ export function OptionPricePanel({
   const pos = 'rgba(34,197,94,0.8)'
   const neg = 'rgba(251,44,54,0.8)'
 
+  // Order book depth (same as PricePanel)
+  const bids = orderBook?.bids ?? []
+  const asks = orderBook?.asks ?? []
+  const sortedBids = useMemo(() => bids.length ? [...bids].sort((a, b) => b.price - a.price) : [], [orderBook])
+  const sortedAsks = useMemo(() => asks.length ? [...asks].sort((a, b) => a.price - b.price) : [], [orderBook])
+  const [bidVisibleTotal, setBidVisibleTotal] = useState(0)
+  const [askVisibleTotal, setAskVisibleTotal] = useState(0)
+  const sharedCumMax = Math.max(bidVisibleTotal, askVisibleTotal)
+  const showDepth = width >= 320 && (sortedBids.length > 0 || sortedAsks.length > 0)
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -369,9 +392,19 @@ export function OptionPricePanel({
         display: 'flex', flexDirection: 'row', overflow: 'hidden',
         borderRadius: 4, cursor: locked ? 'default' : 'grab',
       }}>
+        {/* Bid depth chart */}
+        {showDepth && (
+          <div style={{ flex: 1, minWidth: 0, height: '100%', overflow: 'hidden' }}>
+            <DepthChart levels={sortedBids} side="bid" tickSize={0.01} granularity={1}
+              highlightQty={qtyNum} globalCumMax={sharedCumMax > 0 ? sharedCumMax : undefined}
+              onVisibleTotalChange={setBidVisibleTotal} />
+          </div>
+        )}
+
         {/* Centre column — same structure as PricePanel centre column */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column',
+        <div style={{ width: showDepth ? 200 : undefined, flex: showDepth ? undefined : 1, flexShrink: 0, display: 'flex', flexDirection: 'column',
           padding: '4px 4px', gap: 3, overflow: 'hidden', justifyContent: 'center',
+          borderLeft: showDepth ? `1px solid ${S.borderInner}` : 'none', borderRight: `1px solid ${S.borderInner}`,
         }}>
           {/* Instrument header */}
           <div style={{ height: 28, display: 'flex', alignItems: 'center', padding: '0 4px' }}>
@@ -432,6 +465,15 @@ export function OptionPricePanel({
             onBlur={() => onConfigChange?.(id, { quantity: parseFloat(qty) || 0 })}
           />
         </div>
+
+        {/* Ask depth chart */}
+        {showDepth && (
+          <div style={{ flex: 1, minWidth: 0, height: '100%', overflow: 'hidden' }}>
+            <DepthChart levels={sortedAsks} side="ask" tickSize={0.01} granularity={1}
+              highlightQty={qtyNum} globalCumMax={sharedCumMax > 0 ? sharedCumMax : undefined}
+              onVisibleTotalChange={setAskVisibleTotal} />
+          </div>
+        )}
 
         {/* Right column — exchange selector, close, lock (same as PricePanel right column) */}
         <div style={{ flexShrink: 0, height: '100%', display: 'flex', flexDirection: 'row',
