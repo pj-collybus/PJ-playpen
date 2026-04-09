@@ -29,6 +29,14 @@ export interface OptionOrder {
   expiry: string
 }
 
+export interface TickerOverrides {
+  bid: number
+  ask: number
+  high: number
+  low: number
+  change: number | null
+}
+
 export interface OptionPricePanelProps {
   id: string
   x: number
@@ -41,6 +49,7 @@ export interface OptionPricePanelProps {
   onClose?: (id: string) => void
   onMove?: (id: string, x: number, y: number) => void
   onResize?: (id: string, width: number) => void
+  tickerOverrides?: TickerOverrides
 }
 
 // ── Constants (same as PricePanel) ────────────────────────────────────────────
@@ -129,7 +138,7 @@ function TypeBtn({ active, disabled, onClick, children, title }: {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function OptionPricePanel({
-  id, x, y, width: initialWidth, apiBase, config, onConfigChange, onSubmitOrder, onClose, onMove, onResize,
+  id, x, y, width: initialWidth, apiBase, config, onConfigChange, onSubmitOrder, onClose, onMove, onResize, tickerOverrides,
 }: OptionPricePanelProps) {
   const [width, setWidth] = useState(initialWidth)
   const widthRef = useRef(initialWidth)
@@ -172,14 +181,18 @@ export function OptionPricePanel({
     const loadExpiries = async () => {
       try {
         const type = optionType === 'call' ? 'calls' : 'puts'
+        console.log('[option-panel] fetching expiries for currency:', currency, 'type:', type, 'apiBase:', apiBase)
         const resp = await fetch(`${apiBase}/api/options/expiries?instrument=${currency}&type=${type}`)
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
         const json = await resp.json()
+        console.log('[option-panel] expiries response:', json)
         if (cancelled) return
         const dates: string[] = json.expiries ?? []
+        console.log('[option-panel] expiries parsed:', dates.length, 'first:', dates[0])
         setExpiries(dates)
         if (dates.length > 0) {
           const sel = dates.includes(expiry) ? expiry : dates[0]
+          console.log('[option-panel] selected expiry:', sel)
           setExpiry(sel)
           onConfigChange?.(id, { expiry: sel })
         }
@@ -217,25 +230,38 @@ export function OptionPricePanel({
           toExpiry: expiry,
           atmOnly: 'true',
         })
+        console.log('[option-panel] fetching strikes:', `${apiBase}/api/options/matrix?${params}`)
         const resp = await fetch(`${apiBase}/api/options/matrix?${params}`)
-        if (!resp.ok) return
+        if (!resp.ok) { console.log('[option-panel] strikes fetch failed:', resp.status); return }
         const json = await resp.json()
+        console.log('[option-panel] strikes response: count=', json.strikes?.length, 'atm=', json.atmStrike)
         if (cancelled) return
         const stks: number[] = json.strikes ?? []
         setStrikes(stks)
         if (stks.length > 0) {
           const atm = json.atmStrike ?? stks[Math.floor(stks.length / 2)]
           const sel = stks.includes(strike) ? strike : atm
+          console.log('[option-panel] selected strike:', sel)
           setStrike(sel)
           onConfigChange?.(id, { strike: sel })
         }
-      } catch {}
+      } catch (e) { console.error('[option-panel] strikes fetch error:', e) }
     }
     fetchStrikes()
     return () => { cancelled = true }
   }, [apiBase, currency, expiry, optionType])
 
-  // ── SignalR live updates ───────────────────────────────────────────────────
+  // ── Apply ticker overrides from wrapper (SignalR-sourced live data) ─────
+  useEffect(() => {
+    if (!tickerOverrides) return
+    if (tickerOverrides.bid) setBid(tickerOverrides.bid)
+    if (tickerOverrides.ask) setAsk(tickerOverrides.ask)
+    if (tickerOverrides.high) setHigh(tickerOverrides.high)
+    if (tickerOverrides.low) setLow(tickerOverrides.low)
+    if (tickerOverrides.change != null) setChange(tickerOverrides.change)
+  }, [tickerOverrides])
+
+  // ── SignalR live updates (fallback — options:update CustomEvent) ───────
 
   useEffect(() => {
     const handler = (e: CustomEvent) => {
