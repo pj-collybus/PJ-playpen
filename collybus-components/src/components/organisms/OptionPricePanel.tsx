@@ -158,56 +158,63 @@ export function OptionPricePanel({
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
-  const fetchExpiries = useCallback(async (cur: string) => {
-    try {
-      setLoading(true)
-      const res = await fetch(`${apiBase}/api/options/expiries?instrument=${cur}&type=both`)
-      if (!res.ok) return
-      const data = await res.json()
-      const exps: string[] = data.expiries ?? []
-      setExpiries(exps)
-      if (exps.length > 0 && !exps.includes(expiry)) {
-        setExpiry(exps[0])
-        onConfigChange?.(id, { expiry: exps[0] })
-      }
-    } catch {} finally { setLoading(false) }
-  }, [apiBase, expiry, id, onConfigChange])
-
-  const fetchStrikes = useCallback(async (cur: string, exp: string) => {
-    try {
-      const res = await fetch(`${apiBase}/api/options/matrix?instrument=${cur}&type=${optionType === 'call' ? 'calls' : 'puts'}&expiryTo=${exp}`)
-      if (!res.ok) return
-      const data = await res.json()
-      const stks: number[] = data.strikes ?? []
-      setStrikes(stks)
-      if (stks.length > 0 && !stks.includes(strike)) {
-        // Pick ATM strike if available
-        const atm = data.atmStrike ?? stks[Math.floor(stks.length / 2)]
-        setStrike(atm)
-        onConfigChange?.(id, { strike: atm })
-      }
-    } catch {}
-  }, [apiBase, optionType, strike, id, onConfigChange])
-
-  const subscribe = useCallback(async (cur: string) => {
-    if (subscribed.current === cur) return
-    if (subscribed.current) {
-      try { await fetch(`${apiBase}/api/options/unsubscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrument: subscribed.current }) }) } catch {}
-    }
-    try {
-      await fetch(`${apiBase}/api/options/subscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrument: cur }) })
-      subscribed.current = cur
-    } catch {}
-  }, [apiBase])
-
-  useEffect(() => { fetchExpiries(currency); subscribe(currency) }, [currency])
-  useEffect(() => { if (currency && expiry) fetchStrikes(currency, expiry) }, [currency, expiry])
+  // Fetch expiries when currency changes
   useEffect(() => {
+    if (!currency) return
+    let cancelled = false
+    setLoading(true)
+    setExpiries([])
+    fetch(`${apiBase}/api/options/expiries?instrument=${currency}&type=both`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return
+        const exps: string[] = data.expiries ?? []
+        setExpiries(exps)
+        if (exps.length > 0) {
+          const sel = exps.includes(expiry) ? expiry : exps[0]
+          setExpiry(sel)
+          onConfigChange?.(id, { expiry: sel })
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [apiBase, currency])
+
+  // Fetch strikes when currency or expiry changes
+  useEffect(() => {
+    if (!currency || !expiry) return
+    let cancelled = false
+    setStrikes([])
+    fetch(`${apiBase}/api/options/matrix?instrument=${currency}&type=${optionType === 'call' ? 'calls' : 'puts'}&expiryTo=${expiry}`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return
+        const stks: number[] = data.strikes ?? []
+        setStrikes(stks)
+        if (stks.length > 0) {
+          const atm = data.atmStrike ?? stks[Math.floor(stks.length / 2)]
+          const sel = stks.includes(strike) ? strike : atm
+          setStrike(sel)
+          onConfigChange?.(id, { strike: sel })
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [apiBase, currency, expiry, optionType])
+
+  // Subscribe to live updates for the currency
+  useEffect(() => {
+    if (!currency) return
+    fetch(`${apiBase}/api/options/subscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrument: currency }) }).catch(() => {})
+    subscribed.current = currency
     return () => {
-      const cur = subscribed.current
-      if (cur) fetch(`${apiBase}/api/options/unsubscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrument: cur }) }).catch(() => {})
+      if (subscribed.current) {
+        fetch(`${apiBase}/api/options/unsubscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrument: subscribed.current }) }).catch(() => {})
+        subscribed.current = null
+      }
     }
-  }, [apiBase])
+  }, [apiBase, currency])
 
   // ── SignalR live updates ───────────────────────────────────────────────────
 
