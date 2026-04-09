@@ -93,7 +93,7 @@ const EXCHANGE_ABBREV: Record<string, string> = {
 // Same instrument list as OptionsMatrix
 const CURRENCIES = ['BTC', 'BTC_USDC', 'ETH', 'ETH_USDC', 'SOL_USDC', 'XRP_USDC']
 const CURRENCY_LABELS: Record<string, string> = {
-  BTC: 'BTC', BTC_USDC: 'BTC USDC', ETH: 'ETH', ETH_USDC: 'ETH USDC', SOL_USDC: 'SOL USDC', XRP_USDC: 'XRP USDC',
+  BTC: 'BTC', BTC_USDC: 'BTC/USDC', ETH: 'ETH', ETH_USDC: 'ETH/USDC', SOL_USDC: 'SOL/USDC', XRP_USDC: 'XRP/USDC',
 }
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
 const QTY_PRESETS = [1, 5, 10, 25, 100]
