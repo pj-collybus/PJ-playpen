@@ -1,5 +1,8 @@
 // @ts-nocheck
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { BidAskDisplay } from '../molecules/BidAskDisplay'
+import { OrderSizeSelector } from '../molecules/OrderSizeSelector'
+import { ExchangeSelector } from '../molecules/ExchangeSelector'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -40,7 +43,7 @@ export interface OptionPricePanelProps {
   onResize?: (id: string, width: number) => void
 }
 
-// ── Constants ──────────────────────────────────────────────────────────────────
+// ── Constants (same as PricePanel) ────────────────────────────────────────────
 
 const S = {
   gradCard: 'linear-gradient(to bottom, #1F1E23 0%, #1E1D22 50%, #1B1A1F 100%)',
@@ -49,6 +52,14 @@ const S = {
   bgCardEnd: '#1B1A1F',
 }
 
+const EXCHANGE_LOGOS: Record<string, string> = {
+  DERIBIT: 'https://www.deribit.com/favicon.ico',
+  BITMEX: 'https://www.bitmex.com/favicon.ico',
+  BINANCE: 'https://bin.bnbstatic.com/static/images/common/favicon.ico',
+  BYBIT: 'https://www.bybit.com/favicon.ico',
+  OKX: 'https://static.okx.com/cdn/assets/imgs/221/E74C5D512FA4211E.png',
+  KRAKEN: 'https://www.kraken.com/favicon.ico',
+}
 const EXCHANGE_COLORS: Record<string, string> = {
   DERIBIT: '#e03040', BITMEX: '#4a90d9', BINANCE: '#f0b90b',
   BYBIT: '#f7a600', OKX: '#aaaaaa', KRAKEN: '#8d5ff0',
@@ -59,50 +70,35 @@ const EXCHANGE_ABBREV: Record<string, string> = {
 
 const CURRENCIES = ['BTC_USDC', 'ETH_USDC', 'SOL_USDC', 'XRP_USDC']
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+const QTY_PRESETS = [1, 5, 10, 25, 100]
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 const toDeribitExpiry = (exp: string) => {
-  try {
-    const d = new Date(exp)
-    if (!isNaN(d.getTime())) return `${d.getUTCDate()}${MONTHS[d.getUTCMonth()]}${String(d.getUTCFullYear()).slice(2)}`
-  } catch {}
+  try { const d = new Date(exp); if (!isNaN(d.getTime())) return `${d.getUTCDate()}${MONTHS[d.getUTCMonth()]}${String(d.getUTCFullYear()).slice(2)}` } catch {}
   return exp
 }
 
 const getInstrumentName = (currency: string, expiry: string, strike: number, type: 'call' | 'put') =>
   `${currency}-${toDeribitExpiry(expiry)}-${strike}-${type === 'call' ? 'C' : 'P'}`
 
-const fmtPrice = (v: number) => {
-  if (!v || v === 0) return '—'
-  return v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+function baseCurrency(symbol: string): string {
+  return symbol.split('-')[0].split('_')[0]
 }
 
-const fmtPct = (v: number) => {
-  if (!v && v !== 0) return '—'
-  const sign = v >= 0 ? '+' : ''
-  return `${sign}${v.toFixed(1)}%`
+const fmtPrice = (v: number, _tick?: number) => {
+  if (!v || v === 0) return '—'
+  return v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 4 })
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 function SelectDropdown({ value, options, onChange, style }: {
-  value: string
-  options: { label: string; value: string }[]
-  onChange: (v: string) => void
-  style?: React.CSSProperties
+  value: string; options: { label: string; value: string }[]; onChange: (v: string) => void; style?: React.CSSProperties
 }) {
   return (
-    <select
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      style={{
-        background: '#252430', border: `1px solid #363C4E`, color: 'rgba(255,255,255,0.85)',
-        borderRadius: 4, padding: '2px 4px', fontSize: 10, fontFamily: 'inherit',
-        cursor: 'pointer', outline: 'none', flex: 1, minWidth: 0,
-        ...style,
-      }}
-    >
+    <select value={value} onChange={e => onChange(e.target.value)}
+      style={{ background: '#252430', border: `1px solid #363C4E`, color: 'rgba(255,255,255,0.85)', borderRadius: 4, padding: '2px 4px', fontSize: 10, fontFamily: 'inherit', cursor: 'pointer', outline: 'none', flex: 1, minWidth: 0, ...style }}>
       {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
   )
@@ -112,22 +108,15 @@ function TypeBtn({ active, disabled, onClick, children, title }: {
   active?: boolean; disabled?: boolean; onClick?: () => void; children: React.ReactNode; title?: string
 }) {
   return (
-    <button
-      onClick={disabled ? undefined : onClick}
-      title={title}
+    <button onClick={disabled ? undefined : onClick} title={title}
       style={{
-        background: active
-          ? 'linear-gradient(to right, #1A3A94 0%, #2B79DD 100%)'
-          : disabled
-            ? 'rgba(255,255,255,0.04)'
-            : 'linear-gradient(to bottom, #3C3B42 0%, #323138 50%, #2B2A2F 100%)',
+        background: active ? 'linear-gradient(to right, #1A3A94 0%, #2B79DD 100%)' : disabled ? 'rgba(255,255,255,0.04)' : 'linear-gradient(to bottom, #3C3B42 0%, #323138 50%, #2B2A2F 100%)',
         border: `1px solid ${active ? '#2B79DD' : '#363C4E'}`,
         color: disabled ? 'rgba(255,255,255,0.25)' : active ? '#fff' : 'rgba(255,255,255,0.7)',
         borderRadius: 3, padding: '2px 7px', fontSize: 10, fontFamily: 'inherit',
-        cursor: disabled ? 'not-allowed' : 'pointer', fontWeight: active ? 600 : 400,
-        flexShrink: 0,
-      }}
-    >
+        cursor: disabled ? 'not-allowed' : 'pointer', fontWeight: active ? 600 : 400, flexShrink: 0,
+        boxShadow: active ? 'inset 0px 3px 1px rgba(255,255,255,0.25), inset 0px -3px 1px rgba(0,0,0,0.25)' : 'inset 0px 1px 1px rgba(255,255,255,0.1), inset 0px -1px 1px rgba(0,0,0,0.15)',
+      }}>
       {children}
     </button>
   )
@@ -138,7 +127,6 @@ function TypeBtn({ active, disabled, onClick, children, title }: {
 export function OptionPricePanel({
   id, x, y, width: initialWidth, apiBase, config, onConfigChange, onSubmitOrder, onClose, onMove, onResize,
 }: OptionPricePanelProps) {
-  // ── State ──────────────────────────────────────────────────────────────────
   const [width, setWidth] = useState(initialWidth)
   const widthRef = useRef(initialWidth)
   useEffect(() => { widthRef.current = width }, [width])
@@ -168,8 +156,6 @@ export function OptionPricePanel({
   const posRef = useRef({ x, y })
   const subscribed = useRef<string | null>(null)
 
-  const QTY_PRESETS = [1, 5, 10, 25, 100]
-
   // ── Data fetching ──────────────────────────────────────────────────────────
 
   const fetchExpiries = useCallback(async (cur: string) => {
@@ -189,23 +175,22 @@ export function OptionPricePanel({
 
   const fetchStrikes = useCallback(async (cur: string, exp: string) => {
     try {
-      const instrName = `${cur}-${toDeribitExpiry(exp)}`
-      const res = await fetch(`${apiBase}/api/options/strikes?instrument=${instrName}`)
+      const res = await fetch(`${apiBase}/api/options/matrix?instrument=${cur}&type=${optionType === 'call' ? 'calls' : 'puts'}&expiryTo=${exp}`)
       if (!res.ok) return
       const data = await res.json()
       const stks: number[] = data.strikes ?? []
       setStrikes(stks)
       if (stks.length > 0 && !stks.includes(strike)) {
-        setStrike(stks[0])
-        onConfigChange?.(id, { strike: stks[0] })
+        // Pick ATM strike if available
+        const atm = data.atmStrike ?? stks[Math.floor(stks.length / 2)]
+        setStrike(atm)
+        onConfigChange?.(id, { strike: atm })
       }
     } catch {}
-  }, [apiBase, strike, id, onConfigChange])
+  }, [apiBase, optionType, strike, id, onConfigChange])
 
-  // Subscribe to live updates
   const subscribe = useCallback(async (cur: string) => {
     if (subscribed.current === cur) return
-    // Unsubscribe previous
     if (subscribed.current) {
       try { await fetch(`${apiBase}/api/options/unsubscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrument: subscribed.current }) }) } catch {}
     }
@@ -215,22 +200,12 @@ export function OptionPricePanel({
     } catch {}
   }, [apiBase])
 
-  useEffect(() => {
-    fetchExpiries(currency)
-    subscribe(currency)
-  }, [currency])
-
-  useEffect(() => {
-    if (currency && expiry) fetchStrikes(currency, expiry)
-  }, [currency, expiry])
-
-  // Unsubscribe on unmount
+  useEffect(() => { fetchExpiries(currency); subscribe(currency) }, [currency])
+  useEffect(() => { if (currency && expiry) fetchStrikes(currency, expiry) }, [currency, expiry])
   useEffect(() => {
     return () => {
       const cur = subscribed.current
-      if (cur) {
-        fetch(`${apiBase}/api/options/unsubscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrument: cur }) }).catch(() => {})
-      }
+      if (cur) fetch(`${apiBase}/api/options/unsubscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instrument: cur }) }).catch(() => {})
     }
   }, [apiBase])
 
@@ -249,11 +224,11 @@ export function OptionPricePanel({
       if (data.change != null) setChange(data.change)
       if (data.iv != null) setIv(data.iv)
     }
-    window.addEventListener('options:update', handler as EventListener)
-    return () => window.removeEventListener('options:update', handler as EventListener)
+    window.addEventListener('options:update', handler)
+    return () => window.removeEventListener('options:update', handler)
   }, [currency, expiry, strike, optionType])
 
-  // ── Drag ──────────────────────────────────────────────────────────────────
+  // ── Drag (identical to PricePanel) ────────────────────────────────────────
 
   const onHeaderMouseDown = useCallback((e: React.MouseEvent) => {
     if (locked) return
@@ -262,40 +237,40 @@ export function OptionPricePanel({
     const el = elRef.current; if (!el) return
     dragRef.current = { ox: e.clientX - el.offsetLeft, oy: e.clientY - el.offsetTop }
     el.style.zIndex = '10'
-    const onMove = (ev: MouseEvent) => {
+    const handleMove = (ev: MouseEvent) => {
       if (!dragRef.current || !el) return
       const nx = Math.max(0, ev.clientX - dragRef.current.ox)
       const ny = Math.max(0, ev.clientY - dragRef.current.oy)
       el.style.left = nx + 'px'; el.style.top = ny + 'px'
       posRef.current = { x: nx, y: ny }
     }
-    const onUp = () => {
+    const handleUp = () => {
       dragRef.current = null; el.style.zIndex = ''
       onMove?.(id, posRef.current.x, posRef.current.y)
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
     }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
+    document.addEventListener('mousemove', handleMove)
+    document.addEventListener('mouseup', handleUp)
   }, [id, locked, onMove])
 
-  // ── Resize ────────────────────────────────────────────────────────────────
+  // ── Resize (identical to PricePanel) ──────────────────────────────────────
 
   const onResizeMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault(); e.stopPropagation()
     resizeRef.current = { startX: e.clientX, startW: width }
-    const onMove = (ev: MouseEvent) => {
+    const handleMove = (ev: MouseEvent) => {
       if (!resizeRef.current) return
       setWidth(Math.max(300, resizeRef.current.startW + (ev.clientX - resizeRef.current.startX)))
     }
-    const onUp = () => {
+    const handleUp = () => {
       resizeRef.current = null
       onResize?.(id, widthRef.current)
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
     }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
+    document.addEventListener('mousemove', handleMove)
+    document.addEventListener('mouseup', handleUp)
   }, [id, width, onResize])
 
   // ── Trade ─────────────────────────────────────────────────────────────────
@@ -305,235 +280,135 @@ export function OptionPricePanel({
     setSubmitting(side)
     try {
       await onSubmitOrder?.({
-        exchange,
-        instrument: getInstrumentName(currency, expiry, strike, optionType),
+        exchange, instrument: getInstrumentName(currency, expiry, strike, optionType),
         side: side.toUpperCase() as 'BUY' | 'SELL',
-        quantity: parseFloat(qty) || 0,
-        type: 'limit',
+        quantity: parseFloat(qty) || 0, type: 'limit',
         price: side === 'buy' ? ask : bid,
         currency, optionType, strike, expiry,
       })
-    } finally {
-      setTimeout(() => setSubmitting(null), 150)
-    }
+    } finally { setTimeout(() => setSubmitting(null), 150) }
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
   const instrName = getInstrumentName(currency, expiry, strike, optionType)
-  const exBadgeColor = EXCHANGE_COLORS[exchange] ?? '#888'
-  const exBadgeLabel = EXCHANGE_ABBREV[exchange] ?? exchange.slice(0, 2)
-  const changeColor = change == null ? '#888' : change >= 0 ? '#00C758' : '#FB2C36'
+  const base = baseCurrency(currency)
+  const qtyNum = parseFloat(qty) || 0
+  const sellPrice = bid > 0 ? fmtPrice(bid) : '—'
+  const buyPrice = ask > 0 ? fmtPrice(ask) : '—'
+  const spread = bid > 0 && ask > 0 ? fmtPrice(ask - bid) : '—'
+  const label = 'rgba(99,110,130,0.9)'
+  const val = 'rgba(255,255,255,0.8)'
+  const pos = 'rgba(34,197,94,0.8)'
+  const neg = 'rgba(251,44,54,0.8)'
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div ref={elRef} style={{
-      position: 'absolute', left: x, top: y, width, minWidth: 300,
+      position: 'absolute', left: x, top: y, width, minWidth: 200,
       outline: submitting ? '2px solid #4488ff' : '2px solid transparent',
       border: `1.25px solid ${S.border}`, borderRadius: 4, overflow: 'visible',
       display: 'flex', flexDirection: 'column', background: S.gradCard,
-      boxShadow: submitting
-        ? '0 0 16px rgba(68,136,255,0.5)'
-        : locked
-          ? '0 0 0 1px rgba(240,160,32,0.35), 0 4px 20px rgba(0,0,0,0.6)'
-          : '0 4px 20px rgba(0,0,0,0.5)',
-      transition: 'outline 0.1s ease, box-shadow 0.15s ease',
-      userSelect: 'none',
+      boxShadow: submitting ? '0 0 16px rgba(68,136,255,0.5)' : locked ? '0 0 0 1px rgba(240,160,32,0.35), 0 4px 20px rgba(0,0,0,0.6)' : '0 4px 20px rgba(0,0,0,0.5)',
+      transition: 'outline 0.1s ease, box-shadow 0.15s ease', userSelect: 'none',
     }}>
-
-      {/* ── Header ── */}
+      {/* Panel body — matching PricePanel's main row structure */}
       <div onMouseDown={onHeaderMouseDown} style={{
-        display: 'flex', alignItems: 'center', gap: 4, padding: '0 6px',
-        height: 28, borderBottom: `1px solid ${S.borderInner}`,
-        cursor: locked ? 'default' : 'grab', flexShrink: 0,
+        display: 'flex', flexDirection: 'row', overflow: 'hidden',
+        borderRadius: 4, cursor: locked ? 'default' : 'grab',
       }}>
-        {/* Exchange badge */}
-        <span style={{
-          fontSize: 9, fontWeight: 700, color: '#fff', background: exBadgeColor,
-          borderRadius: 3, padding: '1px 4px', flexShrink: 0,
-        }}>{exBadgeLabel}</span>
+        {/* Centre column — same structure as PricePanel centre column */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column',
+          padding: '4px 4px', gap: 3, overflow: 'hidden', justifyContent: 'center',
+        }}>
+          {/* Instrument header */}
+          <div style={{ height: 28, display: 'flex', alignItems: 'center', padding: '0 4px' }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.85)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{instrName}</span>
+            <span style={{ fontSize: 9, color: '#888', flexShrink: 0 }}>{exchange}</span>
+          </div>
 
-        {/* Instrument name */}
-        <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.85)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {instrName}
-        </span>
+          {/* Stats row — same as PriceStats */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 9, color: label, whiteSpace: 'nowrap' }}>
+              H <span style={{ color: val }}>{fmtPrice(high)}</span> / <span style={{ color: val }}>{fmtPrice(low)}</span>
+            </span>
+            <span style={{ fontSize: 9, fontWeight: 600, color: change != null ? (change >= 0 ? pos : neg) : label }}>
+              {change != null ? `${change >= 0 ? '+' : ''}${change.toFixed(2)}%` : '—'}
+            </span>
+            <span style={{ fontSize: 9, color: label }}>
+              IV <span style={{ color: '#a78bfa' }}>{iv != null ? `${iv.toFixed(0)}%` : '—'}</span>
+            </span>
+          </div>
 
-        {/* Close button */}
-        <button onClick={() => onClose?.(id)} style={{ height: 20, width: 20, background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 13, borderRadius: 3, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0 }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = '#fff' }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)' }}
-        >×</button>
+          {/* Dropdowns + type buttons */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '2px 0' }}>
+            <div style={{ display: 'flex', gap: 3 }}>
+              <SelectDropdown value={currency}
+                options={CURRENCIES.map(c => ({ label: c.replace('_', '/'), value: c }))}
+                onChange={v => { setCurrency(v); onConfigChange?.(id, { currency: v }); setStrikes([]) }} />
+              <SelectDropdown value={expiry}
+                options={expiries.length > 0 ? expiries.map(e => ({ label: toDeribitExpiry(e), value: e })) : [{ label: expiry ? toDeribitExpiry(expiry) : '—', value: expiry }]}
+                onChange={v => { setExpiry(v); onConfigChange?.(id, { expiry: v }) }} />
+              <SelectDropdown value={String(strike)}
+                options={strikes.length > 0 ? strikes.map(s => ({ label: s.toLocaleString(), value: String(s) })) : [{ label: strike ? String(strike) : '—', value: String(strike) }]}
+                onChange={v => { const n = Number(v); setStrike(n); onConfigChange?.(id, { strike: n }) }} />
+            </div>
+            <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+              <TypeBtn active={optionType === 'call'} onClick={() => { setOptionType('call'); onConfigChange?.(id, { optionType: 'call' }) }}>Call</TypeBtn>
+              <TypeBtn active={optionType === 'put'} onClick={() => { setOptionType('put'); onConfigChange?.(id, { optionType: 'put' }) }}>Put</TypeBtn>
+              <span style={{ marginLeft: 4, color: S.borderInner, fontSize: 10 }}>|</span>
+              <TypeBtn disabled title="Coming soon">C Sprd</TypeBtn>
+              <TypeBtn disabled title="Coming soon">P Sprd</TypeBtn>
+              <TypeBtn disabled title="Coming soon">Strad</TypeBtn>
+            </div>
+          </div>
 
-        {/* Lock button */}
-        <button onClick={() => { const next = !locked; setLocked(next); onConfigChange?.(id, { locked: next }) }} title={locked ? 'Unlock' : 'Lock'}
-          style={{ height: 20, width: 20, background: 'transparent', border: 'none', color: locked ? '#e05252' : '#666', cursor: 'pointer', fontSize: 11, borderRadius: 3, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0, transition: 'color 0.15s ease' }}
-          onMouseEnter={e => { if (!locked) e.currentTarget.style.color = '#aaa' }}
-          onMouseLeave={e => { if (!locked) e.currentTarget.style.color = '#666' }}
-        >{locked ? '🔒' : '🔓'}</button>
-      </div>
-
-      {/* ── Stats row ── */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10, padding: '3px 8px',
-        borderBottom: `1px solid ${S.borderInner}`, flexShrink: 0,
-      }}>
-        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)' }}>
-          H: <span style={{ color: 'rgba(255,255,255,0.75)' }}>{fmtPrice(high)}</span>
-          {' / '}
-          <span style={{ color: 'rgba(255,255,255,0.75)' }}>{fmtPrice(low)}</span>
-        </span>
-        <span style={{ fontSize: 9, color: changeColor }}>
-          Chg: {change != null ? fmtPct(change) : '—'}
-        </span>
-        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)' }}>
-          IV: <span style={{ color: '#a78bfa' }}>{iv != null ? `${iv.toFixed(0)}%` : '—'}</span>
-        </span>
-      </div>
-
-      {/* ── Dropdowns + type buttons ── */}
-      <div style={{ padding: '5px 6px', borderBottom: `1px solid ${S.borderInner}`, display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
-        {/* Dropdowns row */}
-        <div style={{ display: 'flex', gap: 4 }}>
-          <SelectDropdown
-            value={currency}
-            options={CURRENCIES.map(c => ({ label: c.replace('_', '/'), value: c }))}
-            onChange={v => {
-              setCurrency(v)
-              onConfigChange?.(id, { currency: v })
-              setStrikes([])
-            }}
+          {/* BidAsk — reuses exact same component as PricePanel */}
+          <BidAskDisplay
+            sellPrice={sellPrice} buyPrice={buyPrice} spread={spread}
+            baseCurrency={`${optionType === 'call' ? 'Call' : 'Put'} ${base}`}
+            qtyEntered={qtyNum > 0} submitting={submitting}
+            locked={locked}
+            onSell={() => handleTrade('sell')} onBuy={() => handleTrade('buy')}
           />
-          <SelectDropdown
-            value={expiry}
-            options={expiries.length > 0 ? expiries.map(e => ({ label: toDeribitExpiry(e), value: e })) : [{ label: expiry ? toDeribitExpiry(expiry) : '—', value: expiry }]}
-            onChange={v => {
-              setExpiry(v)
-              onConfigChange?.(id, { expiry: v })
-            }}
-          />
-          <SelectDropdown
-            value={String(strike)}
-            options={strikes.length > 0 ? strikes.map(s => ({ label: s.toLocaleString(), value: String(s) })) : [{ label: strike ? String(strike) : '—', value: String(strike) }]}
-            onChange={v => {
-              const n = Number(v)
-              setStrike(n)
-              onConfigChange?.(id, { strike: n })
-            }}
+
+          {/* Qty — reuses exact same component as PricePanel */}
+          <OrderSizeSelector
+            qty={qty} presetQtys={QTY_PRESETS}
+            onChange={v => { setQty(v); onConfigChange?.(id, { quantity: parseFloat(v) || 0 }) }}
+            baseCurrency={base}
+            onBlur={() => onConfigChange?.(id, { quantity: parseFloat(qty) || 0 })}
           />
         </div>
 
-        {/* Type buttons row */}
-        <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-          <TypeBtn active={optionType === 'call'} onClick={() => { setOptionType('call'); onConfigChange?.(id, { optionType: 'call' }) }}>Call</TypeBtn>
-          <TypeBtn active={optionType === 'put'} onClick={() => { setOptionType('put'); onConfigChange?.(id, { optionType: 'put' }) }}>Put</TypeBtn>
-          <span style={{ marginLeft: 4, color: S.borderInner, fontSize: 10 }}>|</span>
-          <TypeBtn disabled title="Coming soon">C Sprd</TypeBtn>
-          <TypeBtn disabled title="Coming soon">P Sprd</TypeBtn>
-          <TypeBtn disabled title="Coming soon">Strad</TypeBtn>
+        {/* Right column — exchange selector, close, lock (same as PricePanel right column) */}
+        <div style={{ flexShrink: 0, height: '100%', display: 'flex', flexDirection: 'row',
+          borderLeft: `1px solid ${S.borderInner}`, borderRadius: '0 0 4px 0', overflow: 'visible', background: S.bgCardEnd,
+        }}>
+          <div style={{ width: 22, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <button onClick={() => onClose?.(id)} style={{ height: 22, width: 22, background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 12, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; e.currentTarget.style.color = '#fff' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)' }}
+            >×</button>
+            <ExchangeSelector exchange={exchange} availableExchanges={['DERIBIT']}
+              logoUrls={EXCHANGE_LOGOS} colors={EXCHANGE_COLORS} abbrevs={EXCHANGE_ABBREV}
+              onSelect={() => {}} />
+            <button onClick={() => { const next = !locked; setLocked(next); onConfigChange?.(id, { locked: next }) }} title={locked ? 'Unlock' : 'Lock'}
+              style={{ height: 28, width: 22, background: 'transparent', border: 'none', color: locked ? '#e05252' : '#666', cursor: 'pointer', fontSize: 14, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'color 0.15s ease' }}>
+              {locked ? '🔒' : '🔓'}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* ── Bid / Ask ── */}
-      <div style={{
-        display: 'flex', alignItems: 'stretch', borderBottom: `1px solid ${S.borderInner}`, flexShrink: 0,
-      }}>
-        {/* Bid / Sell */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '6px 6px 4px', gap: 3, borderRight: `1px solid ${S.borderInner}` }}>
-          <span style={{ fontSize: 18, fontWeight: 700, color: bid > 0 ? '#FB6970' : 'rgba(255,255,255,0.3)', letterSpacing: 0.5, lineHeight: 1 }}>
-            {bid > 0 ? bid.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—'}
-          </span>
-          <button
-            onClick={() => handleTrade('sell')}
-            disabled={locked || !bid || !qty}
-            style={{
-              background: submitting === 'sell' ? 'linear-gradient(to right, #7B1A2A 0%, #C02030 100%)' : 'linear-gradient(to right, #5A1A24 0%, #9B2030 100%)',
-              border: '1px solid #C02030', color: '#fff', borderRadius: 3,
-              padding: '3px 12px', fontSize: 10, fontWeight: 600, fontFamily: 'inherit',
-              cursor: locked || !bid || !qty ? 'not-allowed' : 'pointer',
-              opacity: locked || !bid || !qty ? 0.5 : 1, width: '100%',
-              transition: 'background 0.1s',
-            }}
-            onMouseEnter={e => { if (!locked && bid && qty) e.currentTarget.style.background = 'linear-gradient(to right, #7B1A2A 0%, #C02030 100%)' }}
-            onMouseLeave={e => { if (!locked && bid && qty) e.currentTarget.style.background = 'linear-gradient(to right, #5A1A24 0%, #9B2030 100%)' }}
-          >
-            {`Sell ${optionType === 'call' ? 'Call' : 'Put'}`}
-          </button>
-        </div>
-
-        {/* Qty input in middle */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4px 6px', gap: 2, flexShrink: 0 }}>
-          <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.5 }}>qty</span>
-          <input
-            value={qty}
-            onChange={e => { setQty(e.target.value); onConfigChange?.(id, { quantity: parseFloat(e.target.value) || 0 }) }}
-            placeholder="0"
-            style={{
-              width: 52, background: '#0e0e14', border: `1px solid #363C4E`, color: 'rgba(255,255,255,0.85)',
-              borderRadius: 3, padding: '2px 4px', fontSize: 11, fontFamily: 'inherit', textAlign: 'center', outline: 'none',
-            }}
-            onFocus={e => e.currentTarget.style.borderColor = '#2B79DD'}
-            onBlur={e => e.currentTarget.style.borderColor = '#363C4E'}
-          />
-        </div>
-
-        {/* Ask / Buy */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '6px 6px 4px', gap: 3, borderLeft: `1px solid ${S.borderInner}` }}>
-          <span style={{ fontSize: 18, fontWeight: 700, color: ask > 0 ? '#4CAF82' : 'rgba(255,255,255,0.3)', letterSpacing: 0.5, lineHeight: 1 }}>
-            {ask > 0 ? ask.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—'}
-          </span>
-          <button
-            onClick={() => handleTrade('buy')}
-            disabled={locked || !ask || !qty}
-            style={{
-              background: submitting === 'buy' ? 'linear-gradient(to right, #1A3A94 0%, #2B79DD 100%)' : 'linear-gradient(to right, #1A2A6A 0%, #1F5AB0 100%)',
-              border: '1px solid #2B79DD', color: '#fff', borderRadius: 3,
-              padding: '3px 12px', fontSize: 10, fontWeight: 600, fontFamily: 'inherit',
-              cursor: locked || !ask || !qty ? 'not-allowed' : 'pointer',
-              opacity: locked || !ask || !qty ? 0.5 : 1, width: '100%',
-              transition: 'background 0.1s',
-            }}
-            onMouseEnter={e => { if (!locked && ask && qty) e.currentTarget.style.background = 'linear-gradient(to right, #1A3A94 0%, #2B79DD 100%)' }}
-            onMouseLeave={e => { if (!locked && ask && qty) e.currentTarget.style.background = 'linear-gradient(to right, #1A2A6A 0%, #1F5AB0 100%)' }}
-          >
-            {`Buy ${optionType === 'call' ? 'Call' : 'Put'}`}
-          </button>
-        </div>
-      </div>
-
-      {/* ── Qty presets ── */}
-      <div style={{ display: 'flex', gap: 3, padding: '5px 6px', alignItems: 'center' }}>
-        {QTY_PRESETS.map(p => (
-          <button
-            key={p}
-            onClick={() => { setQty(String(p)); onConfigChange?.(id, { quantity: p }) }}
-            style={{
-              flex: 1, background: qty === String(p) ? 'linear-gradient(to bottom, #3C3B42 0%, #323138 50%, #2B2A2F 100%)' : 'rgba(255,255,255,0.04)',
-              border: `1px solid ${qty === String(p) ? '#555' : '#2a2a38'}`,
-              color: qty === String(p) ? '#fff' : 'rgba(255,255,255,0.5)',
-              borderRadius: 3, padding: '3px 0', fontSize: 9, fontFamily: 'inherit', cursor: 'pointer',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'linear-gradient(to bottom, #3C3B42 0%, #323138 50%, #2B2A2F 100%)'; e.currentTarget.style.color = '#fff' }}
-            onMouseLeave={e => {
-              e.currentTarget.style.background = qty === String(p) ? 'linear-gradient(to bottom, #3C3B42 0%, #323138 50%, #2B2A2F 100%)' : 'rgba(255,255,255,0.04)'
-              e.currentTarget.style.color = qty === String(p) ? '#fff' : 'rgba(255,255,255,0.5)'
-            }}
-          >{p}</button>
-        ))}
-      </div>
-
-      {/* ── Resize handle ── */}
-      <div
-        onMouseDown={onResizeMouseDown}
-        style={{ position: 'absolute', right: -3, top: 6, bottom: 6, width: 6, cursor: 'col-resize', zIndex: 20, borderRadius: 3, background: 'transparent', transition: 'background .15s' }}
+      {/* Resize handle — identical to PricePanel */}
+      <div onMouseDown={onResizeMouseDown} style={{ position: 'absolute', right: -3, top: 6, bottom: 6, width: 6, cursor: 'col-resize', zIndex: 20, borderRadius: 3, background: 'transparent', transition: 'background .15s' }}
         onMouseEnter={e => e.currentTarget.style.background = 'rgba(43,121,221,0.35)'}
         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
       />
 
-      {/* Loading indicator */}
-      {loading && (
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(to right, transparent, #2B79DD, transparent)', animation: 'none', opacity: 0.7, borderRadius: '4px 4px 0 0' }} />
-      )}
+      {loading && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(to right, transparent, #2B79DD, transparent)', opacity: 0.7, borderRadius: '4px 4px 0 0' }} />}
     </div>
   )
 }
