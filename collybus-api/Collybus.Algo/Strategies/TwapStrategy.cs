@@ -51,6 +51,8 @@ public class TwapStrategy : BaseStrategy
 
     private long _endTs;
     private long _startTs;
+    private long _pausedAtMs;
+    private long _totalPausedMs;
 
     // Active child order tracking
     private string? _restingClientOrderId;
@@ -589,13 +591,23 @@ public class TwapStrategy : BaseStrategy
     {
         _restingClientOrderId = null; _restingPrice = 0; _placing = false;
         _waitingForCancelConfirm = false; _shouldAggressAfterCancel = false;
+        _pausedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         _pauseReason = "manual";
     }
 
     protected override Task OnResumeAsync()
     {
-        // Resume slice schedule from now
-        _nextSliceAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (_pausedAtMs > 0)
+        {
+            var pausedDuration = now - _pausedAtMs;
+            _totalPausedMs += pausedDuration;
+            _endTs += pausedDuration;
+            _pausedAtMs = 0;
+            Logger.LogInformation("[TWAP] {Sid} resumed — paused for {PausedMs}ms, deadline extended to {EndTs}",
+                StrategyId, pausedDuration, _endTs);
+        }
+        _nextSliceAt = now;
         _pauseReason = null;
         return Task.CompletedTask;
     }
