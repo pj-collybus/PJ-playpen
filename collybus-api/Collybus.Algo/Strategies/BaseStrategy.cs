@@ -95,6 +95,7 @@ public abstract class BaseStrategy : IAlgoStrategy
         OnPause(); // clear strategy child IDs
         Logger.LogInformation("[{Type}] {Sid} stopped: filled={Filled}/{Total}",
             StrategyType, StrategyId, FilledSize, Params?.TotalSize);
+        try { await Events.PublishStatusAsync(GetStatus()); } catch { }
     }
 
     // ── PAUSE — cancel orders, preserve state ─────────────────────────────

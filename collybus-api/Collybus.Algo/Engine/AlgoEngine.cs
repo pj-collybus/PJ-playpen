@@ -27,6 +27,7 @@ public class AlgoEngine : BackgroundService
     private readonly IAlgoEventBus _events;
     private readonly ILogger<AlgoEngine> _log;
     private readonly FillSimulator _sim;
+    private readonly HashSet<string> _publishedFinal = new();
     private int _ordersThisSec;
     private DateTime _rateWindow = DateTime.UtcNow;
 
@@ -151,8 +152,13 @@ public class AlgoEngine : BackgroundService
             }
             foreach (var strategy in _strategies.Values.ToArray())
             {
-                if (strategy.Status is not (AlgoStatus.Completed or AlgoStatus.Stopped))
-                    await _events.PublishStatusAsync(strategy.GetStatus());
+                if (strategy.Status is AlgoStatus.Completed or AlgoStatus.Stopped)
+                {
+                    if (_publishedFinal.Add(strategy.StrategyId))
+                        await _events.PublishStatusAsync(strategy.GetStatus());
+                    continue;
+                }
+                await _events.PublishStatusAsync(strategy.GetStatus());
             }
         }
     }
