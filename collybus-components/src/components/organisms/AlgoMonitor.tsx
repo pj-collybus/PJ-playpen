@@ -40,6 +40,7 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
   const [accQty, setAccQty] = useState('')
   const [accQtyEdited, setAccQtyEdited] = useState(false)
   const [accelConfirm, setAccelConfirm] = useState(false)
+  const [showPauseConfirm, setShowPauseConfirm] = useState(false)
   const accelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [minimised, setMinimised] = useState(
     () => { try { return localStorage.getItem(`collybus.monitor.${status.strategyId}.minimised`) === 'true' } catch { return false } }
@@ -208,7 +209,7 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
                 onChange={e => { setAccQty(e.target.value); setAccQtyEdited(true) }}
                 placeholder="Qty"
                 style={{ flex: 1, minWidth: 0, height: 32, background: S.bgInput, border: `1px solid ${S.border}`, borderRadius: 4, color: S.text, fontSize: 11, padding: '0 8px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-              {isActive && <button onClick={() => onPause(status.strategyId)} style={{
+              {isActive && <button onClick={() => setShowPauseConfirm(true)} style={{
                 flex: 1, height: 32, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
                 background: 'linear-gradient(to bottom, #3a3a3a 0%, #2a2a2a 100%)',
                 border: '1px solid #555', color: '#999', fontSize: 11, fontWeight: 700,
@@ -310,6 +311,41 @@ export function AlgoMonitor({ status, onStop, onPause, onResume, onAccelerate, o
             </div>
           </div>
           <ExecutionChart status={status} width={380} height={Math.max(150, (panelHeight || 200) - 40)} />
+        </div>
+      )}
+      {/* Pause confirmation dialog */}
+      {showPauseConfirm && (
+        <div style={{
+          position: 'fixed', left: pos.x, top: pos.y, width: 350, zIndex: 560,
+          height: minimised ? 'auto' : (lockedHeight > 0 ? lockedHeight : 300),
+          background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          borderRadius: 8,
+        }}>
+          <div style={{
+            background: '#0d0d14', border: `1px solid ${S.border}`,
+            borderRadius: 8, padding: 24, maxWidth: 320, textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', marginBottom: 12 }}>
+              Pause Strategy?
+            </div>
+            <div style={{ fontSize: 12, color: '#aaa', marginBottom: 20, lineHeight: '1.6' }}>
+              Pausing will freeze the strategy clock. The remaining time will be preserved and the deadline extended by the duration of the pause.
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+              <button
+                onClick={() => setShowPauseConfirm(false)}
+                style={{ padding: '8px 20px', background: '#1a1a28', border: `1px solid ${S.border}`, borderRadius: 4, color: '#aaa', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShowPauseConfirm(false); onPause(status.strategyId) }}
+                style={{ padding: '8px 20px', background: '#f0a500', border: 'none', borderRadius: 4, color: '#000', fontWeight: 700, cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}
+              >
+                Pause Strategy
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </>
