@@ -391,14 +391,14 @@ export function OptionPricePanel({
       boxShadow: submitting ? '0 0 16px rgba(68,136,255,0.5)' : locked ? '0 0 0 1px rgba(240,160,32,0.35), 0 4px 20px rgba(0,0,0,0.6)' : '0 4px 20px rgba(0,0,0,0.5)',
       transition: 'outline 0.1s ease, box-shadow 0.15s ease', userSelect: 'none',
     }}>
-      {/* Panel body */}
+      {/* Panel body — relative container so depth charts can be absolutely positioned */}
       <div onMouseDown={onHeaderMouseDown} style={{
-        display: 'flex', flexDirection: 'row', alignItems: 'stretch',
+        position: 'relative', display: 'flex', flexDirection: 'row',
         overflow: 'hidden', borderRadius: 4, cursor: locked ? 'default' : 'grab',
       }}>
-        {/* Bid depth chart — stretches to match centre column height */}
+        {/* Bid depth chart — absolutely positioned, full height, behind centre content */}
         {showDepth && (
-          <div style={{ width: 120, flexShrink: 0, alignSelf: 'stretch', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 120, zIndex: 0, overflow: 'hidden' }}>
             <DepthChart levels={sortedBids} side="bid" tickSize={0.0001} granularity={0.0001}
               highlightQty={qtyNum} sizeUnit="contracts" lotSize={1} midPrice={midPrice}
               globalCumMax={sharedCumMax > 0 ? sharedCumMax : undefined}
@@ -407,10 +407,23 @@ export function OptionPricePanel({
           </div>
         )}
 
-        {/* Centre column — determines row height */}
+        {/* Ask depth chart — absolutely positioned, full height, behind centre content */}
+        {showDepth && (
+          <div style={{ position: 'absolute', right: 22, top: 0, bottom: 0, width: 120, zIndex: 0, overflow: 'hidden' }}>
+            <DepthChart levels={sortedAsks} side="ask" tickSize={0.0001} granularity={0.0001}
+              highlightQty={qtyNum} sizeUnit="contracts" lotSize={1} midPrice={midPrice}
+              globalCumMax={sharedCumMax > 0 ? sharedCumMax : undefined}
+              onVisibleTotalChange={setAskVisibleTotal}
+              onPriceClick={p => { if (!locked) handleTrade('buy') }} />
+          </div>
+        )}
+
+        {/* Centre content — padded to avoid overlapping depth charts, determines panel height */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column',
           padding: '4px 4px', gap: 3, overflow: 'hidden',
-          borderLeft: showDepth ? `1px solid ${S.borderInner}` : 'none', borderRight: `1px solid ${S.borderInner}`, justifyContent: 'center',
+          paddingLeft: showDepth ? 124 : 4, paddingRight: showDepth ? 124 : 4,
+          borderLeft: showDepth ? `1px solid ${S.borderInner}` : 'none', borderRight: `1px solid ${S.borderInner}`,
+          justifyContent: 'center', zIndex: 1,
         }}>
           {/* Instrument header */}
           <div style={{ height: 28, display: 'flex', alignItems: 'center', padding: '0 4px' }}>
@@ -418,7 +431,7 @@ export function OptionPricePanel({
             <span style={{ fontSize: 9, color: '#888', flexShrink: 0 }}>{exchange}</span>
           </div>
 
-          {/* Stats row — same as PriceStats */}
+          {/* Stats row */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 9, color: label, whiteSpace: 'nowrap' }}>
               H <span style={{ color: val }}>{fmtPrice(high)}</span> / <span style={{ color: val }}>{fmtPrice(low)}</span>
@@ -454,7 +467,7 @@ export function OptionPricePanel({
             </div>
           </div>
 
-          {/* BidAsk — reuses exact same component as PricePanel */}
+          {/* BidAsk */}
           <BidAskDisplay
             sellPrice={sellPrice} buyPrice={buyPrice} spread={spread}
             baseCurrency={`${optionType === 'call' ? 'Call' : 'Put'} ${base}`}
@@ -471,7 +484,7 @@ export function OptionPricePanel({
             </div>
           )}
 
-          {/* Qty — reuses exact same component as PricePanel */}
+          {/* Qty */}
           <OrderSizeSelector
             qty={qty} presetQtys={QTY_PRESETS}
             onChange={v => { setQty(v); onConfigChange?.(id, { quantity: parseFloat(v) || 0 }) }}
@@ -480,20 +493,9 @@ export function OptionPricePanel({
           />
         </div>
 
-        {/* Ask depth chart — stretches to match centre column height */}
-        {showDepth && (
-          <div style={{ width: 120, flexShrink: 0, alignSelf: 'stretch', overflow: 'hidden' }}>
-            <DepthChart levels={sortedAsks} side="ask" tickSize={0.0001} granularity={0.0001}
-              highlightQty={qtyNum} sizeUnit="contracts" lotSize={1} midPrice={midPrice}
-              globalCumMax={sharedCumMax > 0 ? sharedCumMax : undefined}
-              onVisibleTotalChange={setAskVisibleTotal}
-              onPriceClick={p => { if (!locked) handleTrade('buy') }} />
-          </div>
-        )}
-
-        {/* Right column — exchange selector, close, lock (same as PricePanel right column) */}
-        <div style={{ flexShrink: 0, height: '100%', display: 'flex', flexDirection: 'row',
-          borderLeft: `1px solid ${S.borderInner}`, borderRadius: '0 0 4px 0', overflow: 'visible', background: S.bgCardEnd,
+        {/* Right column — exchange selector, close, lock */}
+        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'row',
+          borderLeft: `1px solid ${S.borderInner}`, borderRadius: '0 0 4px 0', overflow: 'visible', background: S.bgCardEnd, zIndex: 1,
         }}>
           <div style={{ width: 22, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <button onClick={() => onClose?.(id)} style={{ height: 22, width: 22, background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 12, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
