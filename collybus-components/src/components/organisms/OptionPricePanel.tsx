@@ -393,7 +393,7 @@ export function OptionPricePanel({
       {/* Panel body — matching PricePanel's main row structure */}
       <div onMouseDown={onHeaderMouseDown} style={{
         display: 'flex', flexDirection: 'row', overflow: 'hidden',
-        borderRadius: 4, height: 171, cursor: locked ? 'default' : 'grab',
+        borderRadius: 4, minHeight: 171, cursor: locked ? 'default' : 'grab',
       }}>
         {/* Bid depth chart */}
         {showDepth && (
