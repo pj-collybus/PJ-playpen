@@ -184,10 +184,22 @@ export function OptionPricePanel({
   const [indexPrice, setIndexPrice] = useState(0)
 
   const elRef = useRef<HTMLDivElement>(null)
+  const centreRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ ox: number; oy: number } | null>(null)
   const resizeRef = useRef<{ startX: number; startW: number } | null>(null)
   const posRef = useRef({ x, y })
   const subscribed = useRef<string | null>(null)
+  const [depthHeight, setDepthHeight] = useState(200)
+
+  // Measure centre column height for depth chart containers
+  useEffect(() => {
+    if (!centreRef.current) return
+    const ro = new ResizeObserver(entries => {
+      setDepthHeight(entries[0].contentRect.height)
+    })
+    ro.observe(centreRef.current)
+    return () => ro.disconnect()
+  }, [])
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
@@ -364,6 +376,7 @@ export function OptionPricePanel({
   const sellPrice = bid > 0 ? fmtPrice(bid) : '—'
   const buyPrice = ask > 0 ? fmtPrice(ask) : '—'
   const spread = bid > 0 && ask > 0 ? fmtPrice(ask - bid) : '—'
+  const midPrice = bid > 0 && ask > 0 ? (bid + ask) / 2 : undefined
   const label = 'rgba(99,110,130,0.9)'
   const val = 'rgba(255,255,255,0.8)'
   const pos = 'rgba(34,197,94,0.8)'
@@ -390,22 +403,24 @@ export function OptionPricePanel({
       boxShadow: submitting ? '0 0 16px rgba(68,136,255,0.5)' : locked ? '0 0 0 1px rgba(240,160,32,0.35), 0 4px 20px rgba(0,0,0,0.6)' : '0 4px 20px rgba(0,0,0,0.5)',
       transition: 'outline 0.1s ease, box-shadow 0.15s ease', userSelect: 'none',
     }}>
-      {/* Panel body — matching PricePanel's main row structure */}
+      {/* Panel body */}
       <div onMouseDown={onHeaderMouseDown} style={{
         display: 'flex', flexDirection: 'row', overflow: 'hidden',
-        borderRadius: 4, minHeight: 171, cursor: locked ? 'default' : 'grab',
+        borderRadius: 4, cursor: locked ? 'default' : 'grab',
       }}>
-        {/* Bid depth chart */}
+        {/* Bid depth chart — height driven by centre column measurement */}
         {showDepth && (
-          <div style={{ flex: 1, minWidth: 0, height: '100%', overflow: 'hidden' }}>
-            <DepthChart levels={sortedBids} side="bid" tickSize={0.01} granularity={1}
-              highlightQty={qtyNum} globalCumMax={sharedCumMax > 0 ? sharedCumMax : undefined}
-              onVisibleTotalChange={setBidVisibleTotal} />
+          <div style={{ width: 120, height: depthHeight, minWidth: 0, overflow: 'hidden', flexShrink: 0 }}>
+            <DepthChart levels={sortedBids} side="bid" tickSize={0.0001} granularity={0.0001}
+              highlightQty={qtyNum} sizeUnit="contracts" lotSize={1} midPrice={midPrice}
+              globalCumMax={sharedCumMax > 0 ? sharedCumMax : undefined}
+              onVisibleTotalChange={setBidVisibleTotal}
+              onPriceClick={p => { if (!locked) handleTrade('sell') }} />
           </div>
         )}
 
-        {/* Centre column — same structure as PricePanel centre column */}
-        <div style={{ width: showDepth ? 200 : undefined, flex: showDepth ? undefined : 1, flexShrink: 0, height: '100%', display: 'flex', flexDirection: 'column',
+        {/* Centre column */}
+        <div ref={centreRef} style={{ flex: 1, flexShrink: 0, display: 'flex', flexDirection: 'column',
           padding: '4px 4px', gap: 3, overflow: 'hidden',
           borderLeft: showDepth ? `1px solid ${S.borderInner}` : 'none', borderRight: `1px solid ${S.borderInner}`, justifyContent: 'center',
         }}>
@@ -477,12 +492,14 @@ export function OptionPricePanel({
           />
         </div>
 
-        {/* Ask depth chart */}
+        {/* Ask depth chart — height driven by centre column measurement */}
         {showDepth && (
-          <div style={{ flex: 1, minWidth: 0, height: '100%', overflow: 'hidden' }}>
-            <DepthChart levels={sortedAsks} side="ask" tickSize={0.01} granularity={1}
-              highlightQty={qtyNum} globalCumMax={sharedCumMax > 0 ? sharedCumMax : undefined}
-              onVisibleTotalChange={setAskVisibleTotal} />
+          <div style={{ width: 120, height: depthHeight, minWidth: 0, overflow: 'hidden', flexShrink: 0 }}>
+            <DepthChart levels={sortedAsks} side="ask" tickSize={0.0001} granularity={0.0001}
+              highlightQty={qtyNum} sizeUnit="contracts" lotSize={1} midPrice={midPrice}
+              globalCumMax={sharedCumMax > 0 ? sharedCumMax : undefined}
+              onVisibleTotalChange={setAskVisibleTotal}
+              onPriceClick={p => { if (!locked) handleTrade('buy') }} />
           </div>
         )}
 
