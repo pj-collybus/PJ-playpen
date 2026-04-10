@@ -21,6 +21,24 @@ public class OptionsController(DeribitAdapter deribit) : ControllerBase
     private static string NormaliseInstrument(string instrument) =>
         instrument.Replace('-', '_').ToUpperInvariant();
 
+    // Map frontend instrument to Deribit API currency param and base currency for filtering.
+    // Linear USDC options live under currency=USDC on Deribit, not under the base currency.
+    private static (string deribitCurrency, string baseCurrency, bool isLinear) MapInstrument(string instrument)
+    {
+        var isLinear = instrument.Contains("USDC");
+        var baseCurrency = instrument switch
+        {
+            "BTC" or "BTC_USDC" => "BTC",
+            "ETH" or "ETH_USDC" => "ETH",
+            "SOL" or "SOL_USDC" => "SOL",
+            "XRP" or "XRP_USDC" => "XRP",
+            _ => instrument.Split('_')[0].ToUpperInvariant()
+        };
+        // Deribit serves linear USDC options under currency=USDC, inverse under the base currency
+        var deribitCurrency = isLinear ? "USDC" : baseCurrency;
+        return (deribitCurrency, baseCurrency, isLinear);
+    }
+
     [HttpGet("matrix")]
     public async Task<IActionResult> GetMatrix(
         [FromQuery] string instrument = "BTC_USDC",
@@ -44,24 +62,14 @@ public class OptionsController(DeribitAdapter deribit) : ControllerBase
         Console.WriteLine($"[options] starting matrix fetch for {instrument} type={type} atm={atmOnly} toExpiry={toExpiry}");
         try
         {
-            // Map instrument to Deribit currency
-            var currency = instrument switch
-            {
-                "BTC" or "BTC_USDC" => "BTC",
-                "ETH" or "ETH_USDC" => "ETH",
-                "SOL_USDC" => "SOL",
-                "XRP_USDC" => "XRP",
-                _ => "BTC"
-            };
-            var isLinear = instrument.Contains("USDC");
-            var kind = isLinear ? "option" : "option";
+            var (deribitCurrency, baseCurrency, isLinear) = MapInstrument(instrument);
 
-            // Get index price
-            var indexResp = await CachedGet($"{DeribitUrl}/public/get_index_price?index_name={currency.ToLower()}_usd");
+            // Get index price (always keyed by base currency)
+            var indexResp = await CachedGet($"{DeribitUrl}/public/get_index_price?index_name={baseCurrency.ToLower()}_usd");
             var indexPrice = indexResp?["result"]?["index_price"]?.GetValue<double>() ?? 0;
 
-            // Get all option instruments for this currency
-            var instrResp = await CachedGet($"{DeribitUrl}/public/get_instruments?currency={currency}&kind={kind}&expired=false");
+            // Get all option instruments — linear USDC options are under currency=USDC
+            var instrResp = await CachedGet($"{DeribitUrl}/public/get_instruments?currency={deribitCurrency}&kind=option&expired=false");
             var instruments = instrResp?["result"]?.AsArray() ?? new JsonArray();
 
             // Filter instruments
@@ -69,18 +77,17 @@ public class OptionsController(DeribitAdapter deribit) : ControllerBase
             var fromTs = ParseExpiry(fromExpiry, now);
             var toTs = ParseExpiry(toExpiry, now);
 
-            // Try linear (USDC) first, fall back to inverse if none found
-            var tryLinear = isLinear;
             var filtered = new List<JsonNode>();
-            for (var attempt = 0; attempt < 2; attempt++)
+            foreach (var inst in instruments)
             {
-                filtered.Clear();
-                foreach (var inst in instruments)
+                if (inst == null) continue;
+
+                // For USDC queries, filter to matching base currency (e.g. XRP from the USDC pool)
+                if (isLinear)
                 {
-                    if (inst == null) continue;
-                    var name = inst["instrument_name"]?.GetValue<string>() ?? "";
-                    if (tryLinear && !name.Contains("_USDC")) continue;
-                    if (!tryLinear && name.Contains("_USDC")) continue;
+                    var instBase = inst["base_currency"]?.GetValue<string>() ?? "";
+                    if (!string.Equals(instBase, baseCurrency, StringComparison.OrdinalIgnoreCase)) continue;
+                }
 
                 var optionType = inst["option_type"]?.GetValue<string>() ?? "";
                 if (type == "calls" && optionType != "call") continue;
@@ -100,16 +107,13 @@ public class OptionsController(DeribitAdapter deribit) : ControllerBase
                     if (strike < indexPrice * 0.9 || strike > indexPrice * 1.1) continue;
                 }
 
-                    filtered.Add(inst);
-                }
-                if (filtered.Count > 0 || !tryLinear) break;
-                tryLinear = false; // fallback to inverse
+                filtered.Add(inst);
             }
 
             Console.WriteLine($"[options] got {filtered.Count} filtered instruments in {sw.ElapsedMilliseconds}ms");
 
             // Bulk fetch ALL option summaries for this currency in ONE call
-            var summaryResp = await CachedGet($"{DeribitUrl}/public/get_book_summary_by_currency?currency={currency}&kind=option");
+            var summaryResp = await CachedGet($"{DeribitUrl}/public/get_book_summary_by_currency?currency={deribitCurrency}&kind=option");
             var summaries = summaryResp?["result"]?.AsArray() ?? new JsonArray();
             Console.WriteLine($"[options] got {summaries.Count} summaries in {sw.ElapsedMilliseconds}ms");
 
@@ -203,48 +207,36 @@ public class OptionsController(DeribitAdapter deribit) : ControllerBase
         instrument = NormaliseInstrument(instrument);
         try
         {
-            var currency = instrument switch
-            {
-                "BTC" or "BTC_USDC" => "BTC",
-                "ETH" or "ETH_USDC" => "ETH",
-                "SOL_USDC" => "SOL",
-                "XRP_USDC" => "XRP",
-                _ => "BTC"
-            };
-            var isLinear = instrument.Contains("USDC");
+            var (deribitCurrency, baseCurrency, isLinear) = MapInstrument(instrument);
 
-            var instrResp = await CachedGet($"{DeribitUrl}/public/get_instruments?currency={currency}&kind=option&expired=false");
+            var instrResp = await CachedGet($"{DeribitUrl}/public/get_instruments?currency={deribitCurrency}&kind=option&expired=false");
             var instruments = instrResp?["result"]?.AsArray() ?? new JsonArray();
 
             var expiries = new SortedSet<string>();
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-            // Try linear (USDC) first, fall back to inverse if none found
-            var tryLinear = isLinear;
-            for (var attempt = 0; attempt < 2; attempt++)
+            foreach (var inst in instruments)
             {
-                expiries.Clear();
-                foreach (var inst in instruments)
+                if (inst == null) continue;
+
+                // For USDC queries, filter to matching base currency
+                if (isLinear)
                 {
-                    if (inst == null) continue;
-                    var name = inst["instrument_name"]?.GetValue<string>() ?? "";
-                    if (tryLinear && !name.Contains("_USDC")) continue;
-                    if (!tryLinear && name.Contains("_USDC")) continue;
-
-                    var optionType = inst["option_type"]?.GetValue<string>() ?? "";
-                    if (type == "calls" && optionType != "call") continue;
-                    if (type == "puts" && optionType != "put") continue;
-
-                    var expiryTs = inst["expiration_timestamp"]?.GetValue<long>() ?? 0;
-                    if (expiryTs <= now) continue;
-                    expiries.Add(DateTimeOffset.FromUnixTimeMilliseconds(expiryTs).UtcDateTime.ToString("yyyy-MM-dd"));
+                    var instBase = inst["base_currency"]?.GetValue<string>() ?? "";
+                    if (!string.Equals(instBase, baseCurrency, StringComparison.OrdinalIgnoreCase)) continue;
                 }
-                if (expiries.Count > 0 || !tryLinear) break;
-                tryLinear = false; // fallback to inverse
+
+                var optionType = inst["option_type"]?.GetValue<string>() ?? "";
+                if (type == "calls" && optionType != "call") continue;
+                if (type == "puts" && optionType != "put") continue;
+
+                var expiryTs = inst["expiration_timestamp"]?.GetValue<long>() ?? 0;
+                if (expiryTs <= now) continue;
+                expiries.Add(DateTimeOffset.FromUnixTimeMilliseconds(expiryTs).UtcDateTime.ToString("yyyy-MM-dd"));
             }
 
-            // Index price for ATM
-            var indexResp = await CachedGet($"{DeribitUrl}/public/get_index_price?index_name={currency.ToLower()}_usd");
+            // Index price for ATM (always keyed by base currency)
+            var indexResp = await CachedGet($"{DeribitUrl}/public/get_index_price?index_name={baseCurrency.ToLower()}_usd");
             var indexPrice = indexResp?["result"]?["index_price"]?.GetValue<double>() ?? 0;
 
             return Ok(new { expiries = expiries.ToList(), indexPrice, instrument, type });
@@ -257,9 +249,9 @@ public class OptionsController(DeribitAdapter deribit) : ControllerBase
     {
         try
         {
-            var currency = MapCurrency(NormaliseInstrument(req.Instrument ?? "BTC"));
-            await deribit.SubscribeOptionsSummaryAsync(currency);
-            return Ok(new { ok = true, currency });
+            var (deribitCurrency, _, _) = MapInstrument(NormaliseInstrument(req.Instrument ?? "BTC"));
+            await deribit.SubscribeOptionsSummaryAsync(deribitCurrency);
+            return Ok(new { ok = true, currency = deribitCurrency });
         }
         catch (Exception ex) { return BadRequest(new { error = ex.Message }); }
     }
@@ -269,8 +261,8 @@ public class OptionsController(DeribitAdapter deribit) : ControllerBase
     {
         try
         {
-            var currency = MapCurrency(NormaliseInstrument(req.Instrument ?? "BTC"));
-            await deribit.UnsubscribeOptionsSummaryAsync(currency);
+            var (deribitCurrency, _, _) = MapInstrument(NormaliseInstrument(req.Instrument ?? "BTC"));
+            await deribit.UnsubscribeOptionsSummaryAsync(deribitCurrency);
             return Ok(new { ok = true });
         }
         catch (Exception ex) { return BadRequest(new { error = ex.Message }); }
@@ -322,15 +314,6 @@ public class OptionsController(DeribitAdapter deribit) : ControllerBase
 
         return Ok(results);
     }
-
-    private static string MapCurrency(string instrument) => instrument switch
-    {
-        "BTC" or "BTC_USDC" => "BTC",
-        "ETH" or "ETH_USDC" => "ETH",
-        "SOL_USDC" => "SOL",
-        "XRP_USDC" => "XRP",
-        _ => "BTC"
-    };
 
     private async Task<JsonNode?> CachedGet(string url)
     {
