@@ -184,22 +184,10 @@ export function OptionPricePanel({
   const [indexPrice, setIndexPrice] = useState(0)
 
   const elRef = useRef<HTMLDivElement>(null)
-  const centreRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ ox: number; oy: number } | null>(null)
   const resizeRef = useRef<{ startX: number; startW: number } | null>(null)
   const posRef = useRef({ x, y })
   const subscribed = useRef<string | null>(null)
-  const [depthHeight, setDepthHeight] = useState(200)
-
-  // Measure centre column height for depth chart containers
-  useEffect(() => {
-    if (!centreRef.current) return
-    const ro = new ResizeObserver(entries => {
-      setDepthHeight(entries[0].contentRect.height)
-    })
-    ro.observe(centreRef.current)
-    return () => ro.disconnect()
-  }, [])
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
@@ -405,12 +393,12 @@ export function OptionPricePanel({
     }}>
       {/* Panel body */}
       <div onMouseDown={onHeaderMouseDown} style={{
-        display: 'flex', flexDirection: 'row', overflow: 'hidden',
-        borderRadius: 4, cursor: locked ? 'default' : 'grab',
+        display: 'flex', flexDirection: 'row', alignItems: 'stretch',
+        overflow: 'hidden', borderRadius: 4, cursor: locked ? 'default' : 'grab',
       }}>
-        {/* Bid depth chart — height driven by centre column measurement */}
+        {/* Bid depth chart — stretches to match centre column height */}
         {showDepth && (
-          <div style={{ width: 120, height: depthHeight, minWidth: 0, overflow: 'hidden', flexShrink: 0 }}>
+          <div style={{ width: 120, flexShrink: 0, alignSelf: 'stretch', overflow: 'hidden' }}>
             <DepthChart levels={sortedBids} side="bid" tickSize={0.0001} granularity={0.0001}
               highlightQty={qtyNum} sizeUnit="contracts" lotSize={1} midPrice={midPrice}
               globalCumMax={sharedCumMax > 0 ? sharedCumMax : undefined}
@@ -419,8 +407,8 @@ export function OptionPricePanel({
           </div>
         )}
 
-        {/* Centre column */}
-        <div ref={centreRef} style={{ flex: 1, flexShrink: 0, display: 'flex', flexDirection: 'column',
+        {/* Centre column — determines row height */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column',
           padding: '4px 4px', gap: 3, overflow: 'hidden',
           borderLeft: showDepth ? `1px solid ${S.borderInner}` : 'none', borderRight: `1px solid ${S.borderInner}`, justifyContent: 'center',
         }}>
@@ -492,9 +480,9 @@ export function OptionPricePanel({
           />
         </div>
 
-        {/* Ask depth chart — height driven by centre column measurement */}
+        {/* Ask depth chart — stretches to match centre column height */}
         {showDepth && (
-          <div style={{ width: 120, height: depthHeight, minWidth: 0, overflow: 'hidden', flexShrink: 0 }}>
+          <div style={{ width: 120, flexShrink: 0, alignSelf: 'stretch', overflow: 'hidden' }}>
             <DepthChart levels={sortedAsks} side="ask" tickSize={0.0001} granularity={0.0001}
               highlightQty={qtyNum} sizeUnit="contracts" lotSize={1} midPrice={midPrice}
               globalCumMax={sharedCumMax > 0 ? sharedCumMax : undefined}
