@@ -48,16 +48,22 @@ export function DepthChart({ levels, side, tickSize, granularity, highlightQty, 
     const parent = canvas.parentElement
     if (!parent) return
 
+    const dpr = window.devicePixelRatio || 1
     const w = parent.clientWidth
     const h = parent.clientHeight
     if (w < 4 || h < 4) return
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w
-      canvas.height = h
+    const scaledW = Math.round(w * dpr)
+    const scaledH = Math.round(h * dpr)
+    if (canvas.width !== scaledW || canvas.height !== scaledH) {
+      canvas.width = scaledW
+      canvas.height = scaledH
+      canvas.style.width = w + 'px'
+      canvas.style.height = h + 'px'
     }
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+    ctx.scale(dpr, dpr)
     ctx.clearRect(0, 0, w, h)
 
     if (!levels || levels.length === 0) return
